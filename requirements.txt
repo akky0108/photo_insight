@@ -1,0 +1,5 @@
+rawpy==0.22.0
+imageio==2.23.1
+opencv-python==4.10.0.84
+numpy==2.0.1
+pywavelets==1.7.0
