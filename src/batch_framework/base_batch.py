@@ -5,49 +5,53 @@ import logging
 from typing import Optional, Callable, List
 from concurrent.futures import ThreadPoolExecutor
 from log_util import Logger  # 修正したカスタムロガーのインポート
+from enum import Enum
+
+# フックタイプを定義する列挙型
+class HookType(Enum):
+    PRE_SETUP = 'pre_setup'
+    POST_SETUP = 'post_setup'
+    PRE_PROCESS = 'pre_process'
+    POST_PROCESS = 'post_process'
+    PRE_CLEANUP = 'pre_cleanup'
+    POST_CLEANUP = 'post_cleanup'
 
 class BaseBatchProcessor(ABC):
     # デフォルト設定をクラス属性として定義
     default_config = {"setting_1": "default_value_1", "setting_2": "default_value_2"}
 
     def __init__(self, config_path: Optional[str] = None, logger: Optional[Logger] = None, max_workers: int = 2):
-        """
-        バッチ処理の基礎クラス。共通のセットアップ、プロセス、クリーンアップロジックを提供。
+        # ロガーの初期化。提供されたロガーがない場合はデフォルトのロガーを使用
+        self.logger: Optional[Logger] = logger or logging.getLogger('BatchProcessLogger')
         
-        :param config_path: JSON形式の設定ファイルのパス
-        :param logger: ロギング用のカスタムロガー
-        :param max_workers: 並列処理時のスレッド数（デフォルトは3）
-        """
-        # Loggerの設定。指定がない場合は標準のlogging.Loggerを使用
-        self.logger = logger or logging.getLogger('BatchProcessLogger')
-        
-        # 設定の読み込み
+        # 最大ワーカー数の設定
+        self.max_workers = max_workers
+
+        # フックリストの初期化
+        self.pre_setup_hooks: List[Callable[[], None]] = []  # セットアップ前のフック
+        self.post_setup_hooks: List[Callable[[], None]] = []  # セットアップ後のフック
+        self.pre_process_hooks: List[Callable[[], None]] = []  # プロセス開始前のフック
+        self.post_process_hooks: List[Callable[[], None]] = []  # プロセス終了後のフック
+        self.pre_cleanup_hooks: List[Callable[[], None]] = []  # クリーンアップ前のフック
+        self.post_cleanup_hooks: List[Callable[[], None]] = []  # クリーンアップ後のフック
+
+        # 設定ファイルパスの保持
+        self.config_path = config_path  
+        # デフォルト設定をコピー
         self.config = self.default_config.copy()
+        # 設定ファイルが指定されていれば読み込み
         if config_path:
             self.load_config(config_path)
 
+        # 開始時間と終了時間の初期化
         self.start_time = None
         self.end_time = None
-        self.max_workers = max_workers
-
-        # フックポイントリストの初期化
-        self.pre_setup_hooks: List[Callable[[], None]] = [self.pre_setup]
-        self.post_setup_hooks: List[Callable[[], None]] = [self.post_setup]
-        self.pre_process_hooks: List[Callable[[], None]] = [self.pre_process]
-        self.post_process_hooks: List[Callable[[], None]] = [self.post_process]
-        self.pre_cleanup_hooks: List[Callable[[], None]] = [self.pre_cleanup]
-        self.post_cleanup_hooks: List[Callable[[], None]] = [self.post_cleanup]
 
     def load_config(self, config_path: str) -> None:
-        """
-        指定されたパスから設定ファイルを読み込み、デフォルト設定とマージする。
-
-        :param config_path: 設定ファイルのパス
-        """
         try:
             with open(config_path, 'r') as config_file:
                 loaded_config = json.load(config_file)
-            self.config.update(loaded_config)  # デフォルト設定に上書き
+            self.config.update(loaded_config)
             self.logger.info(f"Configuration loaded from {config_path}.")
         except FileNotFoundError:
             self.logger.warning(f"Config file not found at {config_path}. Using default settings.")
@@ -56,64 +60,18 @@ class BaseBatchProcessor(ABC):
         except Exception as e:
             self.logger.error(f"Unexpected error loading configuration from '{config_path}': {e}. Using default settings.")
 
-    def register_hook(self, phase_name: str, hook: Callable[[], None]) -> None:
-        """
-        指定したフェーズにカスタムフックを登録するメソッド。
-
-        :param phase_name: フェーズ名（pre_setup, post_setup, pre_process, post_process, pre_cleanup, post_cleanup）
-        :param hook: 実行するフック関数
-        """
-        hook_list_name = f"{phase_name}_hooks"
-        if hasattr(self, hook_list_name):
-            getattr(self, hook_list_name).append(hook)
-            self.logger.info(f"Hook registered to {phase_name} phase.")
+    def reload_config(self, config_path: Optional[str] = None) -> None:
+        """設定を動的にリロードする。"""
+        self.logger.info("Reloading configuration.")
+        if config_path:
+            self.load_config(config_path)
+            self.config_path = config_path  # 新しいパスを保持
+        elif self.config_path:
+            self.load_config(self.config_path)  # 保存されたパスを使用
         else:
-            self.logger.warning(f"Invalid phase name: {phase_name}")
+            self.logger.warning("No configuration path provided for reloading.")
 
-    @abstractmethod
-    def setup(self) -> None:
-        """リソースのセットアップを行う抽象メソッド。継承先で実装する必要がある。"""
-        pass
-    
-    @abstractmethod
-    def process(self) -> None:
-        """メインの処理を行う抽象メソッド。継承先で実装する必要がある。"""
-        pass
-    
-    @abstractmethod
-    def cleanup(self) -> None:
-        """リソースのクリーンアップを行う抽象メソッド。継承先で実装する必要がある。"""
-        pass
-
-    def pre_setup(self) -> None:
-        """Setupフェーズの前に実行されるフックポイント"""
-        self.logger.info("Running pre-setup hook.")
-
-    def post_setup(self) -> None:
-        """Setupフェーズの後に実行されるフックポイント"""
-        self.logger.info("Running post-setup hook.")
-
-    def pre_process(self) -> None:
-        """Processフェーズの前に実行されるフックポイント"""
-        self.logger.info("Running pre-process hook.")
-
-    def post_process(self) -> None:
-        """Processフェーズの後に実行されるフックポイント"""
-        self.logger.info("Running post-process hook.")
-
-    def pre_cleanup(self) -> None:
-        """Cleanupフェーズの前に実行されるフックポイント"""
-        self.logger.info("Running pre-cleanup hook.")
-
-    def post_cleanup(self) -> None:
-        """Cleanupフェーズの後に実行されるフックポイント"""
-        self.logger.info("Running post-cleanup hook.")
-    
     def execute(self) -> None:
-        """
-        バッチプロセスを順番に実行するメインメソッド。
-        各フェーズの実行時間を計測し、ログに記録する。
-        """
         self.start_time = time.time()
         self.logger.info("Batch process started.")
         errors = []
@@ -152,25 +110,25 @@ class BaseBatchProcessor(ABC):
         post_hooks: List[Optional[Callable[[], None]]],
         errors: List[Exception]
     ) -> None:
-        """
-        各フェーズを実行し、その時間を計測してログに出力する。フックを使用する。
-
-        :param phase_name: フェーズ名
-        :param phase_function: フェーズのメイン関数
-        :param pre_hooks: フェーズ前に実行されるフックリスト
-        :param post_hooks: フェーズ後に実行されるフックリスト
-        :param errors: 発生したエラーのリスト
-        """
         self._log_phase_start(phase_name)
         phase_start_time = time.time()
         
         try:
-            self._execute_hooks_parallel(pre_hooks)
+            # 必要に応じて並列または順次でフックを実行する
+            if self.max_workers > 1:
+                self._execute_hooks_parallel(pre_hooks)
+            else:
+                self._execute_hooks_sequential(pre_hooks)
+
             phase_function()
-            self._execute_hooks_parallel(post_hooks)
+
+            if self.max_workers > 1:
+                self._execute_hooks_parallel(post_hooks)
+            else:
+                self._execute_hooks_sequential(post_hooks)
         except Exception as e:
             errors.append(e)
-            self.logger.error(f"{phase_name.capitalize()} phase encountered a general error: {e}")
+            self.logger.error(f"{phase_name.capitalize()} phase encountered an error: {e}")
             raise
         finally:
             phase_duration = time.time() - phase_start_time
@@ -184,6 +142,31 @@ class BaseBatchProcessor(ABC):
         """フェーズの終了をログに記録する。"""
         self.logger.info(f"{phase_name.capitalize()} phase completed in {duration:.2f} seconds.")
 
+    def add_hook(self, hook_type: HookType, func: Callable[[], None]) -> None:
+        """フックを追加する"""
+        hook_list = self._get_hook_list(hook_type)
+        if func in hook_list:
+            self.logger.warning(f"Hook already exists in {hook_type.value}: {func}")
+        else:
+            hook_list.append(func)
+
+    def _get_hook_list(self, hook_type: HookType) -> List[Callable[[], None]]:
+        """フックタイプに応じて対応するフックリストを返す"""
+        if hook_type == HookType.PRE_SETUP:
+            return self.pre_setup_hooks
+        elif hook_type == HookType.POST_SETUP:
+            return self.post_setup_hooks
+        elif hook_type == HookType.PRE_PROCESS:
+            return self.pre_process_hooks
+        elif hook_type == HookType.POST_PROCESS:
+            return self.post_process_hooks
+        elif hook_type == HookType.PRE_CLEANUP:
+            return self.pre_cleanup_hooks
+        elif hook_type == HookType.POST_CLEANUP:
+            return self.post_cleanup_hooks
+        else:
+            raise ValueError(f"無効なフックタイプです: {hook_type}")
+
     def _execute_hooks_parallel(self, hooks: List[Optional[Callable[[], None]]]) -> None:
         """フックリストに含まれる各フックを並列で実行する。"""
         errors = []
@@ -192,6 +175,20 @@ class BaseBatchProcessor(ABC):
             for future in futures:
                 try:
                     future.result()
+                except Exception as e:
+                    self.logger.error(f"Hook execution encountered an error: {e}")
+                    errors.append(e)
+        
+        if errors:
+            raise RuntimeError(f"Errors encountered during hook execution: {errors}")
+
+    def _execute_hooks_sequential(self, hooks: List[Optional[Callable[[], None]]]) -> None:
+        """フックリストに含まれる各フックを順次で実行する。"""
+        errors = []
+        for hook in hooks:
+            if hook:
+                try:
+                    hook()
                 except Exception as e:
                     self.logger.error(f"Hook execution encountered an error: {e}")
                     errors.append(e)

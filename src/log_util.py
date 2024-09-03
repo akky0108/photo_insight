@@ -1,18 +1,28 @@
 import logging
 from logging.handlers import TimedRotatingFileHandler
+import os
 
 class Logger:
-    def __init__(self, log_file='app.log', level=logging.INFO, log_format=None, handlers=None, logger_name=__name__):
+    def __init__(self, log_file='app.log', log_dir='logs', level=logging.INFO, log_format=None, handlers=None, logger_name=None):
+        if logger_name is None:
+            logger_name = __name__
         self.logger = logging.getLogger(logger_name)
-        self.logger.setLevel(level if level else logging.INFO)
+        self.logger.setLevel(level)
 
         if log_format is None:
             log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         formatter = logging.Formatter(log_format)
 
         if handlers is None:
+            # Ensure the log directory exists
+            if not os.path.exists(log_dir):
+                os.makedirs(log_dir)
+
+            # Construct the full path for the log file
+            log_file_path = os.path.join(log_dir, log_file)
+            
             file_handler = TimedRotatingFileHandler(
-                log_file, when='midnight', interval=1, backupCount=7
+                log_file_path, when='midnight', interval=1, backupCount=7
             )
             file_handler.suffix = "%Y-%m-%d"
             
@@ -21,7 +31,7 @@ class Logger:
             handlers = [file_handler, console_handler]
 
         for handler in handlers:
-            if handler not in self.logger.handlers:  # 重複チェック
+            if handler not in self.logger.handlers:
                 handler.setFormatter(formatter)
                 self.logger.addHandler(handler)
 
@@ -50,7 +60,7 @@ class Logger:
             handler.close()
 
 if __name__ == "__main__":
-    logger = Logger(log_file='myapp.log', logger_name='MyAppLogger')
+    logger = Logger(log_file='myapp.log', log_dir='my_logs', logger_name='MyAppLogger')
     logger.info("This is an info message.")
     logger.error("This is an error message.")
     logger.debug("This is a debug message.")
