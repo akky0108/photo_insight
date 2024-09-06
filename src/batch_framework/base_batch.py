@@ -1,10 +1,11 @@
-from abc import ABC, abstractmethod
-import time
+import yaml
 import json
+from abc import ABC, abstractmethod
 from typing import Optional, Callable, List, Dict
 from concurrent.futures import ThreadPoolExecutor
 from log_util import Logger
 from enum import Enum
+import time
 
 # フックタイプを定義する列挙型
 class HookType(Enum):
@@ -43,14 +44,21 @@ class BaseBatchProcessor(ABC):
 
     def load_config(self, config_path: str) -> None:
         try:
-            with open(config_path, 'r') as config_file:
-                loaded_config = json.load(config_file)
+            if config_path.endswith('.yaml') or config_path.endswith('.yml'):
+                with open(config_path, 'r') as config_file:
+                    loaded_config = yaml.safe_load(config_file)
+            elif config_path.endswith('.json'):
+                with open(config_path, 'r') as config_file:
+                    loaded_config = json.load(config_file)
+            else:
+                raise ValueError(f"Unsupported config file format: {config_path}")
+            
             self.config.update(loaded_config)
             self.logger.info(f"Configuration loaded from {config_path}.")
         except FileNotFoundError:
             self.logger.warning(f"Config file not found at {config_path}. Using default settings.")
-        except json.JSONDecodeError as e:
-            self.logger.error(f"Error decoding JSON config file '{config_path}': {e}. Using default settings.")
+        except (json.JSONDecodeError, yaml.YAMLError) as e:
+            self.logger.error(f"Error decoding config file '{config_path}': {e}. Using default settings.")
         except Exception as e:
             self.logger.error(f"Unexpected error loading configuration from '{config_path}': {e}. Using default settings.")
 

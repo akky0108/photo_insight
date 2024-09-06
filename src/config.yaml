@@ -1,0 +1,3 @@
+# config.yaml
+base_directory: "/mnt/l/picture/2024/2024-08-26"
+output_directory: "temp"
