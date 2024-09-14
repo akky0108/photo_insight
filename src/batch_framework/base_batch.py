@@ -1,14 +1,18 @@
+import os
 import yaml
 import json
 from abc import ABC, abstractmethod
-from typing import Optional, Callable, List, Dict
+from dotenv import load_dotenv
+from typing import Optional, Callable, List, Dict, Tuple
 from concurrent.futures import ThreadPoolExecutor
 from log_util import Logger
 from enum import Enum
 import time
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 
-# フックタイプを定義する列挙型
 class HookType(Enum):
+    """フックの種類を定義する列挙型"""
     PRE_SETUP = 'pre_setup'
     POST_SETUP = 'post_setup'
     PRE_PROCESS = 'pre_process'
@@ -16,34 +20,59 @@ class HookType(Enum):
     PRE_CLEANUP = 'pre_cleanup'
     POST_CLEANUP = 'post_cleanup'
 
+class ConfigChangeHandler(FileSystemEventHandler):
+    """コンフィグファイルの変更を監視するハンドラー"""
+    def __init__(self, processor: 'BaseBatchProcessor'):
+        self.processor = processor
+
+    def on_modified(self, event):
+        """コンフィグファイルが変更された際に呼び出されるメソッド"""
+        if event.src_path == self.processor.config_path:
+            self.processor.logger.info(f"Config file {event.src_path} has been modified. Reloading...")
+            self.processor.reload_config()
+
 class BaseBatchProcessor(ABC):
-    # デフォルト設定をクラス属性として定義
-    default_config = {"setting_1": "default_value_1", "setting_2": "default_value_2"}
+    """バッチ処理の基底クラス。フックやフェーズ管理を行う"""
+
+    default_config = {
+        "config_path": "./config.yaml",
+        "setting_1": "default_value_1", 
+        "setting_2": "default_value_2"
+    }
 
     def __init__(self, config_path: Optional[str] = None, logger: Optional[Logger] = None, max_workers: int = 2):
-        # ロガーの初期化。提供されたロガーがない場合はデフォルトのロガーを使用
-        self.logger: Logger = logger if logger else Logger(logger_name='BaseBatchProcessor').get_logger()
-        
-        # 最大ワーカー数の設定
+        """バッチ処理の初期設定"""
+        # 環境変数のロード
+        load_dotenv()
+
+        # プロジェクトのルートディレクトリを取得（環境変数がない場合はカレントディレクトリ）
+        self.project_root = os.getenv('PROJECT_ROOT', os.getcwd())
+
+        # ロガーの初期化: ロガーが外部から渡されていない場合はデフォルトのロガーを生成
+        self.logger = logger if logger else Logger(logger_name=self.__class__.__name__).get_logger()
+
+        # 主要な属性の設定
         self.max_workers = max_workers
-
-        # フックリストの初期化を辞書にまとめる
-        self.hooks: Dict[HookType, List[Callable[[], None]]] = {
-            hook_type: [] for hook_type in HookType
-        }
-
-        # 設定ファイルパスの保持
-        self.config_path = config_path  
+        self.config_path = config_path or self.default_config["config_path"]
         self.config = self.default_config.copy()
-        if config_path:
-            self.load_config(config_path)
-
-        # 開始時間と終了時間の初期化
         self.start_time = None
         self.end_time = None
 
+        # 各フェーズに対してフックを保持する辞書
+        self.hooks: Dict[HookType, List[Tuple[int, Callable[[], None]]]] = {
+            hook_type: [] for hook_type in HookType
+        }
+
+        # コンフィグの読み込みと変更監視の開始
+        self.load_config(self.config_path)
+        self._start_config_watcher(self.config_path)
+
     def load_config(self, config_path: str) -> None:
+        """コンフィグファイルを読み込む"""
         try:
+            if not os.path.exists(config_path):
+                raise FileNotFoundError(f"Config file not found at {config_path}. Using default settings.")
+
             if config_path.endswith('.yaml') or config_path.endswith('.yml'):
                 with open(config_path, 'r') as config_file:
                     loaded_config = yaml.safe_load(config_file)
@@ -52,32 +81,56 @@ class BaseBatchProcessor(ABC):
                     loaded_config = json.load(config_file)
             else:
                 raise ValueError(f"Unsupported config file format: {config_path}")
-            
+
+            # 読み込んだコンフィグをバリデートして更新
+            self.validate_config(loaded_config)
             self.config.update(loaded_config)
             self.logger.info(f"Configuration loaded from {config_path}.")
-        except FileNotFoundError:
-            self.logger.warning(f"Config file not found at {config_path}. Using default settings.")
+        
+        except FileNotFoundError as e:
+            self.logger.warning(str(e))
+            self.config = self.default_config.copy()  # デフォルト設定を適用
+            self.logger.info("Using default configuration.")
         except (json.JSONDecodeError, yaml.YAMLError) as e:
             self.logger.error(f"Error decoding config file '{config_path}': {e}. Using default settings.")
+            self.config = self.default_config.copy()
         except Exception as e:
-            self.logger.error(f"Unexpected error loading configuration from '{config_path}': {e}. Using default settings.")
+            self.handle_error(f"Unexpected error loading configuration from '{config_path}': {e}")
+            self.config = self.default_config.copy()
+
+    def validate_config(self, config: Dict) -> None:
+        """読み込んだコンフィグのバリデーション"""
+        required_keys = ["setting_1", "setting_2"]
+        missing_keys = [key for key in required_keys if key not in config]
+
+        if missing_keys:
+            raise ValueError(f"Missing required config keys: {', '.join(missing_keys)}")
 
     def reload_config(self, config_path: Optional[str] = None) -> None:
-        """設定を動的にリロードする。"""
+        """コンフィグの再読み込み"""
         self.logger.info("Reloading configuration.")
         if config_path:
             self.load_config(config_path)
-            self.config_path = config_path  # 新しいパスを保持
+            self.config_path = config_path
         elif self.config_path:
-            self.load_config(self.config_path)  # 保存されたパスを使用
+            self.load_config(self.config_path)
         else:
             self.logger.warning("No configuration path provided for reloading.")
 
+    def _start_config_watcher(self, config_path: str) -> None:
+        """Configファイルの変更を監視するためのウォッチャーを開始"""
+        event_handler = ConfigChangeHandler(self)
+        observer = Observer()
+        observer.schedule(event_handler, path=os.path.dirname(config_path), recursive=False)
+        observer.start()
+        self.logger.info(f"Started watching for changes in {config_path}.")
+
     def execute(self) -> None:
+        """バッチ処理のメインエントリポイント"""
         self.start_time = time.time()
         self.logger.info("Batch process started.")
         errors = []
-        
+
         try:
             self._execute_phase(HookType.PRE_SETUP, HookType.POST_SETUP, self.setup, errors)
             self._execute_phase(HookType.PRE_PROCESS, HookType.POST_PROCESS, self.process, errors)
@@ -89,73 +142,75 @@ class BaseBatchProcessor(ABC):
             
             if errors:
                 error_messages = "\n".join(str(e) for e in errors)
-                self.logger.error(f"Batch process completed with errors: {error_messages}")
-                raise RuntimeError(f"Batch process encountered errors: {error_messages}")
+                self.handle_error(f"Batch process encountered errors: {error_messages}", raise_exception=True)
 
-    def _execute_phase(
-        self,
-        pre_hook_type: HookType,
-        post_hook_type: HookType,
-        phase_function: Callable[[], None],
-        errors: List[Exception]
-    ) -> None:
-        """各フェーズの実行とフックの処理"""
+    def _execute_phase(self, pre_hook_type: HookType, post_hook_type: HookType, phase_function: Callable[[], None], errors: List[Exception]) -> None:
+        """各フェーズの前後フックとフェーズ自体の実行を管理"""
         phase_name = pre_hook_type.name.split('_')[1].lower()
         self._log_phase_start(phase_name)
         phase_start_time = time.time()
 
         try:
             self._execute_hooks(pre_hook_type)
-            phase_function()
+            phase_function()  # フェーズ（setup, process, cleanup）の実行
             self._execute_hooks(post_hook_type)
         except Exception as e:
             errors.append(e)
-            self.logger.error(f"{phase_name.capitalize()} phase encountered an error: {e}")
-            raise
+            self.handle_error(f"{phase_name.capitalize()} phase encountered an error: {e}")
         finally:
             phase_duration = time.time() - phase_start_time
             self._log_phase_end(phase_name, phase_duration)
 
     def _log_phase_start(self, phase_name: str) -> None:
-        """フェーズの開始をログに記録する。"""
+        """フェーズ開始時のログ出力"""
         self.logger.info(f"Starting {phase_name} phase.")
     
     def _log_phase_end(self, phase_name: str, duration: float) -> None:
-        """フェーズの終了をログに記録する。"""
+        """フェーズ終了時のログ出力"""
         self.logger.info(f"{phase_name.capitalize()} phase completed in {duration:.2f} seconds.")
 
-    def add_hook(self, hook_type: HookType, func: Callable[[], None]) -> None:
-        """フックを追加する"""
+    def add_hook(self, hook_type: HookType, func: Callable[[], None], priority: int = 0) -> None:
+        """優先度を持つフックを追加"""
         hook_list = self.hooks[hook_type]
-        if func in hook_list:
-            self.logger.warning(f"Hook already exists in {hook_type.value}: {func}")
+        if (priority, func) in hook_list:
+            self.logger.warning(f"Hook already exists in {hook_type.value} with priority {priority}: {func}")
         else:
-            hook_list.append(func)
+            hook_list.append((priority, func))
+            hook_list.sort(key=lambda x: x[0], reverse=True)
 
     def _execute_hooks(self, hook_type: HookType) -> None:
-        """フックリストに含まれる各フックを実行する。"""
+        """指定されたフックタイプのフックを実行"""
         hooks = self.hooks[hook_type]
         errors = []
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = [executor.submit(hook) for hook in hooks if hook]
+            futures = [executor.submit(hook[1]) for hook in hooks if hook]
             for future in futures:
                 try:
                     future.result()
                 except Exception as e:
-                    self.logger.error(f"Hook execution encountered an error: {e}")
+                    self.handle_error(f"Hook execution encountered an error: {e}")
                     errors.append(e)
-        
+
         if errors:
             raise RuntimeError(f"Errors encountered during hook execution: {errors}")
-    
+
+    def handle_error(self, message: str, raise_exception: bool = False) -> None:
+        """エラーハンドリング"""
+        self.logger.error(message)
+        if raise_exception:
+            raise RuntimeError(message)
+
     @abstractmethod
     def setup(self) -> None:
+        """セットアップフェーズ"""
         pass
-    
+
     @abstractmethod
     def process(self) -> None:
+        """メインのバッチ処理フェーズ"""
         pass
-    
+
     @abstractmethod
     def cleanup(self) -> None:
+        """クリーンアップフェーズ"""
         pass

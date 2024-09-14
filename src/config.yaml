@@ -1,3 +1,24 @@
 # config.yaml
-base_directory: "/mnt/l/picture/2024/2024-08-26"
+
+# EXIFデータに含めるフィールドのリスト
+exif_fields:
+  - "FileName"
+  - "Model"
+  - "Lens"
+  - "ExposureTime"
+  - "FocalLength"
+  - "ShutterSpeed"
+  - "Aperture"
+  - "ISO"
+  - "Rating"
+  - "ImageHeight"
+  - "ImageWidth"
+
+# 出力先ディレクトリ（デフォルト: temp）
 output_directory: "temp"
+
+# EXIFデータをCSVファイルに追加するモード（True で追加、False で上書き）
+append_mode: false
+
+# 基本のディレクトリパス（例: /mnt/l/picture/2024/2024-08-26）
+base_directory: "/mnt/l/picture/2024/2024-08-26"
