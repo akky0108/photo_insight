@@ -1,67 +1,126 @@
 import os
 import csv
-from dotenv import load_dotenv
+import traceback
+from datetime import datetime
+from typing import List, Dict
 from file_handler.exif_file_handler import ExifFileHandler
-from log_util import Logger  # ログクラスをインポート
 from batch_framework.base_batch import BaseBatchProcessor
 
 class NEFFileBatchProcess(BaseBatchProcessor):
+    """NEFファイルのバッチ処理を行うクラス"""
+
     def __init__(self, config_path=None):
-        super().__init__(config_path)
-        self.directory_path = None
-        self.exif_handler = ExifFileHandler()
-        self.temp_dir = None
-        self.output_file_path = None
-        # EXIFフィールドにF値（Aperture）とISO感度を追加
-        self.exif_fields = ["FileName", "Model", "Lens", "ExposureTime", "FocalLength", "ShutterSpeed", "Aperture", "ISO", "Rating"]
-        self.append_mode = False  # 既存ファイルに追記するかどうか
+        """
+        コンストラクタ。設定ファイルの読み込みと初期化を行う。
+        
+        Args:
+            config_path (str): 設定ファイルのパス
+        """
+        super().__init__(config_path=config_path)
+        self.exif_handler = ExifFileHandler()  # EXIFデータを扱うハンドラ
+        self.exif_fields = self.config.get("exif_fields", [
+            "FileName", "Model", "Lens", "ISO", "Aperture", "FocalLength",
+            "Rating", "ImageHeight", "ImageWidth", "Orientation"
+        ])
+        self.append_mode = self.config.get("append_mode", False)  # CSVファイルの追記モード設定
+        self.base_directory_path = self.config.get("base_directory_root", "/mnt/l/picture/2024/")
+        self.output_directory = self.config.get("output_directory", "temp")
+        self.target_date = datetime.strptime(self.config.get("target_date", "2024-05-01"), "%Y-%m-%d")  # ターゲット日付を設定
 
-    def setup(self):
-        """バッチ処理の初期設定"""
-        load_dotenv()
-        project_root = os.getenv('PROJECT_ROOT')
+    def setup(self) -> None:
+        """
+        バッチ処理の初期設定を行う。出力先ディレクトリのチェックを実施。
+        """
+        self.temp_dir = os.path.join(self.project_root, self.output_directory)
 
-        if project_root is None:
-            self.logger.error("環境変数 'PROJECT_ROOT' が設定されていません。")
-            raise EnvironmentError("環境変数 'PROJECT_ROOT' が設定されていません。")
+        if not os.path.isdir(self.base_directory_path):
+            self.logger.error(f"ディレクトリが見つかりません: {self.base_directory_path}")
+            raise FileNotFoundError(f"ディレクトリが見つかりません: {self.base_directory_path}")
 
-        self.temp_dir = os.path.join(project_root, 'temp')
-        os.makedirs(self.temp_dir, exist_ok=True)
+        self.logger.info(f"初期設定が完了しました。画像ディレクトリ: {self.base_directory_path}")
 
-        self.output_file_path = os.path.join(self.temp_dir, 'nef_exif_data.csv')
-
-        if self.directory_path is None:
-            self.directory_path = '/mnt/l/picture/2024/2024-07-02'  # デフォルトのディレクトリパス
-
-        self.logger.info("初期設定が完了しました。")
-
-    def process(self):
-        """バッチ処理のメインロジック"""
+    def process(self) -> None:
+        """
+        NEFファイルのEXIFデータを取得し、サブディレクトリごとにCSVファイルへ書き出す処理。
+        ターゲット日付以降に作成されたディレクトリのみを対象とする。
+        """
         try:
-            nef_files = self.exif_handler.read_files(self.directory_path)
-            if not nef_files:
-                self.logger.info(f"指定したディレクトリに.NEFファイルが見つかりませんでした: {self.directory_path}")
-                print("指定したディレクトリに.NEFファイルが見つかりませんでした。")
-            else:
-                exif_data_list = []
-                for nef_file in nef_files:
-                    filtered_exif_data = {field: nef_file.get(field, "N/A") for field in self.exif_fields}
-                    exif_data_list.append(filtered_exif_data)
-                
-                self.write_csv(self.output_file_path, exif_data_list)
-                self.logger.info(f"{len(exif_data_list)} 個の.NEFファイルのEXIFデータを {self.output_file_path} に出力しました。")
-                print(f"{len(exif_data_list)} 個の.NEFファイルのEXIFデータを {self.output_file_path} に出力しました。")
-        except FileNotFoundError:
-            self.logger.error(f"ディレクトリが見つかりません: {self.directory_path}")
-            print(f"エラー: 指定したディレクトリが見つかりませんでした: {self.directory_path}")
-            raise
+            subdirs = self.get_target_subdirectories(self.base_directory_path)
+            for subdir in subdirs:
+                self.logger.info(f"ディレクトリを処理中: {subdir}")
+                self.process_directory(subdir)
         except Exception as e:
-            self.logger.error(f"ファイルの読み込み中にエラーが発生しました: {e}")
-            print(f"エラー: ファイルの読み込み中に問題が発生しました。")
+            self.logger.error(f"予期しないエラーが発生しました: {e}")
+            self.logger.error(traceback.format_exc())
             raise
 
-    def write_csv(self, file_path, data):
-        """EXIFデータをCSV形式で書き込む"""
+    def get_target_subdirectories(self, base_path: str) -> List[str]:
+        """
+        ターゲット日付以降に作成されたサブディレクトリを取得する。
+        
+        Args:
+            base_path (str): ベースとなるディレクトリのパス
+        
+        Returns:
+            List[str]: ターゲット日付以降に作成されたサブディレクトリのリスト
+        """
+        target_subdirs = []
+        for root, dirs, _ in os.walk(base_path):
+            for directory in dirs:
+                dir_path = os.path.join(root, directory)
+                dir_creation_time = datetime.fromtimestamp(os.path.getctime(dir_path))
+
+                if dir_creation_time >= self.target_date:
+                    target_subdirs.append(dir_path)
+                    self.logger.debug(f"ターゲットディレクトリ: {dir_path} (作成日時: {dir_creation_time})")
+        return target_subdirs
+
+    def process_directory(self, dir_path: str) -> None:
+        """
+        指定したディレクトリ内のNEFファイルを処理してCSVに出力する。
+        
+        Args:
+            dir_path (str): 処理対象のディレクトリパス
+        """
+        nef_files = self.exif_handler.read_files(dir_path)
+        if not nef_files:
+            self.logger.warning(f"ディレクトリ内に.NEFファイルが見つかりませんでした: {dir_path}")
+            return
+
+        exif_data_list = self.filter_exif_data(nef_files)
+        if exif_data_list:
+            output_file_path = os.path.join(self.temp_dir, f'{os.path.basename(dir_path)}_nef_exif_data.csv')
+            self.write_csv(output_file_path, exif_data_list)
+
+    def filter_exif_data(self, nef_files: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        """
+        NEFファイルのEXIFデータをフィルタリングしてリストに変換する。
+        
+        Args:
+            nef_files (List[Dict[str, str]]): EXIFデータが含まれるNEFファイルのリスト
+        
+        Returns:
+            List[Dict[str, str]]: フィルタリングされたEXIFデータのリスト
+        """
+        exif_data_list = []
+        for nef_file in nef_files:
+            filtered_exif_data = {field: nef_file.get(field) for field in self.exif_fields}
+            missing_fields = [field for field, value in filtered_exif_data.items() if value is None]
+
+            if missing_fields:
+                self.logger.warning(f"不完全なEXIFデータ。欠落フィールド: {missing_fields}, ファイル: {filtered_exif_data.get('FileName', '不明')}")
+            exif_data_list.append(filtered_exif_data)
+
+        return exif_data_list
+
+    def write_csv(self, file_path: str, data: List[Dict[str, str]]) -> None:
+        """
+        抽出したEXIFデータをCSV形式で指定したファイルに書き込む。
+        
+        Args:
+            file_path (str): 書き込み先のCSVファイルパス
+            data (List[Dict[str, str]]): 書き込むデータのリスト
+        """
         write_mode = 'a' if self.append_mode else 'w'
         try:
             with open(file_path, write_mode, newline='', encoding='utf-8') as csvfile:
@@ -75,15 +134,20 @@ class NEFFileBatchProcess(BaseBatchProcessor):
             self.logger.error(f"CSVファイルへの書き込み中にエラーが発生しました: {e}")
             raise
 
-    def cleanup(self):
-        """バッチ処理後のクリーンアップ"""
+    def cleanup(self) -> None:
+        """バッチ処理後のクリーンアップ処理。"""
         self.logger.info("クリーンアップが完了しました。")
 
 def main():
-    process = NEFFileBatchProcess()
-    #process.directory_path = '/mnt/l/picture/2024/2024-07-02'  # 必要ならここでディレクトリを指定
-    process.directory_path = '/mnt/l/picture/2024/2024-08-26'  # 必要ならここでディレクトリを指定
-    process.execute()
+    """スクリプトのエントリーポイント"""
+    default_config_path = "./config.yaml"
+
+    try:
+        process = NEFFileBatchProcess(config_path=default_config_path)
+        process.execute()
+    except Exception as e:
+        print(f"バッチ処理中にエラーが発生しました: {e}")
+        traceback.print_exc()
 
 if __name__ == "__main__":
     main()

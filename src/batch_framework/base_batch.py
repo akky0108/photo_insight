@@ -87,16 +87,8 @@ class BaseBatchProcessor(ABC):
             self.config.update(loaded_config)
             self.logger.info(f"Configuration loaded from {config_path}.")
         
-        except FileNotFoundError as e:
-            self.logger.warning(str(e))
-            self.config = self.default_config.copy()  # デフォルト設定を適用
-            self.logger.info("Using default configuration.")
-        except (json.JSONDecodeError, yaml.YAMLError) as e:
-            self.logger.error(f"Error decoding config file '{config_path}': {e}. Using default settings.")
-            self.config = self.default_config.copy()
         except Exception as e:
-            self.handle_error(f"Unexpected error loading configuration from '{config_path}': {e}")
-            self.config = self.default_config.copy()
+            self.handle_error(f"Error loading configuration from '{config_path}': {e}")
 
     def validate_config(self, config: Dict) -> None:
         """読み込んだコンフィグのバリデーション"""
@@ -110,12 +102,8 @@ class BaseBatchProcessor(ABC):
         """コンフィグの再読み込み"""
         self.logger.info("Reloading configuration.")
         if config_path:
-            self.load_config(config_path)
             self.config_path = config_path
-        elif self.config_path:
-            self.load_config(self.config_path)
-        else:
-            self.logger.warning("No configuration path provided for reloading.")
+        self.load_config(self.config_path)
 
     def _start_config_watcher(self, config_path: str) -> None:
         """Configファイルの変更を監視するためのウォッチャーを開始"""
@@ -141,8 +129,7 @@ class BaseBatchProcessor(ABC):
             self.logger.info(f"Batch process completed in {duration:.2f} seconds.")
             
             if errors:
-                error_messages = "\n".join(str(e) for e in errors)
-                self.handle_error(f"Batch process encountered errors: {error_messages}", raise_exception=True)
+                self.handle_error(f"Batch process encountered errors: {errors}", raise_exception=True)
 
     def _execute_phase(self, pre_hook_type: HookType, post_hook_type: HookType, phase_function: Callable[[], None], errors: List[Exception]) -> None:
         """各フェーズの前後フックとフェーズ自体の実行を管理"""
@@ -156,7 +143,7 @@ class BaseBatchProcessor(ABC):
             self._execute_hooks(post_hook_type)
         except Exception as e:
             errors.append(e)
-            self.handle_error(f"{phase_name.capitalize()} phase encountered an error: {e}")
+            self.logger.error(f"{phase_name.capitalize()} phase encountered an error: {e}")
         finally:
             phase_duration = time.time() - phase_start_time
             self._log_phase_end(phase_name, phase_duration)
@@ -172,27 +159,32 @@ class BaseBatchProcessor(ABC):
     def add_hook(self, hook_type: HookType, func: Callable[[], None], priority: int = 0) -> None:
         """優先度を持つフックを追加"""
         hook_list = self.hooks[hook_type]
-        if (priority, func) in hook_list:
-            self.logger.warning(f"Hook already exists in {hook_type.value} with priority {priority}: {func}")
+        # 優先度に基づいてフックを追加するロジック
+        for index, (existing_priority, _) in enumerate(hook_list):
+            if existing_priority == priority:
+                self.logger.warning(f"Hook already exists in {hook_type.value} with priority {priority}: {func}")
+                return
+            elif existing_priority < priority:
+                hook_list.insert(index, (priority, func))
+                break
         else:
             hook_list.append((priority, func))
-            hook_list.sort(key=lambda x: x[0], reverse=True)
 
     def _execute_hooks(self, hook_type: HookType) -> None:
         """指定されたフックタイプのフックを実行"""
         hooks = self.hooks[hook_type]
         errors = []
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = [executor.submit(hook[1]) for hook in hooks if hook]
+            futures = [executor.submit(hook[1]) for hook in hooks]
             for future in futures:
                 try:
                     future.result()
                 except Exception as e:
-                    self.handle_error(f"Hook execution encountered an error: {e}")
+                    self.logger.error(f"Hook execution encountered an error: {e}")
                     errors.append(e)
 
         if errors:
-            raise RuntimeError(f"Errors encountered during hook execution: {errors}")
+            self.handle_error(f"Errors encountered during hook execution: {errors}")
 
     def handle_error(self, message: str, raise_exception: bool = False) -> None:
         """エラーハンドリング"""
