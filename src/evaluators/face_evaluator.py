@@ -7,7 +7,7 @@ from evaluators.noise_evaluator import NoiseEvaluator
 from evaluators.wavelet_sharpness_evaluator import WaveletSharpnessEvaluator
 from evaluators.blurriness_evaluator import BlurrinessEvaluator
 from log_util import Logger  # ロギング用クラスをインポート
-from utils.image_utils import ImageUtils  # 汎用的なUtilsクラスをインポート
+from utils.image_utils import ImageUtils  # 修正されたImageUtilsクラスをインポート
 
 class FaceEvaluator:
     """
@@ -50,7 +50,8 @@ class FaceEvaluator:
         """
         画像内で顔を検出し、顔領域に対して品質評価を行う。
 
-        :param image: RGB形式の画像
+        :param image: RGB形式の画像またはRAW画像
+        :param is_raw: RAW画像の場合True
         :return: 顔の品質評価結果、顔領域の重み、顔が検出されたかどうか
         """
         try:
@@ -59,8 +60,6 @@ class FaceEvaluator:
                 blob = ImageUtils.preprocess_raw_image(image)
             else:
                 blob = ImageUtils.preprocess_image(image)
-
-            blob = ImageUtils.preprocess_image(image)
 
             # DNNを用いた顔検出の実行
             self.net.setInput(blob)

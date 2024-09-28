@@ -20,7 +20,7 @@ class NEFFileBatchProcess(BaseBatchProcessor):
         self.exif_handler = ExifFileHandler()  # EXIFデータを扱うハンドラ
         self.exif_fields = self.config.get("exif_fields", [
             "FileName", "Model", "Lens", "ISO", "Aperture", "FocalLength",
-            "Rating", "ImageHeight", "ImageWidth", "Orientation"
+            "Rating", "ImageHeight", "ImageWidth", "Orientation", "BitDepth"
         ])
         self.append_mode = self.config.get("append_mode", False)  # CSVファイルの追記モード設定
         self.base_directory_path = self.config.get("base_directory_root", "/mnt/l/picture/2024/")

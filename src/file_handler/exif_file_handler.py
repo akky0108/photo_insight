@@ -61,6 +61,10 @@ class ExifFileHandler(FileHandler):
             # 対象フィールドを数値に変換する
             metadata[0] = self.convert_to_numeric(metadata[0])
 
+            # ビット深度の取得
+            bit_depth = self.get_bit_depth(metadata[0])
+            metadata[0]['BitDepth'] = bit_depth
+
             return metadata[0]
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"ExifToolでのプロセスエラー: {e}")
@@ -68,6 +72,16 @@ class ExifFileHandler(FileHandler):
             raise ValueError(f"JSONのデコード中にエラーが発生しました: {e}")
         except Exception as e:
             raise RuntimeError(f"予期しないエラーが発生しました: {e}")
+
+    def get_bit_depth(self, metadata):
+        """ビット深度を取得する関数"""
+        # ビット深度が存在するかチェック
+        if 'BitsPerSample' in metadata:
+            return metadata['BitsPerSample']
+        elif 'BitDepth' in metadata:
+            return metadata['BitDepth']
+        else:
+            return "ビット深度情報が見つかりません"
 
     def convert_to_numeric(self, metadata):
         """ISO, Aperture, FocalLength, Orientationを数値に変換する関数"""

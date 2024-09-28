@@ -5,75 +5,73 @@ import rawpy
 
 class ImageUtils:
     @staticmethod
-    def preprocess_image(image, size=(300, 300)):
+    def preprocess_image(image, size=(300, 300), augment=False):
         """
         JPEGやPNG画像用の前処理を行います。
 
         :param image: 入力画像 (JPEGやPNG)
         :param size: リサイズするサイズ (幅, 高さ)
-        :return: 前処理された画像
+        :param augment: データ拡張を有効化するかどうか
+        :return: 前処理された画像（Blob形式）
         """
-        # BGRからRGBに変換（OpenCVはBGRで画像を読み込むため）
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        # 画像をRGBに変換
+        image_rgb = ImageUtils._to_rgb(image)
+
+        # データ型を確認して適切に変換
+        if image_rgb.dtype != np.uint8:
+            image_rgb = np.clip(image_rgb, 0, 255)
+            image_rgb = image_rgb.astype(np.uint8)
+
+        # データ拡張のオプション
+        if augment:
+            image_rgb = ImageUtils.augment_image(image_rgb)
 
         # リサイズ
-        image_resized = cv2.resize(image_rgb, size)
+        # image_resized = cv2.resize(image_rgb, size)
 
-        # 画像をBlob形式に変換
-        blob = cv2.dnn.blobFromImage(image_resized, 1.0, size, (104.0, 177.0, 123.0))
+        # Blob形式に変換
+        blob = cv2.dnn.blobFromImage(image_rgb, 1.0, size, (104.0, 177.0, 123.0))
 
         return blob
 
     @staticmethod
-    def preprocess_raw_image(raw_image_path, size=(300, 300)):
+    def preprocess_raw_image(raw_input, size=(300, 300), augment=False):
         """
         RAW形式の画像を処理し、DNNモデルに適した形式に変換します。
 
-        :param raw_image_path: RAW画像ファイルのパス
+        :param raw_input: RAW画像ファイルのパス、またはすでに読み込まれたnumpy配列
         :param size: リサイズするサイズ (幅, 高さ)
+        :param augment: データ拡張を有効化するかどうか
         :return: 前処理された画像（Blob形式）
         """
-        # 1. RAWデータを読み込み、デマトリクス処理を行ってRGB画像に変換
-        rgb_image = ImageUtils.process_raw_image(raw_image_path)
+        # RAWデータの読み込み
+        if isinstance(raw_input, np.ndarray):
+            rgb_image = raw_input
+        else:
+            rgb_image = ImageUtils._load_raw_image(raw_input)
 
-        # 2. データ拡張（ランダムな回転、スケーリング、明るさ調整）
-        augmented_image = ImageUtils.augment_image(rgb_image)
+        # 16-bit RGB画像を8-bitにスケーリング
+        # rgb_image = (rgb_image / 256).astype(np.uint8)
 
-        # 3. ヒストグラム均等化
-        equalized_image = ImageUtils.apply_histogram_equalization(augmented_image)
+        # データ拡張
+        if augment:
+            rgb_image = ImageUtils.augment_image(rgb_image)
 
-        # 4. BGRからRGBに変換（OpenCVはBGRで画像を読み込むため）
-        image_rgb = cv2.cvtColor(equalized_image, cv2.COLOR_BGR2RGB)
+        # ヒストグラム均等化
+        # equalized_image = ImageUtils.apply_histogram_equalization(rgb_image_8bit)
 
-        # 5. リサイズ
-        image_resized = cv2.resize(image_rgb, size)
+        # 画像をリサイズ
+        # image_resized = cv2.resize(equalized_image, size)
 
-        # 6. 画像をBlob形式に変換
-        blob = cv2.dnn.blobFromImage(image_resized, 1.0, size, (104.0, 177.0, 123.0))
+        # Blob形式に変換
+        blob = cv2.dnn.blobFromImage(rgb_image, 1.0, size, (104.0, 177.0, 123.0))
 
         return blob
 
     @staticmethod
-    def preprocess_raw_image(image_or_path):
+    def _load_raw_image(raw_image_path):
         """
-        RAW画像を前処理する。
-        画像ファイルパスまたはnumpy配列を受け取り、前処理された画像を返す。
-
-        :param image_or_path: 画像ファイルのパス、またはnumpy配列
-        :return: 前処理された画像のnumpy配列
-        """
-        # image_or_path が numpy.ndarray かどうかを確認する
-        if isinstance(image_or_path, np.ndarray):
-            # すでに画像がロードされている場合、そのまま返す
-            return image_or_path
-        else:
-            # ファイルパスの場合は、RAW画像として処理する
-            return ImageUtils.process_raw_image(image_or_path)
-
-    @staticmethod
-    def process_raw_image(raw_image_path):
-        """
-        RAW画像を処理し、RGB画像として返す。
+        RAW画像を読み込み、RGB画像に変換します。
 
         :param raw_image_path: RAW画像ファイルのパス
         :return: 処理されたRGB画像のnumpy配列
@@ -83,7 +81,6 @@ class ImageUtils:
                 rgb_image = raw.postprocess(output_bps=16)
             return np.array(rgb_image)
         except Exception as e:
-            #Logger().get_logger().error(f"Error processing RAW image {raw_image_path}: {e}")
             raise
 
     @staticmethod
@@ -94,18 +91,18 @@ class ImageUtils:
         :param image: 元の画像
         :return: 拡張された画像
         """
-        # 回転
         rows, cols = image.shape[:2]
-        rotation_angle = random.uniform(-15, 15)  # -15度から15度のランダムな角度で回転
+        # 画像のランダム回転
+        rotation_angle = random.uniform(-15, 15)
         rotation_matrix = cv2.getRotationMatrix2D((cols / 2, rows / 2), rotation_angle, 1)
         rotated_image = cv2.warpAffine(image, rotation_matrix, (cols, rows))
 
-        # スケーリング
-        scale_factor = random.uniform(0.9, 1.1)  # 0.9倍から1.1倍のランダムスケーリング
+        # スケール調整
+        scale_factor = random.uniform(0.9, 1.1)
         scaled_image = cv2.resize(rotated_image, None, fx=scale_factor, fy=scale_factor)
 
-        # 明るさの調整
-        brightness_factor = random.uniform(0.8, 1.2)  # 明るさを0.8倍から1.2倍にランダム調整
+        # 明るさ調整
+        brightness_factor = random.uniform(0.8, 1.2)
         hsv = cv2.cvtColor(scaled_image, cv2.COLOR_BGR2HSV)
         hsv[:, :, 2] = np.clip(hsv[:, :, 2] * brightness_factor, 0, 255)
         adjusted_image = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
@@ -120,15 +117,55 @@ class ImageUtils:
         :param image: 元の画像
         :return: ヒストグラム均等化された画像
         """
-        # 画像がカラーの場合は、YUV空間に変換してから適用
-        if len(image.shape) == 3:  # カラー画像
+        if len(image.shape) == 3:  # カラー画像の場合
             yuv = cv2.cvtColor(image, cv2.COLOR_BGR2YUV)
             clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-            yuv[:, :, 0] = clahe.apply(yuv[:, :, 0])  # 輝度チャンネル（Y）に適用
+            yuv[:, :, 0] = clahe.apply(yuv[:, :, 0])
             return cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR)
         else:  # グレースケール画像
             clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
             return clahe.apply(image)
+
+    @staticmethod
+    def normalize_image(image: np.ndarray, target_bit_depth=8) -> np.ndarray:
+        """
+        画像を平均0、標準偏差1に正規化し、指定されたビット深度に変換します。
+
+        :param image: 読み込んだ画像の配列
+        :param target_bit_depth: 戻すときのビット深度（例：8, 14, 16）
+        :return: 正規化された画像
+        """
+        # 正規化のために16ビット、14ビットの値を浮動小数点に変換
+        max_value = image.max()
+        normalized_image = image / max_value  # 0から1の範囲に正規化
+
+        # ヒストグラムストレッチ（最小値と最大値を0-1の範囲にストレッチ）
+        stretched_image = ImageUtils._histogram_stretch(normalized_image)
+
+        # 出力ビット深度にスケーリング
+        scaled_image = ImageUtils._scale_bit_depth(stretched_image, target_bit_depth)
+
+        return scaled_image
+
+    @staticmethod
+    def apply_noise_filter(image: np.ndarray, method: str = 'median', kernel_size: int = 5) -> np.ndarray:
+        """
+        ノイズを軽減するためにフィルタを適用。デフォルトはメディアンフィルタ。
+
+        :param image: 正規化された画像
+        :param method: フィルタの種類 ('median', 'gaussian', 'bilateral')
+        :param kernel_size: フィルタのカーネルサイズ
+        :return: フィルタ処理された画像
+        """
+        # 指定されたフィルタを適用
+        if method == 'median':
+            return cv2.medianBlur(image, kernel_size)
+        elif method == 'gaussian':
+            return cv2.GaussianBlur(image, (kernel_size, kernel_size), 0)
+        elif method == 'bilateral':
+            return cv2.bilateralFilter(image, kernel_size, 75, 75)
+        else:
+            raise ValueError(f"Unsupported filter method: {method}")
 
     @staticmethod
     def extract_region(image, box):
@@ -145,9 +182,9 @@ class ImageUtils:
     @staticmethod
     def scale_region(region, target_size=(300, 300)):
         """
-        切り出した顔領域を指定されたサイズにスケーリングします。
+        切り出した領域を指定されたサイズにスケーリングします。
 
-        :param region: 切り出した顔領域
+        :param region: 切り出した領域
         :param target_size: スケーリング後のサイズ
         :return: スケーリングされた画像
         """
@@ -156,13 +193,72 @@ class ImageUtils:
     @staticmethod
     def calculate_region_weight(region_box, image_shape):
         """
-        顔領域の重みを画像全体の面積に対する比率で計算します。
+        領域の重みを画像全体の面積に対する比率で計算します。
 
-        :param region_box: 顔領域 (x, y, 幅, 高さ)
+        :param region_box: 領域 (x, y, 幅, 高さ)
         :param image_shape: 入力画像の形状 (高さ, 幅, チャンネル数)
-        :return: 顔領域の重み
+        :return: 重み (0から1の範囲)
         """
-        x, y, w, h = region_box
-        face_area = w * h
-        image_area = image_shape[0] * image_shape[1]
-        return (face_area / image_area) * 0.1  # デフォルトの重み0.1
+        region_area = region_box[2] * region_box[3]  # 領域の面積
+        image_area = image_shape[0] * image_shape[1]  # 画像全体の面積
+        return region_area / image_area
+
+    @staticmethod
+    def to_grayscale(image):
+        """画像をグレースケールに変換"""
+        return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    @staticmethod
+    def convert_color_space(image, target_color_space):
+        """
+        画像の色空間を変換します。
+
+        :param image: 元の画像
+        :param target_color_space: 変換する色空間の指定 (例: 'HSV', 'LAB', 'YUV')
+        :return: 色空間が変換された画像
+        """
+        if target_color_space == 'HSV':
+            return cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        elif target_color_space == 'LAB':
+            return cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+        elif target_color_space == 'YUV':
+            return cv2.cvtColor(image, cv2.COLOR_BGR2YUV)
+        elif target_color_space == 'GRAY':
+            return ImageUtils.to_grayscale(image)
+        else:
+            raise ValueError(f"Unsupported color space: {target_color_space}")
+
+    @staticmethod
+    def _histogram_stretch(image):
+        """
+        ヒストグラムストレッチを使用して、画像のダイナミックレンジを最大化。
+
+        :param image: 正規化された画像
+        :return: ストレッチされた画像
+        """
+        # ヒストグラムの最小値と最大値を取得
+        min_val = np.min(image)
+        max_val = np.max(image)
+
+        # 最小値と最大値を0から1の範囲にストレッチ
+        stretched_image = (image - min_val) / (max_val - min_val)
+
+        return np.clip(stretched_image, 0, 1)  # 値が範囲外に出ないようにクリップ
+
+    @staticmethod
+    def _scale_bit_depth(image, target_bit_depth):
+        """
+        正規化された画像を指定されたビット深度にスケーリング。
+
+        :param image: 0-1に正規化された画像
+        :param target_bit_depth: 出力するビット深度（8, 14, 16）
+        :return: スケーリングされた画像
+        """
+        if target_bit_depth == 8:
+            return (image * 255).astype(np.uint8)
+        elif target_bit_depth == 14:
+            return (image * 16383).astype(np.uint16)
+        elif target_bit_depth == 16:
+            return (image * 65535).astype(np.uint16)
+        else:
+            raise ValueError("Unsupported target bit depth. Use 8, 14, or 16.")
