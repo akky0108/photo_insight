@@ -1,31 +1,27 @@
 import numpy as np
 import traceback
-from evaluators.sharpness_evaluator import SharpnessEvaluator
-from evaluators.contrast_evaluator import ContrastEvaluator
-from evaluators.noise_evaluator import NoiseEvaluator
-from evaluators.wavelet_sharpness_evaluator import WaveletSharpnessEvaluator
-from evaluators.blurriness_evaluator import BlurrinessEvaluator
 from evaluators.face_evaluator import FaceEvaluator
+from evaluators.sharpness_evaluator import SharpnessEvaluator
+from evaluators.blurriness_evaluator import BlurrinessEvaluator
+from evaluators.contrast_evaluator import ContrastEvaluator  # ContrastEvaluatorをインポート
 from image_loader import ImageLoader
 from log_util import Logger
 from typing import Optional
-import cv2
+from utils.image_utils import ImageUtils
 import logging
 
 class PortraitQualityEvaluator:
     """
-    ポートレート画像の品質を評価するクラス。
-    使用される評価項目はシャープネス、コントラスト、ノイズ、ウェーブレットシャープネス、ぼやけ、顔評価です。
+    ポートレート画像の顔検出、シャープネス、ピンボケ、およびコントラストの評価を行うクラス。
+    各評価ロジックは独立したクラスに委譲されています。
     """
 
-    def __init__(self, image_path_or_array, is_raw=False, weights=None, thresholds=None, logger: Optional[Logger] = None):
+    def __init__(self, image_path_or_array, is_raw=False, logger: Optional[Logger] = None):
         """
-        画像のパスまたはnumpy配列を受け取り、品質評価を行います。
+        画像のパスまたはnumpy配列を受け取り、評価を行います。
 
         :param image_path_or_array: 画像ファイルのパスまたはnumpy配列
         :param is_raw: RAW画像かどうか
-        :param weights: 各評価項目の重み（デフォルト値あり）
-        :param thresholds: 各評価項目の閾値（デフォルト値あり）
         :param logger: ログを記録するLoggerオブジェクト（省略可能）
         """
         self.is_raw = is_raw
@@ -40,77 +36,32 @@ class PortraitQualityEvaluator:
         else:
             raise ValueError("Invalid input type for image data")
 
-        # デフォルトの重みと閾値の設定
-        self.weights = weights if weights else self._default_weights()
-        self.thresholds = thresholds if thresholds else self._default_thresholds()
-        
-        # 評価器の遅延初期化のためのキャッシュ
-        self.evaluators = {}
-        self.resized_image = None
-        
-        # ログ出力の有効性を事前に確認
         self.log_info_enabled = self.logger.isEnabledFor(logging.INFO)
-
-    def _default_weights(self):
-        """デフォルトの評価項目の重みを返します。"""
-        return {
-            'sharpness': 0.2,
-            'contrast': 0.2,
-            'noise': 0.2,
-            'wavelet_sharpness': 0.1,
-            'face': 0.2,
-            'blurriness': 0.1
-        }
-
-    def _default_thresholds(self):
-        """デフォルトの閾値を返します。"""
-        return {
-            'sharpness': {'good': 0.8, 'average': 0.5},
-            'blurriness': {'good': 0.2, 'average': 0.5}
-        }
-
-    def _get_evaluator(self, metric_name):
-        """
-        指定した評価項目に応じた評価器を返します。初めて呼ばれたときに初期化されます。
-        """
-        if metric_name not in self.evaluators:
-            evaluator_class = {
-                'sharpness': SharpnessEvaluator,
-                'contrast': ContrastEvaluator,
-                'noise': NoiseEvaluator,
-                'wavelet_sharpness': WaveletSharpnessEvaluator,
-                'blurriness': BlurrinessEvaluator,
-                'face': FaceEvaluator
-            }.get(metric_name)
-
-            # 顔評価器は特別な初期化を行う
-            if metric_name == 'face':
-                self.evaluators[metric_name] = evaluator_class(weights=self.weights)
-            else:
-                self.evaluators[metric_name] = evaluator_class()
-
-        return self.evaluators[metric_name]
 
     def evaluate(self):
         """
-        画像全体の評価を行います。顔検出が失敗した場合には、顔を考慮せずに評価を行います。
+        画像内で顔検出、シャープネス、ピンボケ、コントラストの評価を行います。
         """
         results = {}
         try:
-            face_evaluation, face_weight, face_detected = self._evaluate_face()
-
-            # メトリックごとの評価結果を取得
-            metric_results = {metric: self._evaluate_metric_as_dict(metric) for metric in 
-                              ['sharpness', 'contrast', 'noise', 'wavelet_sharpness', 'blurriness']}
-            results.update(metric_results)
-
-            # 総合スコアを計算
-            overall_score = self._calculate_overall_score(metric_results, face_evaluation, face_weight, face_detected)
+            # 顔検出
+            face_evaluation, face_detected = self._evaluate_face()
             results.update({
-                'overall_score': overall_score,
-                'face_evaluation': face_evaluation if face_detected else {},
+                'face_evaluation': face_evaluation if face_detected else {'message': 'No face detected'},
                 'face_detected': face_detected
             })
+
+            # シャープネス評価
+            sharpness_evaluation = self._evaluate_sharpness()
+            results.update({'sharpness_evaluation': sharpness_evaluation})
+
+            # ピンボケ評価
+            blurriness_evaluation = self._evaluate_blurriness()
+            results.update({'blurriness_evaluation': blurriness_evaluation})
+
+            # コントラスト評価
+            contrast_evaluation = self._evaluate_contrast()
+            results.update({'contrast_evaluation': contrast_evaluation})
 
             return results
         except Exception as e:
@@ -118,75 +69,57 @@ class PortraitQualityEvaluator:
             self.logger.error(traceback.format_exc())
             raise
 
-    def _evaluate_metric_as_dict(self, metric_name):
-        """
-        指定した評価項目のスコアを取得し、辞書形式で返します。
-        """
-        try:
-            evaluator = self._get_evaluator(metric_name)
-            score = evaluator.evaluate(self.rgb_image)
-
-            if self.log_info_enabled:
-                self.logger.info(f"{metric_name.capitalize()} score: {score}")
-
-            return {'score': score, 'additional_info': {}}
-        except Exception as e:
-            self.logger.error(f"{metric_name}評価エラー: {str(e)}")
-            return {'score': 0, 'additional_info': {}}
-
     def _evaluate_face(self):
         """
-        顔の検出と評価を行います。顔が検出されなかった場合、デフォルトの結果を返します。
+        顔の検出を行います。顔が検出されなかった場合、デフォルトの結果を返します。
+        """
+        face_image = ImageUtils.resize_image(self.rgb_image, max_dimension=1024)  # 顔検出用にリサイズ
+        face_evaluation, face_detected = self._safe_evaluate(FaceEvaluator, face_image, "顔")
+        
+        if not face_detected:
+            face_evaluation = {'message': 'No face detected'}
+        
+        return face_evaluation, face_detected
+
+    def _evaluate_sharpness(self):
+        """
+        画像全体のシャープネスを評価し、結果を返します。
+        """
+        sharpness_image = ImageUtils.resize_image(self.rgb_image, max_dimension=2000)  # シャープネス用リサイズ
+        sharpness_score, sharpness_success = self._safe_evaluate(SharpnessEvaluator, sharpness_image, "シャープネス")
+        return sharpness_score
+
+    def _evaluate_blurriness(self):
+        """
+        画像全体のピンボケ度を評価します。
+        """
+        blurriness_image = self.rgb_image  # ピンボケ評価には元の解像度を使用
+        blurriness_score, blurriness_success = self._safe_evaluate(BlurrinessEvaluator, blurriness_image, "ピンボケ")
+        return blurriness_score
+
+    def _evaluate_contrast(self):
+        """
+        画像全体のコントラストを評価します。
+        """
+        contrast_image = ImageUtils.resize_image(self.rgb_image, max_dimension=2000)  # コントラスト用リサイズ
+        contrast_score, contrast_success = self._safe_evaluate(ContrastEvaluator, contrast_image, "コントラスト")
+        return contrast_score
+
+    def _safe_evaluate(self, evaluator_class, image, evaluation_name):
+        """
+        エラーハンドリングを共通化した評価処理。
+
+        :param evaluator_class: 使用する評価クラス
+        :param image: 評価対象の画像
+        :param evaluation_name: 評価名（ログ出力用）
+        :return: 評価結果と評価成功フラグ
         """
         try:
-            if self.resized_image is None:
-                self.resized_image = self._resize_image(self.rgb_image, max_dimension=512)
-
-            face_evaluation, face_weight, face_detected = self._get_evaluator('face').detect_and_evaluate(self.resized_image, is_raw=self.is_raw)
-
+            score = evaluator_class().evaluate(image)
             if self.log_info_enabled:
-                self.logger.info(f"顔評価: {face_evaluation}, 顔検出: {face_detected}")
-
-            return face_evaluation, face_weight, face_detected
+                self.logger.info(f"{evaluation_name}評価: {score}")
+            return score, True
         except Exception as e:
-            self.logger.error(f"顔評価エラー: {str(e)}")
-            return {'error': 'face detection failed'}, 0, False
+            self.logger.error(f"{evaluation_name}評価エラー: {str(e)}")
+            return {'error': f'{evaluation_name} evaluation failed'}, False
 
-    def _resize_image(self, image, max_dimension):
-        """
-        画像を指定した最大サイズにリサイズします（アスペクト比を維持）。
-        """
-        h, w = image.shape[:2]
-        if max(h, w) <= max_dimension:
-            return image
-        scale = max_dimension / max(h, w)
-        return cv2.resize(image, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
-
-    def _calculate_overall_score(self, metric_results, face_eval, face_weight, face_detected):
-        """
-        総合スコアを計算します。顔が検出されなかった場合、顔の重みを他の項目に分配します。
-        """
-        try:
-            adjusted_weights = self.weights.copy()
-            if not face_detected:
-                face_weight = 0
-                non_face_weight_sum = sum(adjusted_weights[metric] for metric in adjusted_weights if metric != 'face')
-
-                for metric in adjusted_weights:
-                    if metric != 'face':
-                        adjusted_weights[metric] += self.weights['face'] * (adjusted_weights[metric] / non_face_weight_sum)
-
-            # 各項目の重み付きスコアを計算
-            weighted_scores = sum(
-                metric_results[metric]['score'] * adjusted_weights[metric]
-                for metric in ['sharpness', 'contrast', 'noise', 'wavelet_sharpness', 'blurriness']
-            )
-
-            # 顔評価を反映
-            if face_detected:
-                weighted_scores += face_weight * sum(face_eval.values())
-
-            return round(weighted_scores, 2)
-        except Exception as e:
-            self.logger.error(f"総合スコア計算エラー: {str(e)}")
-            return 0

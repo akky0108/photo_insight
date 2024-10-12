@@ -15,31 +15,43 @@ import time
 lock = threading.Lock()
 
 class PortraitBatchProcessor(BaseBatchProcessor):
+    """ポートレート画像の評価指標を計算するバッチ処理を行うクラス"""
+    
+    # コンストラクタで初期化処理を行う
     def __init__(self, config_path: Optional[str] = None, max_workers: int = 2, date: Optional[str] = None):
         super().__init__(config_path)
         self.image_files: List[Tuple[str, Optional[int], Optional[int]]] = []
         self.max_workers = max_workers
 
+        # ディレクトリやファイルパスを設定
+        self._set_directories_and_files(date)
+
+        self.loader = ImageLoader(self.logger)
+        self.apply_filter = self.config.get('apply_filter', True)
+        self.apply_normalization = self.config.get('apply_normalization', True)
+
+        # 画像処理パイプラインの定義
+        self.processing_pipeline = self._build_processing_pipeline()
+
+    def _set_directories_and_files(self, date: Optional[str]):
+        """処理するディレクトリとCSVファイルのパスを設定"""
         if date:
             self.base_directory = os.path.join(self.config.get('base_directory_root', '/mnt/l/picture/2024'), date)
             self.image_csv_file = f"{date}_nef_exif_data.csv"
         else:
-            self.base_directory = self.config.get('base_directory', '/mnt/l/picture/2024/2024-08-26/')
+            self.base_directory = self.config.get('base_directory', '/mnt/l/picture/2024/2024-07-02/')
             self.image_csv_file = "nef_exif_data.csv"
-
         self.output_directory = self.config.get('output_directory', 'temp')
-        self.loader = ImageLoader(self.logger)
         self.result_csv_file = os.path.join(self.output_directory, "evaluation_results.csv")
 
-        self.apply_filter = self.config.get('apply_filter', True)
-        self.apply_normalization = self.config.get('apply_normalization', True)
-
-        # 処理パイプラインの定義
-        self.processing_pipeline = []
-        # if self.apply_filter:
-        #     self.processing_pipeline.append(lambda img: ImageUtils.apply_noise_filter(img, method='median', kernel_size=5))
+    def _build_processing_pipeline(self):
+        """画像処理パイプラインの構築"""
+        pipeline = []
+        if self.apply_filter:
+            pipeline.append(lambda img: ImageUtils.apply_noise_filter(img, method='median', kernel_size=5))
         if self.apply_normalization:
-            self.processing_pipeline.append(ImageUtils.normalize_image)
+            pipeline.append(ImageUtils.normalize_image)
+        return pipeline
 
     def setup(self) -> None:
         """バッチ処理のセットアップ。CSVから画像ファイル情報を読み込む"""
@@ -50,33 +62,30 @@ class PortraitBatchProcessor(BaseBatchProcessor):
         self._initialize_csv_files()
 
     def process(self) -> None:
-        """各画像ファイルをバッチ単位で並列処理し、評価結果をCSVに保存する"""
+        """画像ファイルをバッチ単位で並列処理し、評価結果をCSVに保存する"""
         self.logger.info("Processing images for portrait evaluation.")
         batch_size = 10  # 一度に処理するバッチサイズ
 
-        # タスクを小さなバッチに分割
+        # タスクをバッチに分割
         image_batches = [self.image_files[i:i + batch_size] for i in range(0, len(self.image_files), batch_size)]
 
+        # 並列処理を実行
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             for batch in image_batches:
-                futures = [executor.submit(self._process_image, image_file, orientation, bit_depth) 
+                futures = [executor.submit(self._process_single_image, image_file, orientation, bit_depth) 
                            for image_file, orientation, bit_depth in batch]
                 for future in futures:
                     future.result()
 
-    def cleanup(self) -> None:
-        """クリーンアップ処理"""
-        self.logger.info("PortraitBatchProcessor cleanup called. No specific cleanup actions needed.")
-
-    def _process_image(self, image_file: str, orientation: Optional[int], bit_depth: Optional[int]) -> None:
+    def _process_single_image(self, image_file: str, orientation: Optional[int], bit_depth: Optional[int]) -> None:
+        """単一の画像を処理し、評価を行う"""
         retry_count = 0
         max_retries = 3
-        retry_delay = 2  # 失敗時にリトライするまでの待機時間
+        retry_delay = 2  # リトライの間の待機時間
         success = False
 
         self.logger.info(f"Processing image {image_file} with bit depth: {bit_depth}")
 
-        # 画像処理のリトライを最大max_retries回行う
         while retry_count < max_retries and not success:
             try:
                 image_path = os.path.join(self.base_directory, image_file)
@@ -91,21 +100,20 @@ class PortraitBatchProcessor(BaseBatchProcessor):
             except Exception as e:
                 retry_count += 1
                 self.logger.error(f"Error processing {image_file}: {e}, retrying {retry_count}/{max_retries}")
-                time.sleep(retry_delay)  # リトライ間の待機
+                time.sleep(retry_delay)  # リトライ前の待機
         if not success:
             self.logger.error(f"Failed to process {image_file} after {max_retries} retries.")
 
     def _load_image_files_from_csv(self, csv_path: str) -> List[Tuple[str, Optional[int], Optional[int]]]:
-        """CSVファイルから画像ファイル名、Orientation値、ビット深度をロード"""
+        """CSVから画像ファイル名、Orientation値、ビット深度を読み込む"""
         image_files = []
         try:
             with open(csv_path, mode='r') as csvfile:
                 reader = csv.reader(csvfile)
-                next(reader)  # ヘッダー行をスキップ
+                next(reader)  # ヘッダーをスキップ
                 for row in reader:
                     if row:
                         image_file = row[0]
-                        # Optionalなorientationとbit_depthの処理
                         orientation = int(row[9]) if len(row) > 9 and row[9].isdigit() else None
                         bit_depth = int(row[10]) if len(row) > 10 and row[10].isdigit() else self.config.get('default_bit_depth', 16)
                         image_files.append((image_file, orientation, bit_depth))
@@ -116,13 +124,12 @@ class PortraitBatchProcessor(BaseBatchProcessor):
     def _load_image(self, file_path: str, orientation: Optional[int], output_bps: Optional[int]) -> Optional[np.ndarray]:
         """画像をロードし、フィルタおよび正規化を適用する"""
         try:
-            # 14ビットの場合は16ビットに変換
-            if output_bps == 14:
-                output_bps = 16
-
+            # 14ビット画像の場合は16ビットに変換
+            output_bps = 16 if output_bps == 14 else output_bps
             image = self.loader.load_image(file_path, output_bps=output_bps, orientation=orientation)
             self.logger.debug(f"Image loaded with dtype: {image.dtype} (bit depth: {output_bps})")
 
+            # パイプラインで追加処理
             for process in self.processing_pipeline:
                 image = process(image)
 
@@ -132,7 +139,7 @@ class PortraitBatchProcessor(BaseBatchProcessor):
             return None
 
     def _evaluate_image(self, image_file: str, image: np.ndarray) -> None:
-        """画像を評価し、その結果をCSVに書き込む処理"""
+        """画像を評価し、その結果をCSVに書き込む"""
         is_raw = image_file.lower().endswith('.nef')
         evaluator = PortraitQualityEvaluator(image_path_or_array=image, is_raw=is_raw, logger=self.logger)
         evaluation_result = evaluator.evaluate()
@@ -140,7 +147,7 @@ class PortraitBatchProcessor(BaseBatchProcessor):
         self._append_evaluation_result(image_file, evaluation_result)
 
     def _initialize_csv_files(self) -> None:
-        """評価結果を書き込むためのCSVファイルを初期化"""
+        """評価結果を記録するCSVファイルを初期化"""
         with open(self.result_csv_file, mode='w', newline='') as file:
             writer = csv.writer(file)
             writer.writerow([
@@ -149,7 +156,7 @@ class PortraitBatchProcessor(BaseBatchProcessor):
             ])
 
     def _append_evaluation_result(self, image_file: str, result: dict) -> None:
-        """評価結果をCSVに追記する処理"""
+        """評価結果をCSVに追記する"""
         sharpness_score = result.get('sharpness', {}).get('score', 'N/A')
         contrast_score = result.get('contrast', {}).get('score', 'N/A')
         noise_score = result.get('noise', {}).get('score', 'N/A')
@@ -170,9 +177,18 @@ class PortraitBatchProcessor(BaseBatchProcessor):
                 result.get('face_evaluation', 'N/A')
             ])
 
+    def cleanup(self) -> None:
+        """バッチ処理後のクリーンアップ処理。"""
+        self.logger.info("クリーンアップが完了しました。")
+
 def main():
+    """コマンドライン引数を受け取り、バッチ処理を実行するメイン関数"""
     parser = argparse.ArgumentParser(description="Portrait Batch Processor")
-    parser.add_argument('--date', type=str, help="Specify the date (e.g., 2024-08-26) for the corresponding CSV file and input folder.")
+    
+    # デフォルトの日付を特定の日付に設定（例: 2024-08-26）
+    default_date = "2024-08-26"
+    
+    parser.add_argument('--date', type=str, default=default_date, help=f"CSVファイルや入力フォルダに対応する日付を指定 (例: 2024-08-26). デフォルトは{default_date}です。")
     args = parser.parse_args()
 
     process = PortraitBatchProcessor(date=args.date)

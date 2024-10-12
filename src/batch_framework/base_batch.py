@@ -10,6 +10,7 @@ from enum import Enum
 import time
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+import signal
 
 class HookType(Enum):
     """フックの種類を定義する列挙型"""
@@ -66,6 +67,10 @@ class BaseBatchProcessor(ABC):
         # コンフィグの読み込みと変更監視の開始
         self.load_config(self.config_path)
         self._start_config_watcher(self.config_path)
+
+        # Graceful shutdownをシグナルハンドラに設定
+        signal.signal(signal.SIGINT, self._handle_shutdown)
+        signal.signal(signal.SIGTERM, self._handle_shutdown)
 
     def load_config(self, config_path: str) -> None:
         """コンフィグファイルを読み込む"""
@@ -192,17 +197,26 @@ class BaseBatchProcessor(ABC):
         if raise_exception:
             raise RuntimeError(message)
 
+    def _handle_shutdown(self, signum, frame):
+        """シグナルを受け取って安全にシャットダウンする"""
+        self.logger.info(f"Received shutdown signal {signum}. Initiating cleanup.")
+        self.cleanup()
+        self.end_time = time.time()
+        duration = self.end_time - self.start_time
+        self.logger.info(f"Batch process terminated after {duration:.2f} seconds.")
+        exit(0)
+
     @abstractmethod
     def setup(self) -> None:
-        """セットアップフェーズ"""
+        """セットアップフェーズで行う処理。サブクラスで実装"""
         pass
 
     @abstractmethod
     def process(self) -> None:
-        """メインのバッチ処理フェーズ"""
+        """メイン処理フェーズで行う処理。サブクラスで実装"""
         pass
 
     @abstractmethod
     def cleanup(self) -> None:
-        """クリーンアップフェーズ"""
+        """クリーンアップフェーズで行う処理。サブクラスで実装"""
         pass

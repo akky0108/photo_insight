@@ -20,7 +20,8 @@ class NEFFileBatchProcess(BaseBatchProcessor):
         self.exif_handler = ExifFileHandler()  # EXIFデータを扱うハンドラ
         self.exif_fields = self.config.get("exif_fields", [
             "FileName", "Model", "Lens", "ISO", "Aperture", "FocalLength",
-            "Rating", "ImageHeight", "ImageWidth", "Orientation", "BitDepth"
+            "Rating", "ImageHeight", "ImageWidth", "Orientation", "BitDepth",
+            "ExposureBiasValue"
         ])
         self.append_mode = self.config.get("append_mode", False)  # CSVファイルの追記モード設定
         self.base_directory_path = self.config.get("base_directory_root", "/mnt/l/picture/2024/")
@@ -104,9 +105,11 @@ class NEFFileBatchProcess(BaseBatchProcessor):
         """
         exif_data_list = []
         for nef_file in nef_files:
+            # フィルタリングして必要なEXIFデータのみを抽出
             filtered_exif_data = {field: nef_file.get(field) for field in self.exif_fields}
             missing_fields = [field for field, value in filtered_exif_data.items() if value is None]
 
+            # 欠落しているフィールドがあれば警告ログを出力
             if missing_fields:
                 self.logger.warning(f"不完全なEXIFデータ。欠落フィールド: {missing_fields}, ファイル: {filtered_exif_data.get('FileName', '不明')}")
             exif_data_list.append(filtered_exif_data)

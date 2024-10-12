@@ -1,4 +1,5 @@
 import os
+import cv2
 import imageio
 import rawpy
 from PIL import Image
@@ -8,8 +9,8 @@ from log_util import Logger
 
 class ImageLoader:
     """
-    画像をロードし、前処理を行うクラス。
-    JPEG、PNG、BMP、GIF、TIFF、RAWファイルに対応。
+    クラス概要:
+    画像をロードし、前処理を行うクラスです。JPEG、PNG、BMP、GIF、TIFF、RAW形式の画像に対応しています。
     """
 
     SUPPORTED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.gif']
@@ -18,24 +19,28 @@ class ImageLoader:
 
     def __init__(self, logger: Optional[Logger] = None):
         """
-        コンストラクタ。Loggerを設定する。
-        :param logger: ログ出力を行うLoggerオブジェクト
+        コンストラクタ:
+        Loggerオブジェクトを使用して、処理ログを管理します。
+
+        :param logger: ログ出力を行うLoggerオブジェクト (デフォルト: None)
         """
         self.logger = logger if logger else Logger(logger_name='ImageLoader')
 
     def load_image(self, filepath: str, output_bps: int = 8, apply_exif_rotation: bool = True, orientation: int = 1) -> np.ndarray:
         """
-        ファイルパスから画像をロードし、numpy配列として返す。拡張子に応じて適切なロード処理を行う。
+        画像のロード:
+        ファイルパスから画像をロードし、numpy配列として返します。
+        画像の拡張子に応じて適切なライブラリを使用します。
 
         :param filepath: 画像ファイルのパス
-        :param output_bps: RAW画像の出力ビット深度（デフォルトは8ビット）
+        :param output_bps: RAW画像のビット深度 (デフォルト: 8)
         :param apply_exif_rotation: EXIFの回転情報を適用するかどうか
         :param orientation: EXIFから取得したOrientationの値
-        :return: 画像を表すnumpy配列
+        :return: 読み込まれた画像のnumpy配列
         """
         ext = os.path.splitext(filepath)[-1].lower()
         try:
-            # 拡張子に応じて適切なライブラリで画像をロードする
+            # 拡張子に基づいて画像をロード
             if ext in self.SUPPORTED_IMAGE_EXTENSIONS:
                 image = self._load_with_imageio(filepath)
             elif ext in self.SUPPORTED_TIFF_EXTENSIONS:
@@ -45,12 +50,16 @@ class ImageLoader:
             else:
                 raise ValueError(f"Unsupported file extension: {ext}")
             
-            # 必要に応じてEXIFの回転情報を適用する
+            # EXIFの回転情報を適用（必要に応じて）
             if apply_exif_rotation:
                 image = self._apply_exif_rotation(image, orientation)
 
-            # 必要に応じてガンマ補正を行う。
-            image = self._apply_gamma_correction(image, gamma=2.2)
+            # RAW画像には追加の処理を適用
+            if ext in self.SUPPORTED_RAW_EXTENSIONS:
+                image = self._adjust_brightness(image)
+                image = self._apply_gamma_correction(image, gamma=2.2)
+                image = self._denoise_image(image)
+                image = self._sharpen_image(image)
 
             return image
         except Exception as e:
@@ -59,7 +68,7 @@ class ImageLoader:
 
     def _load_with_imageio(self, filepath: str) -> np.ndarray:
         """
-        imageioを使用して画像をロードする。
+        imageioライブラリで画像をロードします。
 
         :param filepath: 画像ファイルのパス
         :return: 読み込んだ画像のnumpy配列
@@ -72,7 +81,7 @@ class ImageLoader:
 
     def _load_with_pil(self, filepath: str) -> np.ndarray:
         """
-        PIL (Pillow) を使用して画像をロードする。
+        PIL (Pillow) ライブラリでTIFF画像をロードします。
 
         :param filepath: 画像ファイルのパス
         :return: 読み込んだ画像のnumpy配列
@@ -86,19 +95,18 @@ class ImageLoader:
 
     def _load_with_rawpy(self, filepath: str) -> np.ndarray:
         """
-        rawpyを使用してRAW画像をロードする。
+        rawpyライブラリでRAW画像をロードし、postprocessでRGB形式に変換します。
 
         :param filepath: 画像ファイルのパス
-        :return: 読み込んだ画像のnumpy配列
+        :return: 読み込んだRAW画像のnumpy配列
         """
         try:
             with rawpy.imread(filepath) as raw:
                 rgb_image = raw.postprocess(
-                    output_color=rawpy.ColorSpace.Adobe, 
-                    output_bps=16,        # 16ビット深度で処理
-                    use_camera_wb=True,   # カメラのホワイトバランスを使用
-                    no_auto_bright=True,  # 自動輝度補正を無効化
-                    gamma=(1, 1)          # ガンマ補正を無効化（後で適用するため）
+                    output_color=rawpy.ColorSpace.sRGB,
+                    use_camera_wb=True,  
+                    no_auto_bright=True,  
+                    gamma=(1, 1)  
                     )
             return np.array(rgb_image)
         except Exception as e:
@@ -107,11 +115,11 @@ class ImageLoader:
 
     def _apply_exif_rotation(self, image: np.ndarray, orientation: int) -> np.ndarray:
         """
-        EXIFの回転情報を使用して画像を正しい向きに補正する。
+        EXIFの回転情報を使用して画像の向きを調整します。
 
         :param image: 読み込まれた画像のnumpy配列
         :param orientation: EXIFから取得したOrientationの値
-        :return: 回転補正された画像のnumpy配列
+        :return: 調整後の画像
         """
         try:
             if orientation == 3:
@@ -125,65 +133,44 @@ class ImageLoader:
         
         return image
 
-    def _apply_gamma_correction(self, image, gamma=2.2):
+    def _adjust_brightness(self, image: np.ndarray) -> np.ndarray:
+        """
+        画像の輝度を自動補正します（ヒストグラム均等化）。
+
+        :param image: 補正対象の画像
+        :return: 輝度が補正された画像
+        """
+        gray_image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        equalized_image = cv2.equalizeHist(gray_image)
+        return cv2.cvtColor(equalized_image, cv2.COLOR_GRAY2RGB)
+
+    def _apply_gamma_correction(self, image: np.ndarray, gamma: float = 2.2) -> np.ndarray:
         """
         ガンマ補正を適用します。
+
+        :param image: ガンマ補正対象の画像
+        :param gamma: ガンマ値（デフォルトは2.2）
+        :return: ガンマ補正後の画像
         """
         inv_gamma = 1.0 / gamma
-        image = image / 65535.0  # 16ビット画像の正規化
-        corrected_image = np.power(image, inv_gamma)
-        return (corrected_image * 65535).astype(np.uint16)
-    
-    def _resize_image(self, image: np.ndarray, resize: tuple) -> np.ndarray:
-        """
-        画像を指定されたサイズにリサイズする。
+        table = np.array([((i / 255.0) ** inv_gamma) * 255 for i in range(256)]).astype("uint8")
+        return cv2.LUT(image, table)
 
-        :param image: リサイズ対象の画像（numpy配列）
-        :param resize: (width, height) のタプルで指定された新しいサイズ
-        :return: リサイズされた画像のnumpy配列
+    def _denoise_image(self, image: np.ndarray) -> np.ndarray:
         """
-        try:
-            pil_image = Image.fromarray(image)
-            pil_image = pil_image.resize(resize, Image.ANTIALIAS)
-            return np.array(pil_image)
-        except Exception as e:
-            self.logger.error(f"Failed to resize image: {e}")
-            raise
+        画像のノイズを除去します。
 
-    def _rotate_image(self, image: np.ndarray, angle: float) -> np.ndarray:
+        :param image: ノイズ除去対象の画像
+        :return: ノイズ除去後の画像
         """
-        画像を指定された角度で回転させる。
+        return cv2.fastNlMeansDenoisingColored(image, None, 10, 10, 7, 21)
 
-        :param image: 回転対象の画像（numpy配列）
-        :param angle: 回転角度（度単位）
-        :return: 回転された画像のnumpy配列
+    def _sharpen_image(self, image: np.ndarray) -> np.ndarray:
         """
-        try:
-            pil_image = Image.fromarray(image)
-            pil_image = pil_image.rotate(angle, expand=True)
-            return np.array(pil_image)
-        except Exception as e:
-            self.logger.error(f"Failed to rotate image: {e}")
-            raise
+        画像のシャープネスを強調します。
 
-    def load_images_from_directory(self, directory: str, output_bps: int = 16, apply_exif_rotation: bool = True, orientation: int = 1) -> list:
+        :param image: シャープ化対象の画像
+        :return: シャープ化後の画像
         """
-        指定されたディレクトリ内の全画像ファイルをロードし、リストとして返す。
-
-        :param directory: 画像ファイルが格納されたディレクトリのパス
-        :param output_bps: RAW画像の出力ビット深度（デフォルトは16ビット）
-        :param apply_exif_rotation: EXIFの回転情報を適用するかどうか
-        :return: 画像を表すnumpy配列のリスト
-        """
-        images = []
-        for filename in os.listdir(directory):
-            filepath = os.path.join(directory, filename)
-            if os.path.isfile(filepath):
-                try:
-                    images.append(self.load_image(filepath, output_bps=output_bps, apply_exif_rotation=apply_exif_rotation, orientation=orientation))
-                except Exception as e:
-                    self.logger.error(f"Failed to load image from {filepath}: {e}")
-                    continue
-        return images
-
- 
+        kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])  # シャープ化フィルタ
+        return cv2.filter2D(image, -1, kernel)
