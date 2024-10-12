@@ -5,44 +5,43 @@ import rawpy
 
 class ImageUtils:
     @staticmethod
-    def preprocess_image(image, size=(300, 300), augment=False):
+    def preprocess_image_for_mtcNN(image, size=(640, 480), augment=False):
         """
         JPEGやPNG画像用の前処理を行います。
 
         :param image: 入力画像 (JPEGやPNG)
         :param size: リサイズするサイズ (幅, 高さ)
         :param augment: データ拡張を有効化するかどうか
-        :return: 前処理された画像（Blob形式）
+        :return: 前処理された画像（NumPy配列形式）
         """
         # 画像をRGBに変換
         image_rgb = ImageUtils._to_rgb(image)
 
         # データ型を確認して適切に変換
         if image_rgb.dtype != np.uint8:
-            image_rgb = np.clip(image_rgb, 0, 255)
-            image_rgb = image_rgb.astype(np.uint8)
+            image_rgb = np.clip(image_rgb, 0, 255).astype(np.uint8)
 
         # データ拡張のオプション
         if augment:
             image_rgb = ImageUtils.augment_image(image_rgb)
 
         # リサイズ
-        # image_resized = cv2.resize(image_rgb, size)
+        image_resized = cv2.resize(image_rgb, size)
 
-        # Blob形式に変換
-        blob = cv2.dnn.blobFromImage(image_rgb, 1.0, size, (104.0, 177.0, 123.0))
+        # ピクセル値を[0, 1]の範囲にスケーリング
+        image_scaled = image_resized.astype(np.float32) / 255.0
 
-        return blob
+        return image_scaled
 
     @staticmethod
-    def preprocess_raw_image(raw_input, size=(300, 300), augment=False):
+    def preprocess_raw_image(raw_input, size=(640, 480), augment=False):
         """
-        RAW形式の画像を処理し、DNNモデルに適した形式に変換します。
+        RAW形式の画像を処理し、MTCNNモデルに適した形式に変換します。
 
         :param raw_input: RAW画像ファイルのパス、またはすでに読み込まれたnumpy配列
         :param size: リサイズするサイズ (幅, 高さ)
         :param augment: データ拡張を有効化するかどうか
-        :return: 前処理された画像（Blob形式）
+        :return: 前処理された画像（NumPy配列形式）
         """
         # RAWデータの読み込み
         if isinstance(raw_input, np.ndarray):
@@ -50,23 +49,19 @@ class ImageUtils:
         else:
             rgb_image = ImageUtils._load_raw_image(raw_input)
 
-        # 16-bit RGB画像を8-bitにスケーリング
-        # rgb_image = (rgb_image / 256).astype(np.uint8)
+        # RGB画像をfloat32に変換し、MTCNNに適した形式にする
+        rgb_image = np.asarray(rgb_image, dtype=np.float32)
+        
+        # 画素値を[0, 255]に正規化
+        normalized_image = cv2.normalize(rgb_image, None, 0, 255, cv2.NORM_MINMAX)
+        
+        # RGBに変換 (BGRの場合)
+        normalized_image = cv2.cvtColor(normalized_image, cv2.COLOR_BGR2RGB)
 
-        # データ拡張
-        if augment:
-            rgb_image = ImageUtils.augment_image(rgb_image)
+        # [0, 1] に正規化
+        normalized_image = normalized_image / 255.0
 
-        # ヒストグラム均等化
-        # equalized_image = ImageUtils.apply_histogram_equalization(rgb_image_8bit)
-
-        # 画像をリサイズ
-        # image_resized = cv2.resize(equalized_image, size)
-
-        # Blob形式に変換
-        blob = cv2.dnn.blobFromImage(rgb_image, 1.0, size, (104.0, 177.0, 123.0))
-
-        return blob
+        return normalized_image
 
     @staticmethod
     def _load_raw_image(raw_image_path):
@@ -136,11 +131,11 @@ class ImageUtils:
         :return: 正規化された画像
         """
         # 正規化のために16ビット、14ビットの値を浮動小数点に変換
-        max_value = image.max()
-        normalized_image = image / max_value  # 0から1の範囲に正規化
+        # max_value = image.max()
+        # normalized_image = image / max_value  # 0から1の範囲に正規化
 
         # ヒストグラムストレッチ（最小値と最大値を0-1の範囲にストレッチ）
-        stretched_image = ImageUtils._histogram_stretch(normalized_image)
+        stretched_image = ImageUtils._histogram_stretch(image)
 
         # 出力ビット深度にスケーリング
         scaled_image = ImageUtils._scale_bit_depth(stretched_image, target_bit_depth)
@@ -262,3 +257,17 @@ class ImageUtils:
             return (image * 65535).astype(np.uint16)
         else:
             raise ValueError("Unsupported target bit depth. Use 8, 14, or 16.")
+        
+    def resize_image(image, max_dimension):
+        """
+        画像を指定した最大サイズにリサイズします（アスペクト比を維持）。
+        :param image: 入力画像 (numpy array)
+        :param max_dimension: 最大サイズ (ピクセル)
+        :return: リサイズされた画像 (numpy array)
+        """
+        h, w = image.shape[:2]
+        if max(h, w) <= max_dimension:
+            return image
+        scale = max_dimension / max(h, w)
+        return cv2.resize(image, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+    

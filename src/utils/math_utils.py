@@ -67,3 +67,28 @@ class MathUtils:
         if denominator == 0:
             return default_value
         return numerator / denominator
+
+    @staticmethod
+    def normalize_sharpness_score(score, max_value=1000, scale=100):
+        """
+        シャープネススコアを0～scaleの範囲に正規化します。
+        :param score: 元のシャープネススコア
+        :param max_value: スコアの最大値（デフォルト1000）
+        :param scale: 正規化後の範囲（デフォルト100）
+        :return: 0～scaleに正規化されたスコア
+        """
+        normalized_score = MathUtils.min_max_normalization(score, 0, max_value) * scale
+        return MathUtils.clip_values(normalized_score, 0, scale)
+    
+    @staticmethod
+    def log_normalize_sharpness_score(score, log_base=10, scale=100):
+        """
+        対数変換を用いてシャープネススコアを0～scaleの範囲に正規化します。
+        :param score: 元のスコア
+        :param log_base: 対数変換のベース（デフォルト10）
+        :param scale: 正規化後の範囲（デフォルト100）
+        :return: 0～scaleに正規化されたスコア
+        """
+        log_score = MathUtils.log_scale(score)
+        normalized_score = (log_score / np.log(log_base)) * scale
+        return MathUtils.clip_values(normalized_score, 0, scale)
