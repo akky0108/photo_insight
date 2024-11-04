@@ -33,7 +33,7 @@ class ConfigChangeHandler(FileSystemEventHandler):
             self.processor.reload_config()
 
 class BaseBatchProcessor(ABC):
-    """バッチ処理の基底クラス。フックやフェーズ管理を行う"""
+    """バッチ処理の基底クラス。フックやフェーズ管理を行い、指定された件数で終了するオプションを追加"""
 
     default_config = {
         "config_path": "./config.yaml",
@@ -41,34 +41,25 @@ class BaseBatchProcessor(ABC):
         "setting_2": "default_value_2"
     }
 
-    def __init__(self, config_path: Optional[str] = None, logger: Optional[Logger] = None, max_workers: int = 2):
+    def __init__(self, config_path: Optional[str] = None, logger: Optional[Logger] = None, max_workers: int = 2, max_process_count: Optional[int] = None):
         """バッチ処理の初期設定"""
-        # 環境変数のロード
         load_dotenv()
-
-        # プロジェクトのルートディレクトリを取得（環境変数がない場合はカレントディレクトリ）
         self.project_root = os.getenv('PROJECT_ROOT', os.getcwd())
-
-        # ロガーの初期化: ロガーが外部から渡されていない場合はデフォルトのロガーを生成
         self.logger = logger if logger else Logger(logger_name=self.__class__.__name__).get_logger()
-
-        # 主要な属性の設定
         self.max_workers = max_workers
         self.config_path = config_path or self.default_config["config_path"]
         self.config = self.default_config.copy()
         self.start_time = None
         self.end_time = None
+        self.max_process_count = max_process_count  # 処理件数制限
+        self.processed_count = 0  # 処理件数のカウンタ
 
-        # 各フェーズに対してフックを保持する辞書
         self.hooks: Dict[HookType, List[Tuple[int, Callable[[], None]]]] = {
             hook_type: [] for hook_type in HookType
         }
 
-        # コンフィグの読み込みと変更監視の開始
         self.load_config(self.config_path)
         self._start_config_watcher(self.config_path)
-
-        # Graceful shutdownをシグナルハンドラに設定
         signal.signal(signal.SIGINT, self._handle_shutdown)
         signal.signal(signal.SIGTERM, self._handle_shutdown)
 
@@ -87,7 +78,6 @@ class BaseBatchProcessor(ABC):
             else:
                 raise ValueError(f"Unsupported config file format: {config_path}")
 
-            # 読み込んだコンフィグをバリデートして更新
             self.validate_config(loaded_config)
             self.config.update(loaded_config)
             self.logger.info(f"Configuration loaded from {config_path}.")
@@ -153,6 +143,17 @@ class BaseBatchProcessor(ABC):
             phase_duration = time.time() - phase_start_time
             self._log_phase_end(phase_name, phase_duration)
 
+    def process(self) -> None:
+        """メイン処理フェーズで行う処理。サブクラスで実装"""
+        while self.max_process_count is None or self.processed_count < self.max_process_count:
+            try:
+                # サブクラスで具体的な処理を実装
+                self.run_task()
+                self.processed_count += 1  # 処理件数の更新
+            except Exception as e:
+                self.logger.error(f"Error processing task: {e}")
+                break
+
     def _log_phase_start(self, phase_name: str) -> None:
         """フェーズ開始時のログ出力"""
         self.logger.info(f"Starting {phase_name} phase.")
@@ -164,7 +165,6 @@ class BaseBatchProcessor(ABC):
     def add_hook(self, hook_type: HookType, func: Callable[[], None], priority: int = 0) -> None:
         """優先度を持つフックを追加"""
         hook_list = self.hooks[hook_type]
-        # 優先度に基づいてフックを追加するロジック
         for index, (existing_priority, _) in enumerate(hook_list):
             if existing_priority == priority:
                 self.logger.warning(f"Hook already exists in {hook_type.value} with priority {priority}: {func}")
@@ -203,20 +203,20 @@ class BaseBatchProcessor(ABC):
         self.cleanup()
         self.end_time = time.time()
         duration = self.end_time - self.start_time
-        self.logger.info(f"Batch process terminated after {duration:.2f} seconds.")
+        self.logger.info(f"Batch process terminated in {duration:.2f} seconds.")
         exit(0)
 
     @abstractmethod
     def setup(self) -> None:
-        """セットアップフェーズで行う処理。サブクラスで実装"""
+        """セットアップフェーズ。サブクラスで実装"""
         pass
 
     @abstractmethod
-    def process(self) -> None:
-        """メイン処理フェーズで行う処理。サブクラスで実装"""
+    def run_task(self) -> None:
+        """個別のタスクを実行。サブクラスで実装"""
         pass
 
     @abstractmethod
     def cleanup(self) -> None:
-        """クリーンアップフェーズで行う処理。サブクラスで実装"""
+        """クリーンアップフェーズ。サブクラスで実装"""
         pass

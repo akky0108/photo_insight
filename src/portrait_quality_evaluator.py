@@ -1,12 +1,14 @@
+import json
 import numpy as np
+import os
 import traceback
 from evaluators.face_evaluator import FaceEvaluator
 from evaluators.sharpness_evaluator import SharpnessEvaluator
 from evaluators.blurriness_evaluator import BlurrinessEvaluator
-from evaluators.contrast_evaluator import ContrastEvaluator  # ContrastEvaluatorをインポート
+from evaluators.contrast_evaluator import ContrastEvaluator
 from image_loader import ImageLoader
 from log_util import Logger
-from typing import Optional
+from typing import Optional, Tuple, Dict, Any
 from utils.image_utils import ImageUtils
 import logging
 
@@ -16,7 +18,7 @@ class PortraitQualityEvaluator:
     各評価ロジックは独立したクラスに委譲されています。
     """
 
-    def __init__(self, image_path_or_array, is_raw=False, logger: Optional[Logger] = None):
+    def __init__(self, image_path_or_array: str | np.ndarray, is_raw: bool = False, logger: Optional[Logger] = None):
         """
         画像のパスまたはnumpy配列を受け取り、評価を行います。
 
@@ -25,101 +27,160 @@ class PortraitQualityEvaluator:
         :param logger: ログを記録するLoggerオブジェクト（省略可能）
         """
         self.is_raw = is_raw
-        self.logger = logger if logger else Logger(logger_name='PortraitQualityEvaluator')
+        self.logger = logger or Logger(logger_name='PortraitQualityEvaluator')
         self.image_loader = ImageLoader(logger=self.logger)
 
-        # 画像がRAWの場合、RGBに変換してロード
         if isinstance(image_path_or_array, str):
+            self.image_path = image_path_or_array
+            self.file_name = os.path.basename(image_path_or_array)
             self.rgb_image = self.image_loader.load_image(image_path_or_array, output_bps=16 if is_raw else 8)
+            self.logger.info(f"画像ファイル {self.file_name} をロードしました")
         elif isinstance(image_path_or_array, np.ndarray):
             self.rgb_image = image_path_or_array
+            self.image_path = None
+            self.file_name = "numpy配列"
         else:
             raise ValueError("Invalid input type for image data")
 
-        self.log_info_enabled = self.logger.isEnabledFor(logging.INFO)
-
-    def evaluate(self):
+    def evaluate(self) -> Dict[str, Any]:
         """
         画像内で顔検出、シャープネス、ピンボケ、コントラストの評価を行います。
+
+        :return: 評価結果の辞書
         """
+        self.logger.info(f"評価開始: 画像ファイル {self.file_name}")
         results = {}
+
         try:
             # 顔検出
-            face_evaluation, face_detected = self._evaluate_face()
+            face_result, face_detected, face_region = self._evaluate_face()
+
+            results['face_evaluation'] = face_result
+            results['face_detected'] = face_detected
+
+            if face_detected and face_region is not None:
+                # 顔領域のシャープネスとコントラスト評価
+                face_attribute_results = self._evaluate_face_attributes(face_region)
+                results.update({
+                    'face_sharpness_score': face_attribute_results['face_sharpness_evaluation'].get('sharpness_score'),
+                    'face_contrast_score': face_attribute_results['face_contrast_evaluation'].get('contrast_score'),
+                })
+
+            else:
+                self.logger.error("顔が検出されなかったか、顔領域が無効です")
+
+            # 画像全体の評価（リサイズ）
+            resized_image = ImageUtils.resize_image(self.rgb_image, max_dimension=2048)
+
+            # 各評価メソッドを呼び出し
             results.update({
-                'face_evaluation': face_evaluation if face_detected else {'message': 'No face detected'},
-                'face_detected': face_detected
+                'sharpness_score': self._evaluate_sharpness(resized_image).get('sharpness_score'),
+                'blurriness_score': self._evaluate_blurriness(resized_image).get('blurriness_score'),
+                'contrast_score': self._evaluate_contrast(resized_image).get('contrast_score'),
             })
 
-            # シャープネス評価
-            sharpness_evaluation = self._evaluate_sharpness()
-            results.update({'sharpness_evaluation': sharpness_evaluation})
-
-            # ピンボケ評価
-            blurriness_evaluation = self._evaluate_blurriness()
-            results.update({'blurriness_evaluation': blurriness_evaluation})
-
-            # コントラスト評価
-            contrast_evaluation = self._evaluate_contrast()
-            results.update({'contrast_evaluation': contrast_evaluation})
-
             return results
+
         except Exception as e:
             self.logger.error(f"評価中のエラー: {str(e)}")
             self.logger.error(traceback.format_exc())
             raise
 
-    def _evaluate_face(self):
+    def _evaluate_face(self) -> Tuple[Dict, bool, Optional[np.ndarray]]:
         """
         顔の検出を行います。顔が検出されなかった場合、デフォルトの結果を返します。
+
+        :return: (顔の評価結果, 顔検出フラグ, 検出された顔領域)
         """
         face_image = ImageUtils.resize_image(self.rgb_image, max_dimension=1024)  # 顔検出用にリサイズ
-        face_evaluation, face_detected = self._safe_evaluate(FaceEvaluator, face_image, "顔")
-        
-        if not face_detected:
-            face_evaluation = {'message': 'No face detected'}
-        
-        return face_evaluation, face_detected
+        face_evaluation = self._safe_evaluate(FaceEvaluator, face_image, "顔")
 
-    def _evaluate_sharpness(self):
-        """
-        画像全体のシャープネスを評価し、結果を返します。
-        """
-        sharpness_image = ImageUtils.resize_image(self.rgb_image, max_dimension=2000)  # シャープネス用リサイズ
-        sharpness_score, sharpness_success = self._safe_evaluate(SharpnessEvaluator, sharpness_image, "シャープネス")
-        return sharpness_score
+        face_detected = face_evaluation.get('success', False)
+        face_region = None
 
-    def _evaluate_blurriness(self):
-        """
-        画像全体のピンボケ度を評価します。
-        """
-        blurriness_image = self.rgb_image  # ピンボケ評価には元の解像度を使用
-        blurriness_score, blurriness_success = self._safe_evaluate(BlurrinessEvaluator, blurriness_image, "ピンボケ")
-        return blurriness_score
+        if face_detected and isinstance(face_evaluation.get('faces', []), list):
+            face_data = face_evaluation['faces']
+            if face_data:
+                box = face_data[0].get('box')
+                if box and len(box) == 4:
+                    original_bbox = self.calculate_original_bbox(box, face_image.shape, self.rgb_image.shape)
+                    face_region = self.rgb_image[original_bbox[1]:original_bbox[1] + original_bbox[3],
+                                                  original_bbox[0]:original_bbox[0] + original_bbox[2]]
+                else:
+                    self.logger.error("顔のバウンディングボックスが無効です")
 
-    def _evaluate_contrast(self):
-        """
-        画像全体のコントラストを評価します。
-        """
-        contrast_image = ImageUtils.resize_image(self.rgb_image, max_dimension=2000)  # コントラスト用リサイズ
-        contrast_score, contrast_success = self._safe_evaluate(ContrastEvaluator, contrast_image, "コントラスト")
-        return contrast_score
+        return face_evaluation, face_detected, face_region
 
-    def _safe_evaluate(self, evaluator_class, image, evaluation_name):
+    def _evaluate_face_attributes(self, face_region: np.ndarray) -> Dict[str, Any]:
         """
-        エラーハンドリングを共通化した評価処理。
+        検出された顔領域のシャープネスとコントラストを評価します。
 
-        :param evaluator_class: 使用する評価クラス
-        :param image: 評価対象の画像
-        :param evaluation_name: 評価名（ログ出力用）
-        :return: 評価結果と評価成功フラグ
+        :param face_region: 検出された顔領域
+        :return: 評価結果の辞書
+        """
+        resized_face_region = ImageUtils.resize_image(face_region, max_dimension=900)  # 長辺が900ピクセルにリサイズ
+        return {
+            'face_sharpness_evaluation': self._evaluate_sharpness(resized_face_region),
+            'face_contrast_evaluation': self._evaluate_contrast(resized_face_region),
+        }
+
+    def calculate_original_bbox(self, box: Tuple[int, int, int, int], face_image_shape: Tuple[int, int, int], original_image_shape: Tuple[int, int, int]) -> Optional[Tuple[int, int, int, int]]:
+        """
+        顔領域のバウンディングボックスを元の画像のサイズに再計算します。
+
+        :param box: 顔領域のバウンディングボックス (x, y, width, height)
+        :param face_image_shape: 顔検出用にリサイズされた画像のサイズ
+        :param original_image_shape: 元の画像のサイズ
+        :return: 元の画像のバウンディングボックス (x, y, width, height) または None
         """
         try:
-            score = evaluator_class().evaluate(image)
-            if self.log_info_enabled:
-                self.logger.info(f"{evaluation_name}評価: {score}")
-            return score, True
+            fx = original_image_shape[1] / face_image_shape[1]
+            fy = original_image_shape[0] / face_image_shape[0]
+            return int(box[0] * fx), int(box[1] * fy), int(box[2] * fx), int(box[3] * fy)
         except Exception as e:
-            self.logger.error(f"{evaluation_name}評価エラー: {str(e)}")
-            return {'error': f'{evaluation_name} evaluation failed'}, False
+            self.logger.error(f"バウンディングボックスの計算中にエラーが発生しました: {str(e)}")
+            return None
 
+    def _safe_evaluate(self, evaluator_class, image: np.ndarray, evaluation_name: str) -> Dict[str, Any]:
+        """
+        安全に評価を実行し、例外が発生した場合はエラーメッセージを返します。
+
+        :param evaluator_class: 評価クラス
+        :param image: 評価対象の画像
+        :param evaluation_name: 評価の名前（ログ用）
+        :return: 評価結果の辞書
+        """
+        try:
+            evaluator = evaluator_class()
+            return evaluator.evaluate(image)
+        except Exception as e:
+            self.logger.error(f"{evaluation_name}評価中に例外が発生しました: {str(e)}")
+            self.logger.error(traceback.format_exc())
+            return {'error': f"{evaluation_name}評価中にエラーが発生しました"}
+
+    def _evaluate_sharpness(self, image: np.ndarray) -> Dict[str, Any]:
+        """
+        シャープネス評価を行います。
+
+        :param image: 評価対象の画像
+        :return: 評価結果の辞書
+        """
+        return self._safe_evaluate(SharpnessEvaluator, image, "シャープネス")
+
+    def _evaluate_blurriness(self, image: np.ndarray) -> Dict[str, Any]:
+        """
+        ピンボケ評価を行います。
+
+        :param image: 評価対象の画像
+        :return: 評価結果の辞書
+        """
+        return self._safe_evaluate(BlurrinessEvaluator, image, "ピンボケ")
+
+    def _evaluate_contrast(self, image: np.ndarray) -> Dict[str, Any]:
+        """
+        コントラスト評価を行います。
+
+        :param image: 評価対象の画像
+        :return: 評価結果の辞書
+        """
+        return self._safe_evaluate(ContrastEvaluator, image, "コントラスト")

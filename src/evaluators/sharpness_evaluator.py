@@ -4,12 +4,16 @@ from utils.image_utils import ImageUtils
 
 # Sharpness Evaluator
 class SharpnessEvaluator:
-    def evaluate(self, image: np.ndarray) -> float:
+    """
+    シャープネスを評価するクラス。
+    """
+    
+    def evaluate(self, image: np.ndarray) -> dict:
         """
         画像のシャープネスを評価します。
 
         :param image: 入力画像（BGR形式またはグレースケール）
-        :return: シャープネススコア（高いほどシャープ）
+        :return: 評価結果を含む辞書
         """
         # 画像がカラーの場合はグレースケールに変換
         if len(image.shape) == 3:
@@ -23,4 +27,9 @@ class SharpnessEvaluator:
         # ラプラシアンの分散を計算
         variance = laplacian.var()
 
-        return variance
+        result = {
+            'sharpness_score': variance,  # シャープネススコア（高いほどシャープ）
+            'success': True,              # 成功フラグ（常に成功と仮定）
+        }
+
+        return result

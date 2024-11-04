@@ -9,19 +9,19 @@ class FaceEvaluator:
     MTCNNを用いて顔領域を検出するクラス。
     """
 
-    def __init__(self):
+    def __init__(self, logger=None):
         """
         初期化メソッド。
         """
         self.detector = MTCNN()
-        self.logger = Logger()
+        self.logger = logger
 
     def evaluate(self, image):
         """
         画像内で顔を検出し、結果を返す。
 
         :param image: RGB形式の画像
-        :return: 検出された顔領域のリストと成功フラグ
+        :return: 検出結果の辞書（顔領域、信頼度、検出数、成功フラグなど）
         """
         try:
             # MTCNNを用いて顔を検出
@@ -40,11 +40,23 @@ class FaceEvaluator:
                         'confidence': confidence
                     })
 
-            # 検出された顔領域のリストと、検出が成功したかどうかを返す
-            return faces, bool(faces)
+            # 結果の辞書を作成して返す
+            result = {
+                'faces': faces,           # 検出された顔のリスト
+                'success': bool(faces),    # 検出成功フラグ
+                'num_faces': len(faces),   # 検出された顔の数
+            }
+
+            return result
 
         except Exception as e:
             # エラーハンドリング
             self.logger.error(f"Error during face detection: {e}")
             self.logger.error(traceback.format_exc())
-            return {'error': 'Face detection failed'}, False
+            
+            # エラー時の結果を返す
+            return {
+                'error': 'Face detection failed',
+                'success': False,
+                'num_faces': 0
+            }
