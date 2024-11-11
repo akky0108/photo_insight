@@ -118,7 +118,8 @@ class PortraitQualityEvaluator:
         :param face_region: 検出された顔領域
         :return: 評価結果の辞書
         """
-        resized_face_region = ImageUtils.resize_image(face_region, max_dimension=900)  # 長辺が900ピクセルにリサイズ
+        # 長辺を256ピクセルにリサイズ
+        resized_face_region = ImageUtils.resize_image(face_region, max_dimension=256)
         return {
             'face_sharpness_evaluation': self._evaluate_sharpness(resized_face_region),
             'face_contrast_evaluation': self._evaluate_contrast(resized_face_region),

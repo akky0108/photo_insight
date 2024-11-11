@@ -124,9 +124,12 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                 break
 
     def process_image(self, file_name: str, orientation: str, bit_depth: str) -> Optional[Dict[str, Union[str, float, bool]]]:
-        self.logger.info(f"Start processing image: {os.path.basename(file_name)}")
+        # 絶対パスではなくファイル名のみを使用
+        image_name = os.path.basename(file_name)
+        self.logger.info(f"Start processing image: {image_name}")
+
         result = {
-            "file_name": file_name,
+            "file_name": image_name,  # ファイル名のみを保存
             "sharpness_score": None,
             "blurriness_score": None,
             "contrast_score": None,
@@ -138,12 +141,12 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         try:
             image = self._load_and_preprocess_image(file_name, orientation, bit_depth)
             evaluator = PortraitQualityEvaluator(image)
-            result.update(self._evaluate_image(evaluator, file_name))
+            result.update(self._evaluate_image(evaluator, image_name))  # ここも修正
             return result
         except FileNotFoundError as fnfe:
             self.logger.error(f"File not found: {fnfe}")
         except Exception as e:
-            self.logger.error(f"Error processing image {file_name}: {e}")
+            self.logger.error(f"Error processing image {image_name}: {e}")
         return None
 
     def _load_and_preprocess_image(self, file_name: str, orientation: str, bit_depth: str):

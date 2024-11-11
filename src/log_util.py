@@ -16,13 +16,16 @@ class Logger:
                 cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self, config_file=None, logger_name='MyAppLogger'):
+    def __init__(self, project_root=None, config_file=None, logger_name='MyAppLogger'):
         if getattr(self, '_initialized', False):
             return  # 既に初期化済みの場合は何もしない
 
-        # デフォルトのconfig_fileパスは実行クラス（スクリプト）の場所とする
+        # プロジェクトルートからデフォルトのconfig_fileパスを指定
         if config_file is None:
-            config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logging_config.yaml')
+            if project_root:
+                config_file = os.path.join(project_root, 'config', 'logging_config.yaml')
+            else:
+                config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config', 'logging_config.yaml')
 
         # YAMLファイルからロギング設定を読み込む
         if os.path.exists(config_file):
@@ -101,7 +104,8 @@ class Logger:
 
 # 使用例
 if __name__ == "__main__":
-    logger = Logger(logger_name='MyAppLogger')
+    project_root = os.path.dirname(os.path.abspath(__file__))  # プロジェクトルートを取得
+    logger = Logger(project_root=project_root, logger_name='MyAppLogger')
     logger.info("This is an info message with the original logger name.")
     
     logger.change_logger_name('NewLoggerName')

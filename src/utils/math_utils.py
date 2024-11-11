@@ -28,7 +28,7 @@ class MathUtils:
             raise ValueError("min_value and max_value must be different.")
         
         normalized_value = (value - min_value) / (max_value - min_value)
-        return np.clip(normalized_value, 0, 1)  # 0〜1の範囲に収める
+        return np.clip(normalized_value, 0, 100)  # 0〜1の範囲に収める
 
     @staticmethod
     def z_score_normalization(value, mean, std):
