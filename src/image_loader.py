@@ -15,7 +15,7 @@ class ImageLoader:
 
     SUPPORTED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.gif']
     SUPPORTED_TIFF_EXTENSIONS = ['.tiff', '.tif']
-    SUPPORTED_RAW_EXTENSIONS = ['.nef', '.cr2', '.arw', '.dng', '.rw2']
+    SUPPORTED_RAW_EXTENSIONS = ['.nef', '.cr2', '.arw', '.dng', '.rw2', '.orf']
 
     def __init__(self, logger: Optional[Logger] = None):
         """

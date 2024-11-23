@@ -5,7 +5,7 @@ from typing import List, Dict, Optional, Union
 from batch_framework.base_batch import BaseBatchProcessor
 from image_loader import ImageLoader
 from log_util import Logger
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed  # ThreadPoolExecutorに変更
 import multiprocessing
 from portrait_quality_evaluator import PortraitQualityEvaluator
 import psutil
@@ -42,7 +42,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         base_directory_root = self.config.get('base_directory_root', '/mnt/l/picture/2024')
         if date:
             self.base_directory = os.path.join(base_directory_root, date)
-            self.image_csv_file = os.path.join(self.output_directory, f"{date}_nef_exif_data.csv")
+            self.image_csv_file = os.path.join(self.output_directory, f"{date}_raw_exif_data.csv")
             self.result_csv_file = os.path.join(self.output_directory, f"evaluation_results_{date}.csv")
             self.processed_images_file = os.path.join(self.output_directory, f"processed_images_{date}.txt")
         else:
@@ -87,15 +87,16 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
     def process(self) -> None:
         self.logger.info("Processing images in batches of 100...")
-        
+
         unprocessed_images = [img for img in self.image_data if img["file_name"] not in self.processed_images]
-        
+
         for i in range(0, len(unprocessed_images), self.batch_size):
             batch_data = unprocessed_images[i:i + self.batch_size]
             self.logger.info(f"Processing batch {i//self.batch_size + 1} with {len(batch_data)} images")
 
             results = []
-            with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+            # ThreadPoolExecutor に変更
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 futures = {
                     executor.submit(self.process_image, os.path.join(self.base_directory, img_info["file_name"]),
                                     img_info["orientation"], img_info["bit_depth"]): img_info for img_info in batch_data
@@ -176,7 +177,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 # メイン処理のエントリーポイント
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Process images with PortraitQualityBatchProcessor.")
-    parser.add_argument('--config_path', type=str, help='Path to the configuration file.')
+    parser.add_argument("--config_path", type=str, default="/home/mluser/photo_insight/config/config.yaml", help="Config file path") 
     parser.add_argument('--date', type=str, help='Specify the date for directory and file names.')
     args = parser.parse_args()
 

@@ -62,24 +62,17 @@ class BaseBatchProcessor(ABC):
         signal.signal(signal.SIGTERM, self._handle_shutdown)
 
     def load_config(self, config_path: str) -> None:
+        """
+        設定ファイルの読み込み処理をカスタマイズ。
+        親クラスの load_config を呼び出し、必要に応じて独自の設定を適用。
+        """
         try:
-            if not os.path.exists(config_path):
-                raise FileNotFoundError(f"Config file not found at {config_path}. Using default settings.")
-            
-            if config_path.endswith(('.yaml', '.yml')):
-                with open(config_path, 'r') as config_file:
-                    loaded_config = yaml.safe_load(config_file)
-            elif config_path.endswith('.json'):
-                with open(config_path, 'r') as config_file:
-                    loaded_config = json.load(config_file)
-            else:
-                raise ValueError(f"Unsupported config file format: {config_path}")
-
-            self.config.update(loaded_config)
-            self.logger.info(f"Configuration loaded from {config_path}.")
-        
+            self.logger.info(f"Loading configuration from {config_path}")
+            with open(config_path, 'r') as f:
+                self.config.update(yaml.safe_load(f))
         except Exception as e:
-            self.handle_error(f"Error loading configuration from '{config_path}': {e}")
+            self.logger.error(f"Failed to load configuration: {e}")
+            raise
 
     def reload_config(self, config_path: Optional[str] = None) -> None:
         self.logger.info("Reloading configuration.")
@@ -88,19 +81,21 @@ class BaseBatchProcessor(ABC):
         self.load_config(self.config_path)
 
     def _start_config_watcher(self, config_path: str) -> None:
-        event_handler = ConfigChangeHandler(self)
-        observer = Observer()
-        observer.schedule(event_handler, path=os.path.dirname(config_path), recursive=False)
-        observer.start()
-        self.logger.info(f"Started watching for changes in {config_path}.")
+        """設定ファイル変更監視を開始"""
+        try:
+            self.observer = Observer()
+            event_handler = ConfigChangeHandler(self)
+            self.observer.schedule(event_handler, path=os.path.dirname(config_path), recursive=False)
+            self.observer.start()
+            self.logger.info(f"Watching configuration changes in {config_path}")
+        except Exception as e:
+            self.logger.error(f"Failed to start config watcher: {e}")
+            raise
 
     def add_hook(self, hook_type: HookType, func: Callable[[], None], priority: int = 0) -> None:
         hook_list = self.hooks[hook_type]
-        for index, (existing_priority, _) in enumerate(hook_list):
-            if existing_priority < priority:
-                hook_list.insert(index, (priority, func))
-                return
         hook_list.append((priority, func))
+        hook_list.sort(reverse=True, key=lambda x: x[0])
 
     def _execute_hooks(self, hook_type: HookType) -> None:
         """指定されたフックタイプのフックを実行"""
@@ -126,6 +121,9 @@ class BaseBatchProcessor(ABC):
 
     def _handle_shutdown(self, signum, frame):
         self.logger.info(f"Received shutdown signal {signum}.")
+        if hasattr(self, 'observer'):
+            self.observer.stop()
+            self.observer.join()
         self.cleanup()
 
     def execute(self) -> None:
@@ -148,26 +146,32 @@ class BaseBatchProcessor(ABC):
             duration = self.end_time - self.start_time
             self.logger.info(f"Batch process completed in {duration:.2f} seconds.")
 
-
             if errors:
                 self.handle_error(f"Batch process encountered errors: {errors}", raise_exception=True)
 
     def _execute_phase(self, pre_hook_type: HookType, post_hook_type: HookType, phase_function: Callable[[], None], errors: List[Exception]) -> None:
-        """各フェーズの前後フックとフェーズ自体の実行を管理"""
         phase_name = pre_hook_type.name.split('_')[1].lower()
-        self.logger.info(f"Starting {phase_name} phase.")
-        phase_start_time = time.time()
+        self._run_phase_hooks(pre_hook_type, errors)
+        self._run_phase_function(phase_function, phase_name, errors)
+        self._run_phase_hooks(post_hook_type, errors)
 
+    def _run_phase_hooks(self, hook_type: HookType, errors: List[Exception]) -> None:
         try:
-            self._execute_hooks(pre_hook_type)
-            phase_function()
-            self._execute_hooks(post_hook_type)
+            self._execute_hooks(hook_type)
         except Exception as e:
-            self.logger.error(f"{phase_name.capitalize()} phase encountered an error: {e}")
+            self.logger.error(f"Error in {hook_type.name} hooks: {e}")
             errors.append(e)
-        finally:
-            phase_duration = time.time() - phase_start_time
-            self.logger.info(f"{phase_name.capitalize()} phase completed in {phase_duration:.2f} seconds.")
+
+    def _run_phase_function(self, func: Callable[[], None], name: str, errors: List[Exception]) -> None:
+        try:
+            start_time = time.time()
+            self.logger.info(f"Executing {name} phase.")
+            func()
+            duration = time.time() - start_time
+            self.logger.info(f"{name.capitalize()} phase completed in {duration:.2f} seconds.")
+        except Exception as e:
+            self.logger.error(f"Error during {name} phase: {e}")
+            errors.append(e)
 
     @abstractmethod
     def setup(self) -> None:
