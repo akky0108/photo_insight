@@ -5,21 +5,25 @@ from typing import List, Dict, Optional, Union
 from batch_framework.base_batch import BaseBatchProcessor
 from image_loader import ImageLoader
 from log_util import Logger
-from concurrent.futures import ThreadPoolExecutor, as_completed  # ThreadPoolExecutorに変更
+from concurrent.futures import ThreadPoolExecutor, as_completed  # 並列処理用
 import multiprocessing
-from portrait_quality_evaluator import PortraitQualityEvaluator
+from portrait_quality_evaluator import PortraitQualityEvaluator  # PortraitQualityEvaluatorをインポート
 import psutil
 
 class PortraitQualityBatchProcessor(BaseBatchProcessor):
     """ポートレート写真の品質評価を行うバッチ処理クラス"""
 
     def __init__(self, config_path: Optional[str] = None, logger: Optional[Logger] = None, max_workers: Optional[int] = None, date: Optional[str] = None):
+        """
+        コンストラクタ: 設定ファイル、ロガー、並列処理の最大ワーカー数を初期化します。
+        :param config_path: 設定ファイルのパス
+        :param logger: ログを記録するLoggerオブジェクト（省略可能）
+        :param max_workers: 並列処理するワーカー数（CPU数の半分がデフォルト）
+        :param date: 指定された日付のデータを処理するためのオプション
+        """
         config_path = config_path or os.path.join(os.getcwd(), "config.yaml")
         logger = logger or Logger(logger_name="PortraitQualityBatchProcessor")
         self.max_workers = max_workers or (multiprocessing.cpu_count() // 2)
-        
-        # メモリ使用量の制限を設定
-        psutil.virtual_memory().percent / 2
         
         # 親クラスの初期化
         super().__init__(config_path, logger, self.max_workers)
@@ -36,6 +40,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         self.batch_size = 100  # 100件ごとに処理するバッチサイズ
 
     def _set_directories_and_files(self, date: Optional[str]) -> None:
+        """ディレクトリや出力ファイルパスを設定"""
         self.output_directory = self.config.get('output_directory', 'temp')
         os.makedirs(self.output_directory, exist_ok=True)
 
@@ -52,6 +57,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             self.processed_images_file = os.path.join(self.output_directory, "processed_images.txt")
 
     def load_image_data(self) -> List[Dict[str, str]]:
+        """CSVファイルから画像データをロード"""
         self.logger.info(f"Loading image data from {self.image_csv_file}")
         image_data = []
         try:
@@ -70,6 +76,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         return image_data
 
     def setup(self) -> None:
+        """セットアップ: ディレクトリとファイルの存在を確認し、画像データをロード"""
         self.logger.info("Setting up PortraitQualityBatchProcessor...")
         self._check_file_exists(self.base_directory, is_directory=True)
         self._check_file_exists(self.image_csv_file)
@@ -86,8 +93,10 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             raise FileNotFoundError(f"{error_type} not found: {path}")
 
     def process(self) -> None:
+        """画像データをバッチ処理して品質評価を実施"""
         self.logger.info("Processing images in batches of 100...")
 
+        # 未処理の画像のみ抽出
         unprocessed_images = [img for img in self.image_data if img["file_name"] not in self.processed_images]
 
         for i in range(0, len(unprocessed_images), self.batch_size):
@@ -95,7 +104,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             self.logger.info(f"Processing batch {i//self.batch_size + 1} with {len(batch_data)} images")
 
             results = []
-            # ThreadPoolExecutor に変更
+            # 並列処理でバッチを処理
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 futures = {
                     executor.submit(self.process_image, os.path.join(self.base_directory, img_info["file_name"]),
@@ -109,40 +118,45 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                         if result:
                             self.logger.info(f"Processed image {j+1} in batch {i//self.batch_size + 1}: {os.path.basename(img_info['file_name'])}")
                             results.append(result)
+                            # 処理済みの画像リストを更新
                             with open(self.processed_images_file, 'a') as f:
                                 f.write(f"{img_info['file_name']}\n")
                             self.processed_images.add(img_info["file_name"])
                     except Exception as e:
                         self.logger.error(f"Processing failed for {img_info['file_name']}: {e}")
 
+            # 結果をCSVに保存
             if results:
                 self.save_results(results, self.result_csv_file)
 
-            # 全ての画像が処理済みの場合、processed_images_fileを削除
+            # すべての画像が処理済みの場合は中断
             if len(self.processed_images) == len(self.image_data):
                 self.logger.info("All images have been processed. Deleting processed images file.")
                 os.remove(self.processed_images_file)
                 break
 
     def process_image(self, file_name: str, orientation: str, bit_depth: str) -> Optional[Dict[str, Union[str, float, bool]]]:
-        # 絶対パスではなくファイル名のみを使用
+        """単一の画像を処理し、評価を行う"""
         image_name = os.path.basename(file_name)
         self.logger.info(f"Start processing image: {image_name}")
 
         result = {
-            "file_name": image_name,  # ファイル名のみを保存
+            "file_name": image_name,
             "sharpness_score": None,
             "blurriness_score": None,
             "contrast_score": None,
+            "noise_score": None,  # ノイズ評価追加
             "face_detected": None,
             "face_sharpness_score": None,
-            "face_contrast_score": None
+            "face_contrast_score": None,
+            "face_noise_score": None  # 顔のノイズ評価追加
         }
 
         try:
+            # 画像のロードと前処理
             image = self._load_and_preprocess_image(file_name, orientation, bit_depth)
-            evaluator = PortraitQualityEvaluator(image)
-            result.update(self._evaluate_image(evaluator, image_name))  # ここも修正
+            evaluator = PortraitQualityEvaluator(image)  # PortraitQualityEvaluatorを使用
+            result.update(evaluator.evaluate())  # 全評価結果を追加
             return result
         except FileNotFoundError as fnfe:
             self.logger.error(f"File not found: {fnfe}")
@@ -158,7 +172,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         return evaluator.evaluate()
 
     def save_results(self, results: List[Dict[str, Union[str, float, bool]]], file_path: str) -> None:
-        """結果をCSVファイルに保存。ファイルが存在する場合はヘッダを出力しない。"""
+        """結果をCSVファイルに保存"""
         self.logger.info(f"Saving results to {file_path}")
         file_exists = os.path.isfile(file_path)
         with open(file_path, 'a', newline='') as csvfile:
@@ -168,11 +182,10 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                 writer.writeheader()
             writer.writerows(results)
 
-    def run_task(self):
-        pass
-    
     def cleanup(self) -> None:
-        self.logger.info("Cleaning up PortraitQualityBatchProcessor resources...")
+        """バッチ処理後のクリーンアップ処理。"""
+        self.logger.info("クリーンアップが完了しました。")
+
 
 # メイン処理のエントリーポイント
 if __name__ == '__main__':

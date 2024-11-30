@@ -39,10 +39,12 @@ defaults:
 
 weights:
   face_detected:
-    overall_sharpness: 0.3
     face_sharpness: 0.4
-    overall_contrast: 0.2
     face_contrast: 0.1
+    overall_sharpness: 0.3
+    overall_contrast: 0.1
+    overall_blurriness: 0.1
   no_face_detected:
-    overall_sharpness: 0.5
-    overall_contrast: 0.5
+    overall_sharpness: 0.6
+    overall_contrast: 0.2
+    overall_blurriness: 0.2

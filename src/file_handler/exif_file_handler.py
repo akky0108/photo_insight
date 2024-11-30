@@ -4,8 +4,17 @@ import json
 from file_handler.file_handler import FileHandler
 
 class ExifFileHandler(FileHandler):
+    
+    def __init__(self, raw_extensions=None):
+        """コンストラクタ。対応するRAWファイルの拡張子を初期化"""
+        super().__init__()
+        # デフォルトのRAWファイル拡張子リスト
+        self.raw_extensions = raw_extensions or [
+            ".NEF", ".NRW", ".CR2", ".CR3", ".ARW", ".RAF", ".RW2", ".ORF", ".PEF"
+        ]
 
     def read_file(self, file_path, format='exif'):
+        """単一のファイルを読み込む"""
         if not self.file_exists(file_path):
             raise FileNotFoundError(f"ファイルが存在しません: {file_path}")
 
@@ -18,6 +27,7 @@ class ExifFileHandler(FileHandler):
             raise NotImplementedError(f"No plugin registered for format: {format}")
 
     def write_file(self, output_file_path, data, format='text', header=None, write_mode='w'):
+        """ファイルにデータを書き込む"""
         plugin = self.get_plugin(format)
         if plugin:
             plugin.write(output_file_path, data, header)
@@ -25,20 +35,40 @@ class ExifFileHandler(FileHandler):
             raise NotImplementedError(f"No plugin registered for format: {format}")
 
     def delete_file(self, file_path):
+        """ファイルを削除する"""
         if not self.file_exists(file_path):
             raise FileNotFoundError(f"ファイルが存在しません: {file_path}")
         os.remove(file_path)
 
     def update_file(self, file_path, data, format='text'):
+        """ファイルを更新する"""
         self.write_file(file_path, data, format)
 
-    def read_files(self, directory_path, file_extension='.nef'):
+    def read_files(self, directory_path, file_extensions=None):
+        """
+        指定したディレクトリ内のRAWファイルのEXIFデータを取得します。
+        
+        Args:
+            directory_path (str): 読み込み対象のディレクトリパス
+            file_extensions (List[str]): 読み込み対象のファイル拡張子リスト
+        
+        Returns:
+            List[Dict[str, str]]: EXIFデータのリスト
+        """
         if not os.path.isdir(directory_path):
             raise NotADirectoryError(f"ディレクトリが存在しません: {directory_path}")
 
-        files = [f for f in os.listdir(directory_path) if f.lower().endswith(file_extension)]
-        exif_data_list = []
+        # 拡張子リストが指定されていない場合はデフォルトのリストを使用
+        if file_extensions is None:
+            file_extensions = self.raw_extensions
 
+        # 指定した拡張子のRAWファイルをリストアップ
+        files = [
+            f for f in os.listdir(directory_path)
+            if any(f.lower().endswith(ext.lower()) for ext in file_extensions)
+        ]
+
+        exif_data_list = []
         for file in files:
             file_path = os.path.join(directory_path, file)
             exif_data = self.get_exif_data(file_path)
@@ -48,8 +78,8 @@ class ExifFileHandler(FileHandler):
         return exif_data_list
 
     def get_exif_data(self, file_path):
+        """ExifToolを使用してEXIFデータを取得"""
         try:
-            # すべてのEXIFデータを取得
             result = subprocess.run(
                 ['exiftool', '-json', file_path],
                 capture_output=True, text=True, check=True
@@ -58,7 +88,7 @@ class ExifFileHandler(FileHandler):
             if not metadata:
                 raise ValueError("ExifToolの出力が空です")
 
-            # 対象フィールドを数値に変換する
+            # 対象フィールドを数値に変換
             metadata[0] = self.convert_to_numeric(metadata[0])
 
             # ビット深度の取得
@@ -74,8 +104,7 @@ class ExifFileHandler(FileHandler):
             raise RuntimeError(f"予期しないエラーが発生しました: {e}")
 
     def get_bit_depth(self, metadata):
-        """ビット深度を取得する関数"""
-        # ビット深度が存在するかチェック
+        """ビット深度を取得"""
         if 'BitsPerSample' in metadata:
             return metadata['BitsPerSample']
         elif 'BitDepth' in metadata:
@@ -84,21 +113,16 @@ class ExifFileHandler(FileHandler):
             return "ビット深度情報が見つかりません"
 
     def convert_to_numeric(self, metadata):
-        """ISO, Aperture, FocalLength, Orientationを数値に変換する関数"""
-
-        # ISO の数値変換
+        """数値変換を行う"""
         if 'ISO' in metadata:
             metadata['ISO'] = self.convert_iso(metadata['ISO'])
 
-        # Aperture の数値変換
         if 'Aperture' in metadata:
             metadata['Aperture'] = self.convert_aperture(metadata['Aperture'])
 
-        # FocalLength の数値変換
         if 'FocalLength' in metadata:
             metadata['FocalLength'] = self.convert_focal_length(metadata['FocalLength'])
 
-        # Orientation の数値変換
         if 'Orientation' in metadata:
             metadata['Orientation'] = self.convert_orientation(metadata['Orientation'])
 
@@ -112,7 +136,7 @@ class ExifFileHandler(FileHandler):
             return None
 
     def convert_aperture(self, aperture_value):
-        """Aperture（例: f/2.8 形式）を数値に変換"""
+        """Apertureを数値に変換"""
         try:
             if isinstance(aperture_value, str) and aperture_value.startswith("f/"):
                 return float(aperture_value[2:])
@@ -121,7 +145,7 @@ class ExifFileHandler(FileHandler):
             return None
 
     def convert_focal_length(self, focal_length_value):
-        """FocalLength（例: 50mm 形式）を数値に変換"""
+        """FocalLengthを数値に変換"""
         try:
             if isinstance(focal_length_value, str) and focal_length_value.endswith("mm"):
                 return float(focal_length_value[:-2])
@@ -136,6 +160,5 @@ class ExifFileHandler(FileHandler):
             "Rotate 90 CW": 6,
             "Rotate 270 CW": 8,
             "Rotate 180": 3,
-            # 他の変換も追加可能
         }
         return conversion_map.get(orientation_value, None)
