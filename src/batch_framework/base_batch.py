@@ -1,13 +1,12 @@
 import os
 import yaml
-import json
 import signal
 import time
 from abc import ABC, abstractmethod
 from dotenv import load_dotenv
 from typing import Optional, Callable, List, Dict, Tuple
 from concurrent.futures import ThreadPoolExecutor
-from log_util import Logger
+from log_util import Logger  # ここでロガーをインポート
 from enum import Enum
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -34,7 +33,7 @@ class ConfigChangeHandler(FileSystemEventHandler):
 class BaseBatchProcessor(ABC):
     """バッチ処理の基底クラス"""
 
-    def __init__(self, config_path: Optional[str] = None, logger: Optional[Logger] = None, max_workers: int = 2, max_process_count: Optional[int] = None):
+    def __init__(self, config_path: Optional[str] = None, max_workers: int = 2, max_process_count: Optional[int] = None):
         load_dotenv()
         self.project_root = os.getenv('PROJECT_ROOT') or os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         self.default_config = {
@@ -43,7 +42,9 @@ class BaseBatchProcessor(ABC):
             "setting_2": "default_value_2"
         }
 
-        self.logger = logger if logger else Logger(project_root=self.project_root, logger_name=self.__class__.__name__).get_logger()
+        # ロギングの初期化
+        self.logger = Logger(project_root=self.project_root, logger_name=self.__class__.__name__).get_logger()
+
         self.max_workers = max_workers
         self.config_path = config_path or self.default_config["config_path"]
         self.config = self.default_config.copy()
