@@ -5,7 +5,7 @@ from evaluators.face_evaluator import FaceEvaluator
 from evaluators.sharpness_evaluator import SharpnessEvaluator
 from evaluators.blurriness_evaluator import BlurrinessEvaluator
 from evaluators.contrast_evaluator import ContrastEvaluator
-from evaluators.noise_evaluator import NoiseEvaluator  # ノイズ評価をインポート
+from evaluators.noise_evaluator import NoiseEvaluator  # 修正版 NoiseEvaluator
 from image_loader import ImageLoader
 from log_util import Logger
 from typing import Optional, Tuple, Dict, Any
@@ -17,17 +17,19 @@ class PortraitQualityEvaluator:
     各評価ロジックは独立したクラスに委譲されています。
     """
 
-    def __init__(self, image_path_or_array: str | np.ndarray, is_raw: bool = False, logger: Optional[Logger] = None):
+    def __init__(self, image_path_or_array: str | np.ndarray, is_raw: bool = False, logger: Optional[Logger] = None, max_noise_value: float = 100.0):
         """
         画像のパスまたはnumpy配列を受け取り、評価を行います。
 
         :param image_path_or_array: 画像ファイルのパスまたはnumpy配列
         :param is_raw: RAW画像かどうか
         :param logger: ログを記録するLoggerオブジェクト（省略可能）
+        :param max_noise_value: ノイズ評価時の最大ノイズ閾値
         """
         self.is_raw = is_raw
         self.logger = logger or Logger(logger_name='PortraitQualityEvaluator')
         self.image_loader = ImageLoader(logger=self.logger)
+        self.noise_evaluator = NoiseEvaluator(max_noise_value=max_noise_value)  # 修正版 NoiseEvaluator を初期化
 
         # 画像のロード
         if isinstance(image_path_or_array, str):
@@ -147,7 +149,7 @@ class PortraitQualityEvaluator:
         :return: 評価結果の辞書
         """
         try:
-            evaluator = evaluator_class()
+            evaluator = evaluator_class() if evaluator_class != NoiseEvaluator else self.noise_evaluator
             return evaluator.evaluate(image)
         except Exception as e:
             self.logger.error(f"{evaluation_name}評価中に例外が発生しました: {str(e)}")

@@ -1,135 +1,135 @@
 import os
-import csv
+import pandas as pd
 import yaml
+import numpy as np
 from typing import List, Dict
 from batch_framework.base_batch import BaseBatchProcessor
-from utils.math_utils import MathUtils  # MathUtilsクラスをインポート
-import numpy as np
 
-class ThresholdCalculatorBatchProcessor(BaseBatchProcessor):
-    """
-    シャープネスやブレなどの評価指標の閾値を計算するバッチ処理クラス。
-    """
-
-    def __init__(self, config_path: str, max_workers: int, max_process_count: int):
-        super().__init__(config_path=config_path, max_workers=max_workers, max_process_count=max_process_count)
+class ThresholdCalculator(BaseBatchProcessor):
+    def __init__(self, config_path: str, input_folder: str, output_path: str):
+        super().__init__(config_path=config_path)
+        self.input_folder = input_folder
+        self.output_path = output_path
+        self.evaluation_data = pd.DataFrame()
         self.thresholds = {}
-        self.keywords = "evaluation_results"
 
     def setup(self) -> None:
-        """
-        データの読み込みとセットアップを行う。
-        """
-        self.logger.info("Setting up ThresholdCalculatorBatchProcessor.")
+        super().setup()  # 親クラスの共通セットアップ処理
+        self.logger.info("Setting up ThresholdCalculator.")
         self.evaluation_data = self.load_evaluation_data()
         self.logger.info(f"Loaded {len(self.evaluation_data)} evaluation records.")
 
     def process(self) -> None:
-        """
-        閾値を計算し、結果を保存する。
-        """
         self.logger.info("Calculating thresholds.")
-        self.calculate_thresholds()
+        self._process_batch(self.evaluation_data)
         self.save_thresholds()
 
     def cleanup(self) -> None:
-        """
-        クリーンアップ処理。
-        """
-        self.logger.info("Cleaning up ThresholdCalculatorBatchProcessor.")
+        super().cleanup()  # 親クラスの共通クリーンアップ処理
+        self.logger.info("Cleanup completed for ThresholdCalculator.")
 
-    def load_evaluation_data(self) -> List[Dict[str, str]]:
-        """
-        tempフォルダから評価データを読み込む。
-
-        :return: 読み込んだデータのリスト
-        """
-        temp_folder = "./temp"
-        data = []
-
-        # tempフォルダ内のファイルをチェックして、キーワードが含まれるファイルを読み込む
-        for filename in os.listdir(temp_folder):
-            if self.keywords in filename and filename.endswith(".csv"):
-                file_path = os.path.join(temp_folder, filename)
+    def load_evaluation_data(self) -> pd.DataFrame:
+        all_data = []
+        for filename in os.listdir(self.input_folder):
+            if filename.endswith(".csv") and "evaluation_results_" in filename:
+                file_path = os.path.join(self.input_folder, filename)
                 self.logger.info(f"Loading evaluation data from {file_path}.")
-
                 try:
-                    with open(file_path, mode='r', encoding='utf-8') as csvfile:
-                        reader = csv.DictReader(csvfile)
-                        for row in reader:
-                            # スコアが空白でない場合のみデータを追加
-                            if (
-                                row.get('sharpness_score') and 
-                                row.get('blurriness_score') and 
-                                row.get('face_sharpness_score')
-                            ):
-                                data.append(row)
-                except FileNotFoundError:
-                    self.logger.error(f"File not found: {file_path}")
-                    continue
-        return data
+                    df = pd.read_csv(file_path)
+                    all_data.append(df)
+                except Exception as e:
+                    self.logger.error(f"Error reading {file_path}: {e}")
 
-    def calculate_thresholds(self) -> None:
-        """
-        各評価指標の閾値を計算する。
-        """
-        # 空白や無効なスコアを除外してデータを収集
-        sharpness_scores = [
-            float(row['sharpness_score']) for row in self.evaluation_data 
-            if 'sharpness_score' in row and row['sharpness_score'].strip()
+        if all_data:
+            data = pd.concat(all_data, ignore_index=True)
+            return data
+        else:
+            self.logger.warning("No evaluation data found.")
+            return pd.DataFrame()
+
+    def _process_batch(self, batch_data: pd.DataFrame) -> None:
+        # 新しいスコアを含めた評価指標リスト
+        score_columns = [
+            'sharpness_score', 
+            'blurriness_score', 
+            'contrast_score', 
+            'face_sharpness_score', 
+            'face_contrast_score',
+            'face_noise_score',      # 追加指標
+            'noise_score'             # 追加指標
         ]
-        blurriness_scores = [
-            float(row['blurriness_score']) for row in self.evaluation_data 
-            if 'blurriness_score' in row and row['blurriness_score'].strip()
-        ]
-        face_sharpness_scores = [
-            float(row['face_sharpness_score']) for row in self.evaluation_data 
-            if 'face_sharpness_score' in row and row['face_sharpness_score'].strip()
-        ]
-
-        # 閾値の計算
-        self.thresholds['sharpness_score'] = self.calculate_percentile_thresholds(sharpness_scores)
-        self.thresholds['blurriness_score'] = self.calculate_percentile_thresholds(blurriness_scores)
-        self.thresholds['face_sharpness_score'] = self.calculate_percentile_thresholds(face_sharpness_scores)
-
-    def calculate_percentile_thresholds(self, scores: List[float]) -> Dict[str, float]:
-        """
-        スコアのリストから4段階の閾値を計算する。
-
-        :param scores: スコアのリスト
-        :return: 閾値の辞書
-        """
-        if not scores:
-            return {'level_1': 0, 'level_2': 0, 'level_3': 0, 'level_4': 0}
         
-        scores = np.array(scores)
+        for score_column in score_columns:
+            scores = self.extract_scores(score_column, batch_data)
+            if scores:
+                self.thresholds[score_column] = self.calculate_thresholds_for_scores(scores)
+            else:
+                self.thresholds[score_column] = self.get_zero_thresholds()
+
+    def extract_scores(self, key: str, batch_data: pd.DataFrame) -> List[float]:
+        if key in batch_data.columns:
+            valid_data = batch_data[key].dropna()
+            return [self.convert_to_float(value) for value in valid_data]
+        return []
+
+    def convert_to_float(self, value) -> float:
+        if isinstance(value, np.generic):
+            return float(value)
+        return float(value)
+
+    def calculate_thresholds_for_scores(self, scores: List[float]) -> Dict[str, float]:
+        # 四分位数を計算
+        q1 = np.percentile(scores, 25)
+        q2 = np.median(scores)
+        q3 = np.percentile(scores, 75)
+        
+        # 最小値と最大値を取得
+        min_score = min(scores)
+        max_score = max(scores)
+        
+        # 閾値の設定
         thresholds = {
-            'level_1': float(np.percentile(scores, 25)),  # 下位25%
-            'level_2': float(np.percentile(scores, 50)),  # 中央値
-            'level_3': float(np.percentile(scores, 75)),  # 上位25%
-            'level_4': float(np.percentile(scores, 100)), # 最大値
+            'level_1': min_score,
+            'level_2': q1,
+            'level_3': q2,
+            'level_4': q3,
+            'level_5': max_score
         }
+
         return thresholds
 
-    def save_thresholds(self) -> None:
-        """
-        計算した閾値をconfigフォルダに保存する。
-        """
-        output_path = "./config/thresholds.yaml"
-        self.logger.info(f"Saving thresholds to {output_path}.")
+    def get_zero_thresholds(self) -> Dict[str, float]:
+        return {
+            'level_1': 0.0,
+            'level_2': 0.0,
+            'level_3': 0.0,
+            'level_4': 0.0,
+            'level_5': 0.0
+        }
 
+    def save_thresholds(self) -> None:
+        self.logger.info(f"Saving thresholds to {self.output_path}.")
         try:
-            with open(output_path, mode='w', encoding='utf-8') as yamlfile:
-                yaml.dump(self.thresholds, yamlfile)
+            thresholds_for_yaml = {key: {k: float(v) for k, v in value.items()} for key, value in self.thresholds.items()}
+            with open(self.output_path, mode='w', encoding='utf-8') as yamlfile:
+                yaml.dump(thresholds_for_yaml, yamlfile, default_flow_style=False, allow_unicode=True)
             self.logger.info("Thresholds saved successfully.")
         except Exception as e:
             self.logger.error(f"Failed to save thresholds: {e}")
 
-# エントリポイント
+# メイン処理
 if __name__ == "__main__":
-    processor = ThresholdCalculatorBatchProcessor(
-        config_path="./config/config.yaml",
-        max_workers=4,
-        max_process_count=100
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Calculate thresholds for evaluation data.")
+    parser.add_argument("--config_path", type=str, default="./config/config.yaml", help="Path to the configuration file.")
+    parser.add_argument("--input_folder", type=str, default="./temp/", help="Path to the folder containing evaluation data.")
+    parser.add_argument("--output_path", type=str, default="./config/thresholds.yaml", help="Path to save the thresholds YAML file.")
+    args = parser.parse_args()
+
+    processor = ThresholdCalculator(
+        config_path=args.config_path,
+        input_folder=args.input_folder,
+        output_path=args.output_path
     )
     processor.execute()

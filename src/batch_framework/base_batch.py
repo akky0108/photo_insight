@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from dotenv import load_dotenv
 from typing import Optional, Callable, List, Dict, Tuple
 from concurrent.futures import ThreadPoolExecutor
-from log_util import Logger  # ここでロガーをインポート
+from log_util import Logger
 from enum import Enum
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -38,8 +38,7 @@ class BaseBatchProcessor(ABC):
         self.project_root = os.getenv('PROJECT_ROOT') or os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         self.default_config = {
             "config_path": os.path.join(self.project_root, "config", "config.yaml"),
-            "setting_1": "default_value_1",
-            "setting_2": "default_value_2"
+            "batch_size": 100
         }
 
         # ロギングの初期化
@@ -63,10 +62,7 @@ class BaseBatchProcessor(ABC):
         signal.signal(signal.SIGTERM, self._handle_shutdown)
 
     def load_config(self, config_path: str) -> None:
-        """
-        設定ファイルの読み込み処理をカスタマイズ。
-        親クラスの load_config を呼び出し、必要に応じて独自の設定を適用。
-        """
+        """設定ファイルの読み込み処理"""
         try:
             self.logger.info(f"Loading configuration from {config_path}")
             with open(config_path, 'r') as f:
@@ -174,17 +170,29 @@ class BaseBatchProcessor(ABC):
             self.logger.error(f"Error during {name} phase: {e}")
             errors.append(e)
 
-    @abstractmethod
     def setup(self) -> None:
-        """セットアップフェーズ。サブクラスで実装"""
-        pass
+        """共通のセットアップ処理"""
+        self.logger.info("Executing common setup tasks in BaseBatchProcessor.")
 
-    @abstractmethod
     def process(self) -> None:
-        """個別のタスクを実行。サブクラスで実装"""
-        pass
+        """共通のプロセス処理フロー"""
+        self.logger.info("Executing common batch processing tasks in BaseBatchProcessor.")
+
+        batches = self._generate_batches()
+        for i, batch in enumerate(batches):
+            self.logger.info(f"Processing batch {i + 1}...")
+            self._process_batch(batch)
 
     @abstractmethod
-    def cleanup(self) -> None:
-        """クリーンアップフェーズ。サブクラスで実装"""
+    def _process_batch(self, batch: List[Dict]) -> None:
+        """バッチ単位の具体的処理を子クラスで実装"""
         pass
+
+    def _generate_batches(self) -> List[List[Dict]]:
+        """データを分割してバッチを生成"""
+        batch_size = self.config.get("batch_size", 100)
+        return [self.data[i:i + batch_size] for i in range(0, len(self.data), batch_size)]
+
+    def cleanup(self) -> None:
+        """共通のクリーンアップ処理"""
+        self.logger.info("Executing common cleanup tasks in BaseBatchProcessor.")
