@@ -1,11 +1,18 @@
 import cv2
 import numpy as np
-from utils.image_utils import ImageUtils
 
 class NoiseEvaluator:
     """
     画像のノイズを評価するクラス。
     """
+    def __init__(self, max_noise_value=50.0):
+        """
+        初期化メソッド。
+
+        :param max_noise_value: ノイズの最大許容値（この値を基準にスコアを計算）
+        """
+        self.max_noise_value = max_noise_value
+
     def evaluate(self, image: np.ndarray) -> dict:
         """
         画像のノイズを評価します。
@@ -31,13 +38,14 @@ class NoiseEvaluator:
         # ノイズの標準偏差を計算
         noise_std = np.std(noise)
 
-        # スコアを 0-100 の範囲に正規化（max_noise_value は調整可能）
-        normalized_score = (noise_std / 255.0) * 100
+        # 逆スコア化: ノイズが少ないほど高いスコアにする
+        normalized_score = 100 * (1 - (noise_std / self.max_noise_value))
+        normalized_score = np.clip(normalized_score, 0, 100)  # スコアを 0〜100 の範囲にクリップ
 
         # 結果を辞書で返す
         result = {
             'noise_score': normalized_score,  # 正規化されたノイズスコア
-            'success': normalized_score > 0,   # スコアが0より大きいかどうかのフラグ
+            'success': True if normalized_score > 0 else False,  # スコアが0以上なら成功とみなす
         }
 
         return result

@@ -54,17 +54,24 @@ class ImageLoader:
             if apply_exif_rotation:
                 image = self._apply_exif_rotation(image, orientation)
 
+            # 後処理前の画像を補完
+            self.pre_image = image
+
             # RAW画像には追加の処理を適用
             if ext in self.SUPPORTED_RAW_EXTENSIONS:
-                image = self._adjust_brightness(image)
                 image = self._apply_gamma_correction(image, gamma=2.2)
+                image = self._adjust_brightness(image)
                 image = self._denoise_image(image)
-                image = self._sharpen_image(image)
+                image = self._sharpen_image(image, alpha=1.5)
 
             return image
+
         except Exception as e:
             self.logger.error(f"Failed to load image from {filepath}: {e}")
             raise
+    
+    def get_preimage(self):
+        return self.pre_image
 
     def _load_with_imageio(self, filepath: str) -> np.ndarray:
         """
@@ -94,21 +101,19 @@ class ImageLoader:
             raise
 
     def _load_with_rawpy(self, filepath: str) -> np.ndarray:
-        """
-        rawpyライブラリでRAW画像をロードし、postprocessでRGB形式に変換します。
-
-        :param filepath: 画像ファイルのパス
-        :return: 読み込んだRAW画像のnumpy配列
-        """
         try:
             with rawpy.imread(filepath) as raw:
+                # RAW を最小限の処理で展開 (後処理前)
                 rgb_image = raw.postprocess(
                     output_color=rawpy.ColorSpace.sRGB,
-                    use_camera_wb=True,  
-                    no_auto_bright=True,  
-                    gamma=(1, 1)  
-                    )
-            return np.array(rgb_image)
+                    use_camera_wb=True,
+                    no_auto_bright=True,
+                    gamma=(1, 1),
+                    noise_thr=None
+                )
+
+                return rgb_image
+
         except Exception as e:
             self.logger.error(f"Failed to load image with rawpy from {filepath}: {e}")
             raise
@@ -135,13 +140,14 @@ class ImageLoader:
 
     def _adjust_brightness(self, image: np.ndarray) -> np.ndarray:
         """
-        画像の輝度を自動補正します（ヒストグラム均等化）。
+        画像の輝度を自動補正します（CLAHEを使用）。
 
         :param image: 補正対象の画像
         :return: 輝度が補正された画像
         """
         gray_image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-        equalized_image = cv2.equalizeHist(gray_image)
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        equalized_image = clahe.apply(gray_image)
         return cv2.cvtColor(equalized_image, cv2.COLOR_GRAY2RGB)
 
     def _apply_gamma_correction(self, image: np.ndarray, gamma: float = 2.2) -> np.ndarray:
@@ -152,9 +158,22 @@ class ImageLoader:
         :param gamma: ガンマ値（デフォルトは2.2）
         :return: ガンマ補正後の画像
         """
-        inv_gamma = 1.0 / gamma
-        table = np.array([((i / 255.0) ** inv_gamma) * 255 for i in range(256)]).astype("uint8")
-        return cv2.LUT(image, table)
+
+        if image.dtype == np.uint16:
+            image = image.astype(np.float32) / 65535.0  # 0-1 の範囲に正規化
+            image = np.power(image, 1.0 / gamma)
+            image = (image * 65535).astype(np.uint16)  # uint16 に戻す
+        else:
+            image = image.astype(np.float32) / 255.0  # 0-1 の範囲に正規化
+            image = np.power(image, 1.0 / gamma)
+            image = (image * 255).astype(np.uint8)  # uint8 に戻す
+        return image
+
+    def _calculate_noise_level(self, image: np.ndarray) -> float:
+        """ノイズレベルを計算"""
+        gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        return np.std(gray_image)  # 標準偏差をノイズ指標として使用
+
 
     def _denoise_image(self, image: np.ndarray) -> np.ndarray:
         """
@@ -163,14 +182,21 @@ class ImageLoader:
         :param image: ノイズ除去対象の画像
         :return: ノイズ除去後の画像
         """
-        return cv2.fastNlMeansDenoisingColored(image, None, 10, 10, 7, 21)
+        """動的ノイズ除去"""
+        noise_level = self._calculate_noise_level(image)
+        h = max(5, min(30, int(noise_level / 2)))  # ノイズレベルに応じてhを設定
+        return cv2.fastNlMeansDenoisingColored(image, None, h, templateWindowSize=7, searchWindowSize=21)
 
-    def _sharpen_image(self, image: np.ndarray) -> np.ndarray:
+    def _sharpen_image(self, image: np.ndarray, alpha: float = 1.5) -> np.ndarray:
         """
         画像のシャープネスを強調します。
 
         :param image: シャープ化対象の画像
         :return: シャープ化後の画像
         """
-        kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])  # シャープ化フィルタ
-        return cv2.filter2D(image, -1, kernel)
+        """
+        アンシャープマスキングを使用したシャープ化処理
+        """
+        blurred = cv2.GaussianBlur(image, (0, 0), 1.0)
+        sharpened = cv2.addWeighted(image, alpha, blurred, -0.5, 0)
+        return sharpened    

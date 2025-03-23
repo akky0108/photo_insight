@@ -4,6 +4,7 @@ from typing import List, Dict, Optional, Union
 from batch_framework.base_batch import BaseBatchProcessor
 from image_loader import ImageLoader
 from portrait_quality_evaluator import PortraitQualityEvaluator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class PortraitQualityBatchProcessor(BaseBatchProcessor):
     """ポートレート写真の品質評価を行うバッチ処理クラス"""
@@ -80,22 +81,31 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         return image_data
 
     def _process_batch(self, batch: List[Dict[str, str]]) -> None:
-        """バッチ単位で画像処理を実行"""
+        """バッチ単位で画像処理を並列実行"""
         results = []
+        max_workers = self.max_workers or 2  # 並列ワーカー数（デフォルト2）
 
-        for img_info in batch:
-            try:
-                result = self.process_image(
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_img = {
+                executor.submit(
+                    self.process_image,
                     os.path.join(self.base_directory, img_info["file_name"]),
                     img_info["orientation"],
                     img_info["bit_depth"]
-                )
-                if result:
-                    self.logger.info(f"Processed image: {img_info['file_name']}")
-                    results.append(result)
-                    self._mark_as_processed(img_info["file_name"])
-            except Exception as e:
-                self.logger.error(f"Failed to process image {img_info['file_name']}: {e}")
+                ): img_info
+                for img_info in batch
+            }
+
+            for future in as_completed(future_to_img):
+                img_info = future_to_img[future]
+                try:
+                    result = future.result()
+                    if result:
+                        self.logger.info(f"Processed image: {img_info['file_name']}")
+                        results.append(result)
+                        self._mark_as_processed(img_info["file_name"])
+                except Exception as e:
+                    self.logger.error(f"Failed to process image {img_info['file_name']}: {e}")
 
         if results:
             self.save_results(results, self.result_csv_file)
@@ -109,14 +119,22 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             "blurriness_score": None,
             "contrast_score": None,
             "noise_score": None,
+            'local_sharpness_score': None,
+            'local_sharpness_std': None,
+            'local_contrast_score': None,
+            'local_contrast_std': None,
             "face_detected": None,
             "face_sharpness_score": None,
             "face_contrast_score": None,
-            "face_noise_score": None
+            "face_noise_score": None,
+            'face_local_sharpness_score': None,
+            'face_local_sharpness_std': None,
+            'face_local_contrast_score': None,
+            'face_local_contrast_std': None
         }
         try:
             image = self.image_loader.load_image(file_name, orientation, bit_depth)
-            evaluator = PortraitQualityEvaluator(image)
+            evaluator = PortraitQualityEvaluator(image, False ,self.logger, file_name)
             result.update(evaluator.evaluate())
             return result
         except FileNotFoundError:
@@ -135,6 +153,10 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         """結果をCSVファイルに保存"""
         self.logger.info(f"Saving results to {file_path}")
         file_exists = os.path.isfile(file_path)
+        
+        # 昇順にソート
+        results = sorted(results, key=lambda x: x["file_name"])
+        
         with open(file_path, 'a', newline='') as csvfile:
             fieldnames = results[0].keys()
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
