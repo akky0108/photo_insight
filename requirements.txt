@@ -1,74 +1,45 @@
-# PyTorch (CUDA 12.7対応)
-torch==2.2.0+cu127  # CUDA 12.7対応のPyTorchバージョン
+# 深層学習ライブラリ（GPU対応）
+torch==2.2.0+cu127
+torchvision==0.17.0+cu127
+torchaudio==2.2.0+cu127
+--extra-index-url https://download.pytorch.org/whl/cu127
 
-# TensorFlow (GPU版、最新のCUDA 12.x対応)
-tensorflow==2.12.0  # 最新のTensorFlowバージョン
+# 顔検出・整列
+insightface==2.0.0
+retina-face==0.0.1
+face-alignment==1.3.4
+dlib==19.24.1
 
-# cuDNN (通常はCUDAに依存してインストールされる)
-cudnn==8.9.0  # 必要なcuDNNバージョン（CUDA 12.7に対応）
+# 全身検出・構図評価
+mediapipe==0.8.11
+detecto==1.6.1
 
-# OpenCV (画像処理ライブラリ)
-opencv-python==4.5.3.56  # OpenCVの安定版
+# 画像処理・データ拡張
+opencv-python==4.5.3.56
+pillow==8.4.0
+scikit-image==0.19.3
+albumentations==1.3.0
+albumentations-pytorch==0.1.0
+imgaug==0.4.0
 
-# NumPy (科学計算ライブラリ)
-numpy==1.23.5  # 安定したバージョン
+# 評価指標・可視化・統計
+numpy==1.23.5
+scipy==1.9.3
+scikit-learn==1.0.2
+torchmetrics==0.11.2
+matplotlib==3.6.2
+seaborn==0.11.2
 
-# Scikit-learn (機械学習ライブラリ)
-scikit-learn==1.0.2  # 機械学習ライブラリ
+# データ管理・進捗表示
+pandas==1.5.3
+tqdm==4.64.1
+pyyaml==6.0
 
-# Pillow (画像処理ライブラリ)
-pillow==8.4.0  # 画像処理のためのライブラリ
+# 実験ログ・可視化・追跡
+wandb==0.15.0
 
-# MediaPipe (全身検出、構図評価用)
-mediapipe==0.8.11  # 全身検出に必要なライブラリ（構図評価にも使用）
-
-# InsightFace (顔検出用、MTCNNの代替)
-insightface==2.0.0  # 顔検出ライブラリ
-
-# RetinaFace (顔検出ライブラリ、MTCNNの代替)
-retina-face==0.0.1  # 顔検出ライブラリ（必要に応じて）
-
-# SciPy (科学計算用、特に統計評価用)
-scipy==1.9.3  # 科学計算、評価用
-
-# Matplotlib (グラフ描画用)
-matplotlib==3.6.2  # 評価結果を可視化するためのライブラリ
-
-# albumentations (画像データ拡張用)
-albumentations==1.3.0  # データ拡張ライブラリ（評価において補正等を行う場合に有用）
-
-# scikit-image (画像処理、評価用)
-scikit-image==0.19.3  # 画像品質評価や処理に使用
-
-# tqdm (プログレスバー、進捗表示用)
-tqdm==4.64.1  # 長時間の処理中に進捗表示を行うため
-
-# pandas (データ管理、結果保存用)
-pandas==1.5.3  # 評価結果を管理するために使用
-
-# Dlib (顔検出ライブラリ)
-dlib==19.24.1  # 高精度な顔検出用（推奨）
-
-# Detecto (オブジェクト検出ライブラリ)
-detecto==1.6.1  # オブジェクト検出や評価に使用するライブラリ（全身検出にも使用）
-
-# face-alignment (顔アラインメント処理)
-face-alignment==1.3.4  # 顔検出後のアラインメント処理に使用
-
-# torchmetrics (評価指標計算用)
-torchmetrics==0.11.2  # 評価指標（精度、F1スコアなど）を計算するためのライブラリ
-
-# PyYAML (設定ファイル読み込み)
-pyyaml==6.0  # 設定や結果の管理をYAML形式で行うため
-
-# seaborn (可視化ライブラリ)
-seaborn==0.11.2  # Matplotlibの補助的な可視化用ライブラリ
-
-# albumentations-pytorch (PyTorch用画像拡張)
-albumentations-pytorch==0.1.0  # PyTorch用の画像データ拡張ライブラリ
-
-# wandb (実験追跡ツール)
-wandb==0.15.0  # 実験管理と結果追跡用ツール
-
-# imgaug (データ拡張ライブラリ)
-imgaug==0.4.0  # 画像のデータ拡張ライブラリ（追加のデータ補正に使用）
+# ログ強化
+loguru==0.7.2
+coloredlogs==15.0.1
+python-json-logger==2.0.7
+rich==13.7.0
