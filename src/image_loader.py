@@ -1,6 +1,6 @@
 import os
 import cv2
-import imageio
+import imageio.v3 as iio
 import rawpy
 from PIL import Image
 import numpy as np
@@ -26,16 +26,13 @@ class ImageLoader:
         """
         self.logger = logger if logger else Logger(logger_name='ImageLoader')
 
-    def load_image(self, filepath: str, output_bps: int = 8, apply_exif_rotation: bool = True, orientation: int = 1) -> np.ndarray:
+    def load_image(self, filepath: str, output_bps: int = 8, apply_exif_rotation: bool = True, orientation: Optional[int] = None) -> np.ndarray:
         """
         画像のロード:
-        ファイルパスから画像をロードし、numpy配列として返します。
-        画像の拡張子に応じて適切なライブラリを使用します。
-
         :param filepath: 画像ファイルのパス
         :param output_bps: RAW画像のビット深度 (デフォルト: 8)
         :param apply_exif_rotation: EXIFの回転情報を適用するかどうか
-        :param orientation: EXIFから取得したOrientationの値
+        :param orientation: 事前に取得したEXIFのOrientation値（RAW画像のみ）。通常の画像はNoneでOK。
         :return: 読み込まれた画像のnumpy配列
         """
         ext = os.path.splitext(filepath)[-1].lower()
@@ -46,23 +43,18 @@ class ImageLoader:
             elif ext in self.SUPPORTED_TIFF_EXTENSIONS:
                 image = self._load_with_pil(filepath)
             elif ext in self.SUPPORTED_RAW_EXTENSIONS:
-                image = self._load_with_rawpy(filepath)
+                image, raw_orientation = self._load_with_rawpy(filepath)
+
+                # **整合性チェック**
+                if orientation is not None and raw_orientation is not None and orientation != raw_orientation:
+                    self.logger.warning(f"Orientation mismatch: provided={orientation}, detected={raw_orientation} for {filepath}")
+                    orientation = raw_orientation  # 信頼できる方を使う（ここでは rawpy の値を採用）
             else:
                 raise ValueError(f"Unsupported file extension: {ext}")
-            
-            # EXIFの回転情報を適用（必要に応じて）
-            if apply_exif_rotation:
+
+            # EXIFの回転情報を適用（orientation=1 または None の場合はスキップ）
+            if apply_exif_rotation and orientation and orientation != 1:
                 image = self._apply_exif_rotation(image, orientation)
-
-            # 後処理前の画像を補完
-            self.pre_image = image
-
-            # RAW画像には追加の処理を適用
-            if ext in self.SUPPORTED_RAW_EXTENSIONS:
-                image = self._apply_gamma_correction(image, gamma=2.2)
-                image = self._adjust_brightness(image)
-                image = self._denoise_image(image)
-                image = self._sharpen_image(image, alpha=1.5)
 
             return image
 
@@ -81,7 +73,7 @@ class ImageLoader:
         :return: 読み込んだ画像のnumpy配列
         """
         try:
-            return np.array(imageio.imread(filepath))
+            return np.array(iio.imread(filepath))
         except Exception as e:
             self.logger.error(f"Failed to load image with imageio from {filepath}: {e}")
             raise
@@ -100,10 +92,18 @@ class ImageLoader:
             self.logger.error(f"Failed to load image with PIL from {filepath}: {e}")
             raise
 
-    def _load_with_rawpy(self, filepath: str) -> np.ndarray:
+    def _load_with_rawpy(self, filepath: str) -> tuple[np.ndarray, Optional[int]]:
+        """
+        rawpyでRAW画像を読み込む。
+
+        :param filepath: RAW画像のパス
+        :return: (RGB画像, EXIF Orientation値 or None)
+        """
         try:
             with rawpy.imread(filepath) as raw:
-                # RAW を最小限の処理で展開 (後処理前)
+                # Orientation取得（存在しない場合はNone）
+                orientation = raw.sizes.orientation if hasattr(raw.sizes, 'orientation') else None  
+                
                 rgb_image = raw.postprocess(
                     output_color=rawpy.ColorSpace.sRGB,
                     use_camera_wb=True,
@@ -111,11 +111,9 @@ class ImageLoader:
                     gamma=(1, 1),
                     noise_thr=None
                 )
-
-                return rgb_image
-
+                return rgb_image, orientation
         except Exception as e:
-            self.logger.error(f"Failed to load image with rawpy from {filepath}: {e}")
+            self.logger.error(f"Failed to load RAW image with rawpy from {filepath}: {e}")
             raise
 
     def _apply_exif_rotation(self, image: np.ndarray, orientation: int) -> np.ndarray:
@@ -127,26 +125,31 @@ class ImageLoader:
         :return: 調整後の画像
         """
         try:
-            if orientation == 3:
-                image = np.rot90(image, 2)  # 180度回転
-            elif orientation == 6:
-                image = np.rot90(image, -1)  # 270度回転
-            elif orientation == 8:
-                image = np.rot90(image, 1)  # 90度回転
+            # numpy配列をPILイメージに変換
+            img_pil = Image.fromarray(image)
+            
+            # EXIFの回転情報に基づいて画像を回転
+            img_pil = img_pil.transpose(Image.Transpose.EXIF)
+            
+            # PILイメージをnumpy配列に戻す
+            return np.array(img_pil)
         except Exception as e:
             self.logger.warning(f"Failed to apply EXIF rotation: {e}")
-        
-        return image
+            return image
 
     def _adjust_brightness(self, image: np.ndarray) -> np.ndarray:
-        """
-        画像の輝度を自動補正します（CLAHEを使用）。
-
-        :param image: 補正対象の画像
-        :return: 輝度が補正された画像
-        """
         gray_image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        h, w = gray_image.shape
+        area = h * w  # 画像のピクセル数
+
+        if area < 500_000:  # 小さい画像
+            grid_size = (4, 4)
+        elif area < 2_000_000:  # 中サイズ
+            grid_size = (8, 8)
+        else:  # 大きい画像
+            grid_size = (16, 16)
+
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=grid_size)
         equalized_image = clahe.apply(gray_image)
         return cv2.cvtColor(equalized_image, cv2.COLOR_GRAY2RGB)
 
@@ -171,32 +174,32 @@ class ImageLoader:
 
     def _calculate_noise_level(self, image: np.ndarray) -> float:
         """ノイズレベルを計算"""
-        gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        if image.shape[-1] == 3:  # カラーチャンネルがある場合
+            gray_image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)  # RGBで統一
+        else:
+            gray_image = image  # すでにグレースケールならそのまま
         return np.std(gray_image)  # 標準偏差をノイズ指標として使用
 
-
     def _denoise_image(self, image: np.ndarray) -> np.ndarray:
-        """
-        画像のノイズを除去します。
-
-        :param image: ノイズ除去対象の画像
-        :return: ノイズ除去後の画像
-        """
         """動的ノイズ除去"""
         noise_level = self._calculate_noise_level(image)
-        h = max(5, min(30, int(noise_level / 2)))  # ノイズレベルに応じてhを設定
+        mean_brightness = np.mean(cv2.cvtColor(image, cv2.COLOR_RGB2GRAY))
+
+        if mean_brightness > 180:  # 明るい画像ではノイズが少ないのでhを弱める
+            h = max(3, int(noise_level / 3))
+        elif mean_brightness < 50:  # 暗い画像はノイズが多いので強める
+            h = max(10, int(noise_level / 1.5))
+        else:
+            h = max(5, min(30, int(noise_level / 2)))
+
         return cv2.fastNlMeansDenoisingColored(image, None, h, templateWindowSize=7, searchWindowSize=21)
 
     def _sharpen_image(self, image: np.ndarray, alpha: float = 1.5) -> np.ndarray:
-        """
-        画像のシャープネスを強調します。
+        """ アンシャープマスキングを使用したシャープ化処理 """
+        h, w, _ = image.shape
+        sigma = max(0.5, min(2.0, (h + w) / 2000))  # 画像サイズに応じてsigmaを調整
 
-        :param image: シャープ化対象の画像
-        :return: シャープ化後の画像
-        """
-        """
-        アンシャープマスキングを使用したシャープ化処理
-        """
-        blurred = cv2.GaussianBlur(image, (0, 0), 1.0)
+        blurred = cv2.GaussianBlur(image, (0, 0), sigma)
         sharpened = cv2.addWeighted(image, alpha, blurred, -0.5, 0)
-        return sharpened    
+        return sharpened
+    

@@ -1,18 +1,22 @@
 import numpy as np
 import os
 import traceback
+import cv2
+
+from typing import Optional, Tuple, Dict, Any
 
 from evaluators.face_evaluator import FaceEvaluator
 from evaluators.sharpness_evaluator import SharpnessEvaluator
 from evaluators.blurriness_evaluator import BlurrinessEvaluator
 from evaluators.contrast_evaluator import ContrastEvaluator
-from evaluators.noise_evaluator import NoiseEvaluator  # 修正版 NoiseEvaluator
+from evaluators.noise_evaluator import NoiseEvaluator
 from evaluators.local_sharpness_evaluator import LocalSharpnessEvaluator
 from evaluators.local_contrast_evaluator import LocalContrastEvaluator
 
+from detectors.body_detection import FullBodyDetector  # 構図評価用
+
 from image_loader import ImageLoader
 from log_util import Logger
-from typing import Optional, Tuple, Dict, Any
 from utils.image_utils import ImageUtils
 
 class PortraitQualityEvaluator:
@@ -21,155 +25,168 @@ class PortraitQualityEvaluator:
     各評価ロジックは独立したクラスに委譲されています。
     """
 
-    def __init__(self, image_path_or_array: str | np.ndarray, is_raw: bool = False, logger: Optional[Logger] = None, file_name: Optional[str] = None, max_noise_value: float = 100.0, local_region_size: int = 32):
+    def __init__(self, image_input: str | np.ndarray, is_raw: bool = False, logger: Optional[Logger] = None, 
+                 file_name: Optional[str] = None, max_noise_value: float = 100.0, local_region_size: int = 32):
         """
-        画像のパスまたはnumpy配列を受け取り、評価を行います。
-
-        :param image_path_or_array: 画像ファイルのパスまたはnumpy配列
-        :param is_raw: RAW画像かどうか
-        :param logger: ログを記録するLoggerオブジェクト（省略可能）
-        :param logger: ファイル名（省略可能）
-        :param max_noise_value: ノイズ評価時の最大ノイズ閾値
-        :param local_region_size: 局所シャープネス・コントラスト評価の領域サイズ
+        PortraitQualityEvaluator クラスのコンストラクタ。
+        
+        :param image_input: 画像の入力（ファイルパスまたは NumPy 配列）
+        :param is_raw: RAW 画像かどうか（デフォルト: False）
+        :param logger: ログ出力用の Logger インスタンス（省略時はデフォルトロガーを使用）
+        :param file_name: 画像ファイル名（省略時は入力から自動取得）
+        :param max_noise_value: ノイズ評価の最大値（デフォルト: 100.0）
+        :param local_region_size: ローカル評価時のブロックサイズ（デフォルト: 32）
         """
         self.is_raw = is_raw
         self.logger = logger or Logger(logger_name='PortraitQualityEvaluator')
         self.image_loader = ImageLoader(logger=self.logger)
-        self.noise_evaluator = NoiseEvaluator(max_noise_value=max_noise_value)
-        self.local_sharpness_evaluator = LocalSharpnessEvaluator(block_size=local_region_size)
-        self.local_contrast_evaluator = LocalContrastEvaluator(block_size=local_region_size)
+        self.file_name = file_name if isinstance(image_input, np.ndarray) else os.path.basename(image_input)
+        self.image_path = image_input if isinstance(image_input, str) else None
+        
+        self.rgb_image = self._load_image(image_input)
+        self.evaluators = self._initialize_evaluators(max_noise_value, local_region_size)
+        self.logger.info(f"画像ファイル {self.file_name} をロードしました")
 
-        if isinstance(image_path_or_array, str):
-            self.image_path = image_path_or_array
-            self.file_name = os.path.basename(image_path_or_array)
-            self.rgb_image = self.image_loader.load_image(image_path_or_array, output_bps=16 if is_raw else 8)
-        elif isinstance(image_path_or_array, np.ndarray):
-            self.rgb_image = image_path_or_array
-            self.image_path = None
-            self.file_name = file_name if file_name else "numpy配列"
+    def _load_image(self, image_input: str | np.ndarray) -> np.ndarray:
+        """
+        画像をロードするメソッド。
+        
+        :param image_input: 画像の入力（ファイルパスまたは NumPy 配列）
+        :return: ロードした画像の NumPy 配列
+        """
+        if isinstance(image_input, str):
+            return self.image_loader.load_image(image_input, output_bps=16 if self.is_raw else 8)
+        elif isinstance(image_input, np.ndarray):
+            return image_input
         else:
             raise ValueError("無効な入力タイプの画像データ")
-
-        self.logger.info(f"画像ファイル {self.file_name} をロードしました")
+    
+    def _initialize_evaluators(self, max_noise_value: float, local_region_size: int) -> Dict[str, Any]:
+        """
+        各種評価モジュールを初期化する。
+        
+        :param max_noise_value: ノイズ評価の最大値
+        :param local_region_size: ローカル評価時のブロックサイズ
+        :return: 初期化された評価器の辞書
+        """
+        return {
+            "sharpness": SharpnessEvaluator(),
+            "blurriness": BlurrinessEvaluator(),
+            "contrast": ContrastEvaluator(),
+            "noise": NoiseEvaluator(max_noise_value=max_noise_value),
+            "local_sharpness": LocalSharpnessEvaluator(block_size=local_region_size),
+            "local_contrast": LocalContrastEvaluator(block_size=local_region_size),
+            "face": FaceEvaluator(backend='insightface')
+        }
 
     def evaluate(self) -> Dict[str, Any]:
         """
-        画像内で顔検出、シャープネス、ピンボケ、コントラスト、ノイズの評価を行います。
-
-        :return: 評価結果の辞書
+        画像の品質を評価するメソッド。
+        
+        :return: 各評価指標のスコアを含む辞書
         """
         self.logger.info(f"評価開始: 画像ファイル {self.file_name}")
         results = {}
 
         try:
-            # 顔検出と評価
-            face_result, face_detected, face_region = self._evaluate_face()
-            results['face_evaluation'] = face_result
-            results['face_detected'] = face_detected
-
-            # 顔検出成功時、顔領域の詳細評価
-            if face_detected and face_region is not None:
-                face_attribute_results = self._evaluate_face_attributes(face_region)
-                results.update({
-                    'face_sharpness_score': face_attribute_results['face_sharpness_evaluation'].get('sharpness_score'),
-                    'face_contrast_score': face_attribute_results['face_contrast_evaluation'].get('contrast_score'),
-                    'face_noise_score': face_attribute_results['face_noise_evaluation'].get('noise_score'),  # 顔のノイズ評価
-                    'face_local_sharpness_score': face_attribute_results.get('face_local_sharpness_score', 0.0),
-                    'face_local_sharpness_std': face_attribute_results.get('face_local_sharpness_std', 0.0),
-                    'face_local_contrast_score': face_attribute_results.get('face_local_contrast_score', 0.0),
-                    'face_local_contrast_std': face_attribute_results.get('face_local_contrast_std', 0.0),                })
-            else:
-                self.logger.error("顔が検出されなかったか、顔領域が無効です")
-
-            # 画像全体のリサイズと評価
+            # 画像を2048pxにリサイズして評価用に使用
             resized_image = ImageUtils.resize_image(self.rgb_image, max_dimension=2048)
             if resized_image is None:
                 self.logger.error("resized_image が None です。評価をスキップします。")
                 return {}
 
-            # 各評価関数の戻り値を取得し、Noneならエラーログを出力
-            sharpness_eval = self._evaluate_sharpness(resized_image)
-            if sharpness_eval is None:
-                self.logger.error("sharpness_eval が None です: %s", self.image_path)
-                sharpness_eval = {}
-            else:
-                self.logger.info("sharpness_eval 結果: %s", sharpness_eval)
+            face_detected = False  # デフォルト値
+            faces = {}
+            face_boxes = None  # 顔の領域情報
 
-            blurriness_eval = self._evaluate_blurriness(resized_image)
-            if blurriness_eval is None:
-                self.logger.error("blurriness_eval が None です: %s", self.image_path)
-                blurriness_eval = {}
-            else:
-                self.logger.info("blurriness_eval 結果: %s", blurriness_eval)
+            for key, evaluator in self.evaluators.items():
+                # 顔評価の場合は1024pxにリサイズした画像を使用
+                target_image = ImageUtils.resize_image(self.rgb_image, max_dimension=1024) if key == "face" else resized_image
 
-            contrast_eval = self._evaluate_contrast(resized_image)
-            if contrast_eval is None:
-                self.logger.error("contrast_eval が None です: %s", self.image_path)
-                contrast_eval = {}
-            else:
-                self.logger.info("contrast_eval 結果: %s", contrast_eval)
+                if key == "face":
+                    face_result = self._evaluate_face(evaluator, self.rgb_image)  # 修正
+                    results.update(face_result)
+                else:
+                    results.update(self._safe_evaluate(evaluator, target_image, key))
 
-            noise_eval = self._evaluate_noise(resized_image)
-            if noise_eval is None:
-                self.logger.error("noise_eval が None です: %s", self.image_path)
-                noise_eval = {}
-            else:
-                self.logger.info("noise_eval 結果: %s", noise_eval)
-
-            local_sharpness_eval = self._evaluate_local_sharpness(resized_image)
-            if local_sharpness_eval is None:
-                self.logger.error("local_sharpness_eval が None です: %s", self.image_path)
-                local_sharpness_eval = {}
-            else:
-                self.logger.info("local_sharpness_eval 結果: %s", local_sharpness_eval)
-
-            local_contrast_eval = self._evaluate_local_contrast(resized_image)
-            if local_contrast_eval is None:
-                self.logger.error("local_contrast_eval が None です: %s", self.image_path)
-                local_contrast_eval = {}
-            else:
-                self.logger.info("local_contrast_eval 結果: %s", local_contrast_eval)
-
-            # 結果を辞書に格納（None回避のためデフォルト値を設定）
-            results.update({
-                'sharpness_score': sharpness_eval.get('sharpness_score', 0.0),
-                'blurriness_score': blurriness_eval.get('blurriness_score', 0.0),
-                'contrast_score': contrast_eval.get('contrast_score', 0.0),
-                'noise_score': noise_eval.get('noise_score', 0.0),
-                'local_sharpness_score': local_sharpness_eval.get('local_sharpness_score', 0.0),
-                'local_sharpness_std': local_sharpness_eval.get('local_sharpness_std', 0.0),
-                'local_contrast_score': local_contrast_eval.get('local_contrast_score', 0.0),
-                'local_contrast_std': local_contrast_eval.get('local_contrast_std', 0.0),
-            })
-
-            return results  # 評価結果を返す
-
+            return results
         except Exception as e:
             self.logger.error(f"評価中のエラー: {str(e)}")
             self.logger.error(traceback.format_exc())
-            return {}  # エラーが発生した場合、空の辞書を返す
-
-    def _evaluate_face(self) -> Tuple[Dict, bool, Optional[np.ndarray]]:
+            return {}
+        
+    def _evaluate_face(self, evaluator, image):
         """
-        顔検出を行います。顔が検出されなかった場合、デフォルトの結果を返します。
-
-        :return: (顔の評価結果, 顔検出フラグ, 検出された顔領域)
+        顔評価を高速化しつつ高精度を維持する処理:
+        1. 1024px にリサイズして大まかな顔検出
+        2. 検出した顔の領域をクロップし、元解像度で再検出
         """
-        face_image = ImageUtils.resize_image(self.rgb_image, max_dimension=1024)
-        face_evaluation = self._safe_evaluate(FaceEvaluator, face_image, "顔")
 
-        face_detected = face_evaluation.get('success', False)
-        face_region = None
+        # 元画像の解像度を取得
+        original_h, original_w = image.shape[:2]
+        
+        # 低解像度(1024px)にリサイズ
+        resized_image = ImageUtils.resize_image(image, max_dimension=1024)
 
-        if face_detected:
-            face_data = face_evaluation['faces']
-            if face_data:
-                box = face_data[0].get('box')
-                if box and len(box) == 4:
-                    original_bbox = self.calculate_original_bbox(box, face_image.shape, self.rgb_image.shape)
-                    face_region = self.rgb_image[original_bbox[1]:original_bbox[1] + original_bbox[3],
-                                                  original_bbox[0]:original_bbox[0] + original_bbox[2]]
-        return face_evaluation, face_detected, face_region
+        # 低解像度画像で顔検出
+        face_result = evaluator.evaluate(resized_image)
+        face_detected = face_result.get("face_detected", False)
+
+        if not face_detected:
+            print("顔が検出されませんでした。")
+            return face_result  # 検出できなかった場合はそのまま結果を返す
+
+        # 検出された顔情報を取得
+        faces = face_result.get("faces", [])
+        face_boxes = [face["box"] for face in faces]  # 顔の位置情報を取得
+        
+        print("低解像度で検出された顔の座標:", face_boxes)
+
+        # 高解像度での再検出用リスト
+        refined_faces = []
+        scale_factor = original_w / 1024  # スケール倍率を計算
+
+        for face in faces:
+            x, y, w, h = face["box"]
+
+            # 座標を元の解像度にスケールバック
+            x, y, w, h = int(x * scale_factor), int(y * scale_factor), int(w * scale_factor), int(h * scale_factor)
+
+            # 顔周辺に余白を追加（顔サイズの 10%）
+            padding = int(min(w, h) * 0.2)
+            x1, y1 = max(0, x - padding), max(0, y - padding)
+            x2, y2 = min(original_w, x + w + padding), min(original_h, y + h + padding)
+
+            # 高解像度画像から顔領域をクロップ
+            cropped_face = image[y1:y2, x1:x2]
+
+            cv2.imwrite(f"debug_crop_{x}_{y}.jpg", cropped_face)
+
+
+            # 高解像度で顔を再検出
+            high_res_result = evaluator.evaluate(cropped_face)
+            high_res_faces = high_res_result.get("faces", [])
+
+            for hf in high_res_faces:
+                hx, hy, hw, hh = hf["box"]
+                
+                # 高解像度での検出結果を元画像の座標系に変換
+                refined_face_box = (hx + x1, hy + y1, hw, hh)
+                refined_faces.append({
+                    "box": refined_face_box,
+                    "confidence": hf["confidence"],
+                    "landmarks": hf["landmarks"]
+                })
+
+        print("高解像度で再検出された顔の座標:", [face["box"] for face in refined_faces])
+
+        # 最終的な顔情報を更新して返す
+        face_result["faces"] = refined_faces
+        return face_result
+
+    def _upscale_image(self, image: np.ndarray, scale: float = 2.0) -> np.ndarray:
+        h, w = image.shape[:2]
+        return cv2.resize(image, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_CUBIC)
 
     def _evaluate_face_attributes(self, face_region: np.ndarray) -> Dict[str, Any]:
         """
@@ -244,31 +261,45 @@ class PortraitQualityEvaluator:
             self.logger.error(f"バウンディングボックスの計算中にエラーが発生しました: {str(e)}")
             return None
 
-    def _safe_evaluate(self, evaluator_class, image: np.ndarray, evaluation_name: str) -> Dict[str, Any]:
+    def _get_value(self, result: Dict[str, Any], key: str, default: Any = None) -> Any:
+        """
+        指定されたキーの値を取得する。キーに "local_" が含まれる場合は "_std" の値も取得する。
+
+        :param result: 評価結果の辞書
+        :param key: 取得したいキー（例: 'sharpness_score', 'success'）
+        :param default: キーが存在しない場合のデフォルト値（デフォルトはNone）
+        :return: 指定キーの値。キーに "local_" が含まれる場合は "_std" の値も辞書に含める
+        """
+
+        return result.get(key, default)       
+
+    def _safe_evaluate(self, evaluator, image: np.ndarray, name: str) -> Dict[str, Any]:
         """
         安全に評価を実行し、例外が発生した場合はエラーメッセージを返します。
 
-        :param evaluator_class: 評価クラス
+        :param evaluator: 評価クラスのインスタンス
         :param image: 評価対象の画像
-        :param evaluation_name: 評価の名前（ログ用）
+        :param name: 評価の名前（ログ用）
         :return: 評価結果の辞書
         """
         try:
-            # NoiseEvaluator, LocalSharpnessEvaluator, LocalContrastEvaluator は事前にインスタンス化
-            if evaluator_class == NoiseEvaluator:
-                evaluator = self.noise_evaluator
-            elif evaluator_class == LocalSharpnessEvaluator:
-                evaluator = self.local_sharpness_evaluator
-            elif evaluator_class == LocalContrastEvaluator:
-                evaluator = self.local_contrast_evaluator
-            else:
-                evaluator = evaluator_class()
+            result = evaluator.evaluate(image)
+            extracted_results = {}
 
-            return evaluator.evaluate(image)
+            # 基本スコアの取得
+            score_key = f"{name}_score"
+            extracted_results[score_key] = self._get_value(result, score_key, None)
+
+            # "local_" を含む場合は "_std" の値も取得
+            if "local_" in name:
+                std_key = f"{name}_std"
+                extracted_results[std_key] = self._get_value(result, std_key, None)
+
+            return extracted_results
         except Exception as e:
-            self.logger.error(f"{evaluation_name}評価中に例外が発生しました: {str(e)}")
+            self.logger.error(f"{name} 評価中にエラーが発生しました ({type(e).__name__}): {str(e)}")
             self.logger.error(traceback.format_exc())
-            return {'error': f"{evaluation_name}評価中にエラーが発生しました"}
+            return {f"{name}_score": None}
 
     # 各評価関数
     def _evaluate_sharpness(self, image: np.ndarray) -> Dict[str, Any]:
