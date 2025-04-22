@@ -5,7 +5,7 @@ class NoiseEvaluator:
     """
     画像のノイズを評価するクラス。
     """
-    def __init__(self, max_noise_value=50.0):
+    def __init__(self, max_noise_value=70.0):
         """
         初期化メソッド。
 
@@ -39,7 +39,7 @@ class NoiseEvaluator:
         noise_std = np.std(noise)
 
         # 逆スコア化: ノイズが少ないほど高いスコアにする
-        normalized_score = 100 * (1 - (noise_std / self.max_noise_value))
+        normalized_score = max(0.0, 100 * (1 - (noise_std / self.max_noise_value)))
         normalized_score = np.clip(normalized_score, 0, 100)  # スコアを 0〜100 の範囲にクリップ
 
         # 結果を辞書で返す

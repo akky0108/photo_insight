@@ -1,3 +1,4 @@
+import psutil
 import os
 import csv
 import threading
@@ -10,6 +11,13 @@ from image_loader import ImageLoader
 from portrait_quality_evaluator import PortraitQualityEvaluator
 from utils.image_utils import ImageUtils
 import time
+import gc
+
+def log_memory_usage(logger):
+    process = psutil.Process(os.getpid())
+    mem_info = process.memory_info()
+    rss_in_mb = mem_info.rss / (1024 * 1024)
+    logger.info(f"[MEMORY] Current RSS: {rss_in_mb:.2f} MB")
 
 # スレッドセーフなロックオブジェクト
 lock = threading.Lock()
@@ -62,20 +70,12 @@ class PortraitBatchProcessor(BaseBatchProcessor):
         self._initialize_csv_files()
 
     def process(self) -> None:
-        """画像ファイルをバッチ単位で並列処理し、評価結果をCSVに保存する"""
+        """画像ファイルを逐次処理し、評価結果をCSVに保存する"""
         self.logger.info("Processing images for portrait evaluation.")
-        batch_size = 10  # 一度に処理するバッチサイズ
 
-        # タスクをバッチに分割
-        image_batches = [self.image_files[i:i + batch_size] for i in range(0, len(self.image_files), batch_size)]
+        for image_file, orientation, bit_depth in self.image_files:
+            self._process_single_image(image_file, orientation, bit_depth)
 
-        # 並列処理を実行
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            for batch in image_batches:
-                futures = [executor.submit(self._process_single_image, image_file, orientation, bit_depth) 
-                           for image_file, orientation, bit_depth in batch]
-                for future in futures:
-                    future.result()
 
     def _process_single_image(self, image_file: str, orientation: Optional[int], bit_depth: Optional[int]) -> None:
         """単一の画像を処理し、評価を行う"""
@@ -85,6 +85,7 @@ class PortraitBatchProcessor(BaseBatchProcessor):
         success = False
 
         self.logger.info(f"Processing image {image_file} with bit depth: {bit_depth}")
+        log_memory_usage(self.logger)  # ← メモリログを追加
 
         while retry_count < max_retries and not success:
             try:
@@ -103,6 +104,11 @@ class PortraitBatchProcessor(BaseBatchProcessor):
                 time.sleep(retry_delay)  # リトライ前の待機
         if not success:
             self.logger.error(f"Failed to process {image_file} after {max_retries} retries.")
+
+        if image is not None:
+            self._evaluate_image(image_file, image)
+            del image  # ← 明示的解放
+            gc.collect()
 
     def _load_image_files_from_csv(self, csv_path: str) -> List[Tuple[str, Optional[int], Optional[int]]]:
         """CSVから画像ファイル名、Orientation値、ビット深度を読み込む"""
@@ -140,11 +146,16 @@ class PortraitBatchProcessor(BaseBatchProcessor):
 
     def _evaluate_image(self, image_file: str, image: np.ndarray) -> None:
         """画像を評価し、その結果をCSVに書き込む"""
+        log_memory_usage(self.logger)
         is_raw = image_file.lower().endswith('.nef')
         evaluator = PortraitQualityEvaluator(image_path_or_array=image, is_raw=is_raw, logger=self.logger)
         evaluation_result = evaluator.evaluate()
+        log_memory_usage(self.logger)
 
         self._append_evaluation_result(image_file, evaluation_result)
+
+        del evaluator
+        gc.collect()
 
     def _initialize_csv_files(self) -> None:
         """評価結果を記録するCSVファイルを初期化"""
@@ -181,6 +192,7 @@ class PortraitBatchProcessor(BaseBatchProcessor):
         """バッチ処理後のクリーンアップ処理。"""
         self.logger.info("クリーンアップが完了しました。")
 
+
 def main():
     """コマンドライン引数を受け取り、バッチ処理を実行するメイン関数"""
     parser = argparse.ArgumentParser(description="Portrait Batch Processor")
@@ -191,7 +203,7 @@ def main():
     parser.add_argument('--date', type=str, default=default_date, help=f"CSVファイルや入力フォルダに対応する日付を指定 (例: 2024-08-26). デフォルトは{default_date}です。")
     args = parser.parse_args()
 
-    process = PortraitBatchProcessor(date=args.date)
+    process = PortraitBatchProcessor(date=args.date, max_workers=1)
     process.execute()
 
 if __name__ == "__main__":

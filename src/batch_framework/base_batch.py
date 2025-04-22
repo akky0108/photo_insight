@@ -6,10 +6,10 @@ from abc import ABC, abstractmethod
 from dotenv import load_dotenv
 from typing import Optional, Callable, List, Dict, Tuple
 from concurrent.futures import ThreadPoolExecutor
-from log_util import Logger
 from enum import Enum
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+
 
 class HookType(Enum):
     """フックの種類を定義する列挙型"""
@@ -20,15 +20,22 @@ class HookType(Enum):
     PRE_CLEANUP = 'pre_cleanup'
     POST_CLEANUP = 'post_cleanup'
 
+
 class ConfigChangeHandler(FileSystemEventHandler):
     """コンフィグファイルの変更を監視するハンドラー"""
     def __init__(self, processor: 'BaseBatchProcessor'):
         self.processor = processor
+        self._last_modified_time = 0  # デバウンス用
 
     def on_modified(self, event):
+        now = time.time()
+        if now - self._last_modified_time < 1.0:  # 1秒以内の再発火を無視
+            return
+        self._last_modified_time = now
         if event.src_path == self.processor.config_path:
             self.processor.logger.info(f"Config file {event.src_path} has been modified. Reloading...")
             self.processor.reload_config()
+
 
 class BaseBatchProcessor(ABC):
     """バッチ処理の基底クラス"""
@@ -41,8 +48,8 @@ class BaseBatchProcessor(ABC):
             "batch_size": 100
         }
 
-        # ロギングの初期化
-        self.logger = Logger(project_root=self.project_root, logger_name=self.__class__.__name__).get_logger()
+        # ロギングの初期化（_get_default_loggerを使って統一）
+        self.logger = self._get_default_logger()
 
         self.max_workers = max_workers
         self.config_path = config_path or self.default_config["config_path"]
@@ -52,7 +59,7 @@ class BaseBatchProcessor(ABC):
 
         # フックの初期化
         self.hooks: Dict[HookType, List[Tuple[int, Callable[[], None]]]] = {hook_type: [] for hook_type in HookType}
-        
+
         # コンフィグの読み込みとウォッチャーの開始
         self.load_config(self.config_path)
         self._start_config_watcher(self.config_path)
@@ -61,11 +68,19 @@ class BaseBatchProcessor(ABC):
         signal.signal(signal.SIGINT, self._handle_shutdown)
         signal.signal(signal.SIGTERM, self._handle_shutdown)
 
+    def _get_default_logger(self):
+        import log_util  # 遅延インポート
+        return log_util.AppLogger(
+            project_root=self.project_root,
+            logger_name=self.__class__.__name__
+        ).get_logger()
+
     def load_config(self, config_path: str) -> None:
         """設定ファイルの読み込み処理"""
         try:
             self.logger.info(f"Loading configuration from {config_path}")
             with open(config_path, 'r') as f:
+                self.config.clear()  # 追加: 古い設定をクリア
                 self.config.update(yaml.safe_load(f))
         except Exception as e:
             self.logger.error(f"Failed to load configuration: {e}")
@@ -89,7 +104,7 @@ class BaseBatchProcessor(ABC):
             self.logger.error(f"Failed to start config watcher: {e}")
             raise
 
-    def add_hook(self, hook_type: HookType, func: Callable[[], None], priority: int = 0) -> None:
+    def add_hook(self, hook_type: HookType, func: Callable[..., None], priority: int = 0) -> None:
         hook_list = self.hooks[hook_type]
         hook_list.append((priority, func))
         hook_list.sort(reverse=True, key=lambda x: x[0])
@@ -132,7 +147,7 @@ class BaseBatchProcessor(ABC):
         try:
             # PRE_SETUP, POST_SETUP フェーズ
             self._execute_phase(HookType.PRE_SETUP, HookType.POST_SETUP, self.setup, errors)
-            
+
             # PRE_PROCESS, POST_PROCESS フェーズ
             self._execute_phase(HookType.PRE_PROCESS, HookType.POST_PROCESS, self.process, errors)
 

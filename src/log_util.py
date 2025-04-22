@@ -1,11 +1,14 @@
+# Log_Util.py
+
 import logging
 import logging.config
 import os
 import yaml
 import threading
 import atexit
+from typing import Optional
 
-class Logger:
+class AppLogger:
     _instance = None  # シングルトンインスタンス
     _lock = threading.Lock()  # スレッドセーフのためのロック
 
@@ -16,7 +19,7 @@ class Logger:
                 cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self, project_root=None, config_file=None, logger_name='MyAppLogger'):
+    def __init__(self, project_root: Optional[str] = None, config_file: Optional[str] = None, logger_name: str = 'MyAppLogger'):
         if getattr(self, '_initialized', False):
             return  # 既に初期化済みの場合は何もしない
 
@@ -32,9 +35,12 @@ class Logger:
             try:
                 with open(config_file, 'r') as f:
                     config = yaml.safe_load(f)
-                    logging.config.dictConfig(config)
+                    if isinstance(config, dict):
+                        logging.config.dictConfig(config)
+                    else:
+                        raise ValueError("Invalid config format")
                 print(f"Logging configured from {config_file}.")
-            except (yaml.YAMLError, FileNotFoundError) as e:
+            except (yaml.YAMLError, ValueError, FileNotFoundError) as e:
                 print(f"Error loading logging config: {e}. Using default logging settings.")
                 logging.basicConfig(level=logging.DEBUG)
         else:
@@ -50,43 +56,43 @@ class Logger:
         # 初期化フラグを立てる
         self._initialized = True
 
-    def info(self, message):
+    def _log(self, level: int, message: str):
+        """ログメッセージを出力"""
+        if self.isEnabledFor(level):
+            self.logger.log(level, message)
+
+    def info(self, message: str):
         """INFOレベルのログメッセージを出力"""
-        if self.logger.isEnabledFor(logging.INFO):
-            self.logger.info(message)
+        self._log(logging.INFO, message)
 
-    def error(self, message):
+    def error(self, message: str):
         """ERRORレベルのログメッセージを出力"""
-        if self.logger.isEnabledFor(logging.ERROR):
-            self.logger.error(message)
+        self._log(logging.ERROR, message)
 
-    def debug(self, message):
+    def debug(self, message: str):
         """DEBUGレベルのログメッセージを出力"""
-        if self.logger.isEnabledFor(logging.DEBUG):
-            self.logger.debug(message)
+        self._log(logging.DEBUG, message)
 
-    def warning(self, message):
+    def warning(self, message: str):
         """WARNINGレベルのログメッセージを出力"""
-        if self.logger.isEnabledFor(logging.WARNING):
-            self.logger.warning(message)
+        self._log(logging.WARNING, message)
 
-    def critical(self, message):
+    def critical(self, message: str):
         """CRITICALレベルのログメッセージを出力"""
-        if self.logger.isEnabledFor(logging.CRITICAL):
-            self.logger.critical(message)
+        self._log(logging.CRITICAL, message)
 
     def log_metric(self, metric_name: str, score: float) -> None:
         """メトリック名とスコアをINFOレベルでログに出力"""
-        if self.logger.isEnabledFor(logging.INFO):
-            self.logger.info(f"{metric_name.capitalize()} score: {score}")
+        self.info(f"{metric_name.capitalize()} score: {score}")
 
-    def change_logger_name(self, new_name):
+    def change_logger_name(self, new_name: str):
         """ロガーネームを変更"""
         # 現在のロガーを削除
         logging.Logger.manager.loggerDict.pop(self.logger.name, None)
-
-        # 新しいロガーネームでロガーを再取得
         self.logger = logging.getLogger(new_name)
+
+        # 新しいロガーにハンドラを再設定
+        # 必要なら、ここでハンドラの再設定処理を追加
 
     def get_logger(self):
         """現在のロガーを返す"""
@@ -98,18 +104,6 @@ class Logger:
             self.logger.removeHandler(handler)
             handler.close()
 
-    def isEnabledFor(self, level):
+    def isEnabledFor(self, level: int) -> bool:
         """特定のログレベルが有効かどうかを確認"""
         return self.logger.isEnabledFor(level)
-
-# 使用例
-if __name__ == "__main__":
-    project_root = os.path.dirname(os.path.abspath(__file__))  # プロジェクトルートを取得
-    logger = Logger(project_root=project_root, logger_name='MyAppLogger')
-    logger.info("This is an info message with the original logger name.")
-    
-    logger.change_logger_name('NewLoggerName')
-    logger.info("This is an info message with the new logger name.")
-    
-    logger.log_metric('sharpness', 0.85)
-    logger.log_metric('contrast', 0.75)

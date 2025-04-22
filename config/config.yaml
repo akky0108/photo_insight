@@ -51,3 +51,5 @@ weights:
     contrast_score: 0.3
     noise_score: 0.2
     blurriness_score: 0.0
+
+batch_size: 10

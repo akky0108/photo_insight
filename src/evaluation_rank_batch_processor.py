@@ -1,32 +1,62 @@
+# evaluation_rank_batch_processor.py
+
 import argparse
 import csv
 import datetime
 import os
 from typing import List, Dict, Optional
 import yaml
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from batch_framework.base_batch import BaseBatchProcessor
 
-# 定数の定義
 FACE_DETECTED = "TRUE"
-FACE_SCORE_MULTIPLIER = 2.0  # 顔スコアの倍率
+
+FACE_WEIGHTS = {
+    'sharpness': 0.5,
+    'contrast': 0.3,
+    'noise': 0.1,
+    'local_sharpness': 0.4,
+    'local_contrast': 0.3
+}
+
+GENERAL_WEIGHTS = {
+    'sharpness': 0.4,
+    'contrast': 0.3,
+    'noise': 0.2,
+    'local_sharpness': 0.3,
+    'local_contrast': 0.2
+}
+
+EXTRA_WEIGHTS = {
+    'composition': 0.1,
+    'position': 0.05,
+    'framing': 0.05,
+    'direction': 0.05
+}
+
 SCORE_TYPES = [
-    'blurriness_score', 
-    'sharpness_score', 
-    'contrast_score', 
-    'noise_score',             # 追加
-    'face_contrast_score', 
-    'face_sharpness_score',
-    'face_noise_score'         # 追加
+    'blurriness_score', 'sharpness_score', 'contrast_score', 'noise_score',
+    'local_sharpness_score', 'local_contrast_score',
+    'face_sharpness_score', 'face_contrast_score', 'face_noise_score',
+    'face_local_sharpness_score', 'face_local_contrast_score',
+    'composition_rule_based_score', 'face_position_score',
+    'framing_score', 'face_direction_score', 'eye_contact_score'
 ]
 
+
+def weighted_sum(values: Dict[str, float], weights: Dict[str, float]) -> float:
+    return sum(values.get(k, 0.0) * weights.get(k, 0.0) for k in weights)
+
+
 class EvaluationRankBatchProcessor(BaseBatchProcessor):
+
     def __init__(self, config_path: str, max_workers: int = 1, max_process_count: int = 5000, date: Optional[str] = None):
         super().__init__(config_path=config_path, max_workers=max_workers, max_process_count=max_process_count)
         self.date = self._parse_date(date)
         self.weights = {}
         self.paths = {}
-        self.evaluation_data = []
+        self.evaluation_data: List[Dict[str, str]] = []
 
     def _parse_date(self, date_str: Optional[str]) -> str:
         if date_str:
@@ -41,11 +71,11 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
         super().setup()
         self.logger.info("Setting up EvaluationRankBatchProcessor.")
         self.load_config(self.config_path)
-        
+
         evaluation_file_path = os.path.join(self.paths.get('evaluation_data_dir', './temp'), f"evaluation_results_{self.date}.csv")
         if not os.path.exists(evaluation_file_path):
             raise FileNotFoundError(f"Evaluation data file not found: {evaluation_file_path}")
-        
+
         self.evaluation_data = self.load_evaluation_data(evaluation_file_path)
 
     def load_config(self, config_path: str) -> None:
@@ -61,159 +91,118 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
 
     def load_evaluation_data(self, file_path: str) -> List[Dict[str, str]]:
         self.logger.info(f"Loading evaluation data from {file_path}.")
-        data = []
         with open(file_path, 'r', encoding='utf-8') as csvfile:
-            reader = csv.DictReader(csvfile)
-            for row in reader:
-                row['face_detected'] = row.get('face_detected', 'TRUE').upper()
-                data.append(row)
-        return data
+            return [
+                {**row, 'face_detected': row.get('face_detected', 'TRUE').upper()}
+                for row in csv.DictReader(csvfile)
+            ]
 
     def calculate_overall_evaluation(self, entry: Dict[str, str]) -> None:
-        face_detected = entry.get('face_detected', 'FALSE').upper() == 'TRUE'
-
-        # 顔の評価の加重
-        FACE_SHARPNESS_WEIGHT = 0.5
-        FACE_CONTRAST_WEIGHT = 0.3
-        FACE_NOISE_WEIGHT = 0.1
-
-        # 局所評価の加重（顔部分、全体部分）
-        LOCAL_SHARPNESS_WEIGHT = 0.4
-        LOCAL_CONTRAST_WEIGHT = 0.3
-
-        # 顔がない場合の評価の加重
-        GENERAL_SHARPNESS_WEIGHT = 0.4
-        GENERAL_CONTRAST_WEIGHT = 0.3
-        GENERAL_NOISE_WEIGHT = 0.2
-
-        # 顔なしの局所評価の加重
-        LOCAL_SHARPNESS_WEIGHT_GENERAL = 0.3
-        LOCAL_CONTRAST_WEIGHT_GENERAL = 0.2
+        face_detected = entry.get('face_detected', 'FALSE') == 'TRUE'
 
         if face_detected:
-            # 顔の評価（シャープネス、コントラスト、ノイズ）
-            face_sharpness = float(entry.get('face_sharpness_score', 0.0) or 0.0)
-            face_contrast = float(entry.get('face_contrast_score', 0.0) or 0.0)
-            face_noise = float(entry.get('face_noise_score', 0.0) or 0.0)
-            
-            # 顔部分の局所評価
-            local_sharpness = float(entry.get('face_local_sharpness_score', 0.0) or 0.0)
-            local_contrast = float(entry.get('face_local_contrast_score', 0.0) or 0.0)
-            
-            # 顔の評価と局所評価を加重計算
-            overall_score = (FACE_SHARPNESS_WEIGHT * face_sharpness +
-                            FACE_CONTRAST_WEIGHT * face_contrast -
-                            FACE_NOISE_WEIGHT * face_noise +
-                            LOCAL_SHARPNESS_WEIGHT * local_sharpness +
-                            LOCAL_CONTRAST_WEIGHT * local_contrast)
+            values = {
+                'sharpness': float(entry.get('face_sharpness_score', 0.0)),
+                'contrast': float(entry.get('face_contrast_score', 0.0)),
+                'noise': float(entry.get('face_noise_score', 0.0)),
+                'local_sharpness': float(entry.get('face_local_sharpness_score', 0.0)),
+                'local_contrast': float(entry.get('face_local_contrast_score', 0.0)),
+            }
+            default_weights = FACE_WEIGHTS
+            weight_key = 'face'
         else:
-            # 顔が検出されない場合の全体評価（シャープネス、コントラスト、ノイズ）
-            sharpness = float(entry.get('sharpness_score', 0.0) or 0.0)
-            contrast = float(entry.get('contrast_score', 0.0) or 0.0)
-            noise = float(entry.get('noise_score', 0.0) or 0.0)
-            
-            # 全体部分の局所評価
-            local_sharpness = float(entry.get('local_sharpness_score', 0.0) or 0.0)
-            local_contrast = float(entry.get('local_contrast_score', 0.0) or 0.0)
-            
-            # 全体の評価と局所評価を加重計算
-            overall_score = (GENERAL_SHARPNESS_WEIGHT * sharpness +
-                            GENERAL_CONTRAST_WEIGHT * contrast -
-                            GENERAL_NOISE_WEIGHT * noise +
-                            LOCAL_SHARPNESS_WEIGHT_GENERAL * local_sharpness +
-                            LOCAL_CONTRAST_WEIGHT_GENERAL * local_contrast)
+            values = {
+                'sharpness': float(entry.get('sharpness_score', 0.0)),
+                'contrast': float(entry.get('contrast_score', 0.0)),
+                'noise': float(entry.get('noise_score', 0.0)),
+                'local_sharpness': float(entry.get('local_sharpness_score', 0.0)),
+                'local_contrast': float(entry.get('local_contrast_score', 0.0)),
+            }
+            default_weights = GENERAL_WEIGHTS
+            weight_key = 'general'
 
-        # 計算された総合評価をエントリにセット
-        entry['overall_evaluation'] = round(overall_score, 2)
+        weights = self.weights.get(weight_key, default_weights)
+        base_score = weighted_sum(values, weights)
 
-    def get_weights_for_entry(self, entry: Dict[str, str]) -> Dict[str, float]:
-        face_detected = entry.get('face_detected', 'FALSE').upper() == 'TRUE'
-        return self.weights.get('face_detected' if face_detected else 'no_face_detected', {})
+        extra_values = {
+            'composition': float(entry.get('composition_rule_based_score', 0.0)),
+            'position': float(entry.get('face_position_score', 0.0)),
+            'framing': float(entry.get('framing_score', 0.0)),
+            'direction': float(entry.get('face_direction_score', 0.0))
+        }
+        extra_weights = self.weights.get('extra', EXTRA_WEIGHTS)
+        extra_score = weighted_sum(extra_values, extra_weights)
+
+        entry['overall_evaluation'] = round(base_score + extra_score, 2)
 
     def assign_acceptance_flag(self, entry: Dict[str, str]) -> None:
-        overall_threshold = 75.0
-        face_sharpness_threshold = 50.0
-        face_contrast_threshold = 30.0
-        noise_threshold = 20.0
-        face_noise_threshold = 15.0
-        contrast_threshold_lower = 15.0  # 最小コントラスト
-        contrast_threshold_upper = 25.0  # 最大コントラスト
+        thresholds = {
+            'overall': 75.0,
+            'face_sharpness': 50.0,
+            'face_contrast_high': 25.0,
+            'face_contrast_low': 15.0,
+            'noise': 20.0,
+            'face_noise': 15.0
+        }
 
-        overall_score = float(entry.get('overall_evaluation', 0.0) or 0.0)
-        face_sharpness = float(entry.get('face_sharpness_score', 0.0) or 0.0)
-        face_contrast = float(entry.get('face_contrast_score', 0.0) or 0.0)
-        noise = float(entry.get('noise_score', 0.0) or 0.0)
-        face_noise = float(entry.get('face_noise_score', 0.0) or 0.0)
-        contrast = float(entry.get('contrast_score', 0.0) or 0.0)
+        face_detected = entry.get('face_detected') == 'TRUE'
+        overall_score = float(entry.get('overall_evaluation', 0.0))
+        entry['accepted_flag'] = 0
 
-        face_detected = entry.get('face_detected', 'FALSE').upper() == 'TRUE'
+        if face_detected:
+            face_sharpness = float(entry.get('face_sharpness_score', 0.0))
+            face_contrast = float(entry.get('face_contrast_score', 0.0))
+            face_noise = float(entry.get('face_noise_score', 0.0))
 
-        # コントラストとシャープネスの統合評価
-        if contrast >= contrast_threshold_upper and face_sharpness >= face_sharpness_threshold:
-            entry['accepted_flag'] = 1  # 要補正
-        elif contrast >= contrast_threshold_lower and face_sharpness >= face_sharpness_threshold:
-            entry['accepted_flag'] = 2  # 採用（補正不要）
+            if overall_score >= thresholds['overall']:
+                if face_contrast >= thresholds['face_contrast_high'] and face_sharpness >= thresholds['face_sharpness']:
+                    entry['accepted_flag'] = 1
+                elif face_contrast >= thresholds['face_contrast_low'] and face_sharpness >= thresholds['face_sharpness']:
+                    entry['accepted_flag'] = 2
+
+                if face_noise > thresholds['face_noise']:
+                    entry['accepted_flag'] = min(entry['accepted_flag'], 1)
         else:
-            entry['accepted_flag'] = 0  # 不採用
+            sharpness = float(entry.get('sharpness_score', 0.0))
+            contrast = float(entry.get('contrast_score', 0.0))
+            noise = float(entry.get('noise_score', 0.0))
 
-        # 顔が検出されない場合のノイズ評価
-        if noise <= noise_threshold:
-            entry['accepted_flag'] = 2  # 採用（補正不要）
-        else:
-            entry['accepted_flag'] = 1  # 要補正
+            if overall_score >= thresholds['overall']:
+                if contrast >= thresholds['face_contrast_high'] and sharpness >= thresholds['face_sharpness']:
+                    entry['accepted_flag'] = 1
+                elif contrast >= thresholds['face_contrast_low'] and sharpness >= thresholds['face_sharpness']:
+                    entry['accepted_flag'] = 2
 
-        if overall_score >= overall_threshold:
-            if face_detected:
-                # 顔のコントラストとシャープネスに基づく統合評価
-                if face_contrast >= contrast_threshold_upper and face_sharpness >= face_sharpness_threshold:
-                    entry['accepted_flag'] = 1  # 顔のコントラストとシャープネスが高い場合、要補正
-                elif face_contrast >= contrast_threshold_lower and face_sharpness >= face_sharpness_threshold:
-                    entry['accepted_flag'] = 2  # 顔のコントラストとシャープネスが適切な場合、採用（補正不要）
-                else:
-                    entry['accepted_flag'] = 0  # 顔のコントラストまたはシャープネスが低すぎる場合、不採用
-
-                # 顔のノイズ評価
-                if face_noise <= face_noise_threshold:
-                    entry['accepted_flag'] = 2  # 顔のノイズが適切な場合、採用（補正不要）
-                else:
-                    entry['accepted_flag'] = 1  # 顔のノイズが高すぎる場合、要補正
-        else:
-            entry['accepted_flag'] = 0  # 不採用
+                if noise > thresholds['noise']:
+                    entry['accepted_flag'] = min(entry['accepted_flag'], 1)
 
     def process(self) -> None:
         self.logger.info("Processing started.")
+
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             executor.map(self.calculate_overall_evaluation, self.evaluation_data)
 
-        # 採用基準の適用
         for entry in self.evaluation_data:
             self.assign_acceptance_flag(entry)
 
-        face_detected_data = [e for e in self.evaluation_data if e.get('face_detected') == FACE_DETECTED]
-        no_face_detected_data = [e for e in self.evaluation_data if e.get('face_detected') != FACE_DETECTED]
+        group_map = defaultdict(list)
+        for entry in self.evaluation_data:
+            group_id = entry.get('group_id', 'default')
+            group_map[group_id].append(entry)
 
-        sorted_face_detected = sorted(face_detected_data, key=lambda x: -float(x.get('overall_evaluation', 0.0)))
-        sorted_no_face_detected = sorted(no_face_detected_data, key=lambda x: -float(x.get('overall_evaluation', 0.0)))
+        for group_entries in group_map.values():
+            group_entries.sort(key=lambda x: -float(x.get('overall_evaluation', 0.0)))
+            threshold = max(1, int(len(group_entries) * 0.35))
+            for i, entry in enumerate(group_entries):
+                entry['flag'] = 1 if i < threshold else 0
 
-        def assign_flag(sorted_data):
-            threshold_index = max(1, int(len(sorted_data) * 0.35))
-            for i, entry in enumerate(sorted_data):
-                entry['flag'] = 1 if i < threshold_index else 0
-
-        assign_flag(sorted_face_detected)
-        assign_flag(sorted_no_face_detected)
-
-        sorted_data = sorted_face_detected + sorted_no_face_detected
-
-        # 結合後にファイル名順で並べ替え
-        sorted_data = sorted(sorted_data, key=lambda x: x.get('file_name', ''))
-        
+        sorted_data = sorted(self.evaluation_data, key=lambda x: x.get('file_name', ''))
         output_file_path = os.path.join(self.paths.get('output_data_dir', './temp'), f"evaluation_ranking_{self.date}.csv")
         self.output_results(sorted_data, output_file_path)
+
         self.logger.info("Processing completed.")
 
     def _process_batch(self, batch=None):
-        """ シングル画像処理のため、バッチ処理は不要 """
         self.process()
 
     def output_results(self, sorted_data: List[Dict[str, str]], output_file_path: str) -> None:
@@ -226,17 +215,19 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                 writer.writerow({
                     'file_name': entry.get('file_name', 'unknown'),
                     'face_detected': entry.get('face_detected', 'FALSE'),
-                    'overall_evaluation': round(entry.get('overall_evaluation', 0.0), 2),
+                    'overall_evaluation': round(float(entry.get('overall_evaluation', 0.0)), 2),
                     'flag': entry.get('flag', 0),
                     'accepted_flag': entry.get('accepted_flag', 0),
                     **{score: round(float(entry.get(score, 0.0) or 0.0), 2) for score in SCORE_TYPES}
                 })
         self.logger.info("Results output completed.")
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ポートレート評価バッチ処理")
     parser.add_argument("--config_path", type=str, help="Path to the configuration file.")
     parser.add_argument("--date", type=str, help="Date for processing (format: YYYY-MM-DD).")
     args = parser.parse_args()
+
     processor = EvaluationRankBatchProcessor(config_path=args.config_path, date=args.date)
     processor.execute()
