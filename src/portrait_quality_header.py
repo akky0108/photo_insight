@@ -2,6 +2,7 @@ class PortraitQualityHeaderGenerator:
     def __init__(self):
         self.face_evaluation_items = [
             "face_detected", 
+            "faces",
             "face_sharpness_score", 
             "face_contrast_score", 
             "face_noise_score", 

@@ -152,6 +152,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             'local_contrast_score': None,
             'local_contrast_std': None,
             "face_detected": None,
+            "faces": None,
             "face_sharpness_score": None,
             "face_contrast_score": None,
             "face_noise_score": None,
