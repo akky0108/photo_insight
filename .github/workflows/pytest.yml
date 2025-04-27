@@ -19,17 +19,20 @@ jobs:
     - name: Set up Miniconda
       uses: conda-incubator/setup-miniconda@v2
       with:
-        miniconda-version: "latest"  # ここは最新でOK
+        miniconda-version: "latest"
         auto-activate-base: false
 
     - name: Create conda environment with Python 3.10
       run: |
         conda create -n photo_eval_env python=3.10 -y
+        source ~/miniconda3/etc/profile.d/conda.sh  # ★追加
         conda activate photo_eval_env
         conda env update --name photo_eval_env --file environment_combined.yml --prune
         pip install -r pip_requirements.txt
 
     - name: Run tests
       run: |
+        source ~/miniconda3/etc/profile.d/conda.sh  # ★また追加
         conda activate photo_eval_env
         pytest
+
