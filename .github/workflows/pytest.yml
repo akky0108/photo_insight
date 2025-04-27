@@ -3,10 +3,10 @@ name: Run Pytest
 on:
   push:
     branches:
-      - main  # mainブランチにpushしたときにCIを実行
+      - main
   pull_request:
     branches:
-      - main  # mainブランチにPRを作成したときにCIを実行
+      - main
 
 jobs:
   build:
@@ -16,19 +16,20 @@ jobs:
     - name: Check out the repository
       uses: actions/checkout@v2
 
-    - name: Set up conda
+    - name: Set up Miniconda
       uses: conda-incubator/setup-miniconda@v2
       with:
-        conda-version: 4.12.0
-        python-version: 3.10  # 必要に応じてPythonのバージョンを変更
-        environment-file: environment_combined.yml
+        miniconda-version: "latest"  # ここは最新でOK
+        auto-activate-base: false
 
-    - name: Install dependencies
+    - name: Create conda environment with Python 3.10
       run: |
-        conda env update --file environment_combined.yml --prune  # 必要なパッケージをインストール
-        conda activate photo_eval_env  # 仮想環境をアクティブ化
-        pip install -r pip_requirements.txt  # pipの依存関係もインストール
+        conda create -n photo_eval_env python=3.10 -y
+        conda activate photo_eval_env
+        conda env update --name photo_eval_env --file environment_combined.yml --prune
+        pip install -r pip_requirements.txt
 
     - name: Run tests
       run: |
-        pytest  # テストを実行
+        conda activate photo_eval_env
+        pytest
