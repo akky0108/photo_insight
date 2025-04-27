@@ -14,7 +14,6 @@ dependencies:
   - scipy=1.9.3
   - seaborn=0.11.2
   - tqdm=4.64.1
-prefix: /home/mluser/anaconda3/envs/photo_eval_env
   - pip:
     - absl-py==2.2.2
     - albucore==0.0.23
@@ -133,3 +132,4 @@ prefix: /home/mluser/anaconda3/envs/photo_eval_env
     - wandb==0.19.9
     - watchdog==6.0.0
     - wcwidth==0.2.13
+prefix: /home/mluser/anaconda3/envs/photo_eval_env
