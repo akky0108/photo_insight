@@ -2,14 +2,12 @@ name: Run Pytest
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
 
     steps:
@@ -19,20 +17,27 @@ jobs:
     - name: Set up Miniconda
       uses: conda-incubator/setup-miniconda@v2
       with:
-        miniconda-version: "latest"
         auto-activate-base: false
+        miniconda-version: "latest"
 
-    - name: Create conda environment with Python 3.10
+    - name: Generate environment files
+      shell: bash -l
       run: |
-        source $CONDA/etc/profile.d/conda.sh  # ← ここを$CONDAにする！
+        python merge_envs.py --only-pip
+        python merge_envs.py
+
+    - name: Create and update conda environment
+      shell: bash -l
+      run: |
+        source $CONDA/etc/profile.d/conda.sh
         conda create -n photo_eval_env python=3.10 -y
         conda activate photo_eval_env
         conda env update --name photo_eval_env --file environment_combined.yml --prune
-        pip install -r pip_requirements.txt
+        pip install -r requirements.txt
 
     - name: Run tests
-      shell: bash -l  # これも重要
+      shell: bash -l
       run: |
-        source $CONDA/etc/profile.d/conda.sh  # ←ここも
+        source $CONDA/etc/profile.d/conda.sh
         conda activate photo_eval_env
-        pytest
+        pytest -v --tb=short --color=yes

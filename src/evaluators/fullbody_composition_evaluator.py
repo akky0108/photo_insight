@@ -153,7 +153,10 @@ class FullBodyCompositionEvaluator(BaseCompositionEvaluator):
     # --- ヘルパーメソッド ---
 
     def _validate_keypoints(self, keypoints: List[Optional[List[float]]], min_points: int = 1) -> bool:
-        return keypoints is not None and len(keypoints) >= min_points
+        if keypoints is None:
+            return False
+        valid_points = [kp for kp in keypoints if self._is_valid_point(kp)]
+        return len(valid_points) >= min_points
 
     def _is_valid_point(self, point: Optional[List[float]]) -> bool:
         return point is not None and len(point) >= 2 and all(p >= 0 for p in point[:2])
