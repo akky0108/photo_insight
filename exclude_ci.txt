@@ -5,3 +5,7 @@ tensorflow
 torch
 jupyter
 notebook
+pytest
+pytest-mock
+ipykernel
+seaborn

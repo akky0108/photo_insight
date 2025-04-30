@@ -30,7 +30,7 @@ jobs:
           --final environment_combined.yml \
           --requirements requirements.txt \
           --ci environment_ci.yml \
-          --exclude exclude_ci.txt \
+          --exclude exclude_ci.txt
 
     - name: Upload combined env for next job
       uses: actions/upload-artifact@v4
@@ -58,13 +58,22 @@ jobs:
       with:
         auto-activate-base: false
         environment-file: environment_ci.yml
-        activate-environment: test-env
+        activate-environment: photo_eval_env
         python-version: 3.10
 
-    - name: Install test dependencies
+    - name: Create conda env
       run: |
+        conda env remove -n test-env || true
+        conda env create -n test-env -f environment_ci.yml
+
+    - name: Activate env and install test dependencies
+      shell: bash -l {0}
+      run: |
+        conda activate test-env
         conda install -y pytest pytest-mock
 
     - name: Run tests
+      shell: bash -l {0}
       run: |
+        conda activate test-env
         pytest --maxfail=1 --disable-warnings -q
