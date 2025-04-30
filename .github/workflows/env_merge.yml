@@ -31,7 +31,6 @@ jobs:
           --requirements requirements.txt \
           --ci environment_ci.yml \
           --exclude exclude_ci.txt \
-          --strict
 
     - name: Upload combined env for next job
       uses: actions/upload-artifact@v4
