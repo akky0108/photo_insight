@@ -1,0 +1,7 @@
+scipy
+matplotlib
+opencv-python
+tensorflow
+torch
+jupyter
+notebook
