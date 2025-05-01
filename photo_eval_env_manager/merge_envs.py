@@ -78,17 +78,20 @@ def validate_dependencies(dependencies):
                     print(f"⚠️ No version specified for pip package: {pip_pkg}")
 
 def normalize_python_version(dependencies):
-    seen_python = False
+    """Remove invalid or compound python version specs and replace with python=3.10"""
+    python_idx = -1
     for i, dep in enumerate(dependencies):
         if isinstance(dep, str) and dep.lower().startswith("python"):
-            seen_python = True
-            parts = dep.split('=')
-            if len(parts) >= 2 and parts[1].startswith('3.1'):
-                print(f"⚠️ Fixing malformed python version: {dep} → python=3.10")
-                dependencies[i] = 'python=3.10'
-    if not seen_python:
+            version_spec = dep.split('=', 1)[-1] if '=' in dep else ''
+            # 検出条件：明示的に複数バージョン指定 or 不正な形式
+            if ',' in version_spec or not re.fullmatch(r'3\.10(\.\*)?', version_spec):
+                print(f"⚠️ Replacing invalid python spec: {dep} → python=3.10")
+                dependencies[i] = "python=3.10"
+            python_idx = i
+            break
+    if python_idx == -1:
         print("✅ Adding python=3.10 to dependencies (was missing)")
-        dependencies.insert(0, 'python=3.10')
+        dependencies.insert(0, "python=3.10")
 
 def deduplicate_python(dependencies):
     seen = False
