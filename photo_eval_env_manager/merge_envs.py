@@ -1,4 +1,5 @@
-# merge_envs.py
+# merge_envs.py（修正版）
+
 import os
 import sys
 import subprocess
@@ -66,6 +67,9 @@ def validate_version_string(pkg_line):
 def validate_dependencies(dependencies):
     for dep in dependencies:
         if isinstance(dep, str):
+            if dep.lower().startswith("python") and ',' in dep:
+                print(f"❌ Invalid python specifier (multiple versions?): {dep}")
+                sys.exit(1)
             if not validate_version_string(dep):
                 print(f"⚠️ Invalid version format: {dep}")
         elif isinstance(dep, dict) and 'pip' in dep:
@@ -74,12 +78,31 @@ def validate_dependencies(dependencies):
                     print(f"⚠️ No version specified for pip package: {pip_pkg}")
 
 def normalize_python_version(dependencies):
+    seen_python = False
     for i, dep in enumerate(dependencies):
         if isinstance(dep, str) and dep.lower().startswith("python"):
+            seen_python = True
             parts = dep.split('=')
             if len(parts) >= 2 and parts[1].startswith('3.1'):
                 print(f"⚠️ Fixing malformed python version: {dep} → python=3.10")
                 dependencies[i] = 'python=3.10'
+    if not seen_python:
+        print("✅ Adding python=3.10 to dependencies (was missing)")
+        dependencies.insert(0, 'python=3.10')
+
+def deduplicate_python(dependencies):
+    seen = False
+    filtered = []
+    for dep in dependencies:
+        if isinstance(dep, str) and dep.lower().startswith("python"):
+            if not seen:
+                filtered.append(dep)
+                seen = True
+            else:
+                print(f"⚠️ Removing duplicate python entry: {dep}")
+        else:
+            filtered.append(dep)
+    return filtered
 
 def validate_final_env(env_yml):
     print(f"\n🧪 Validating {env_yml} with conda dry-run...")
@@ -157,6 +180,7 @@ def merge_envs(base_yml, pip_json, final_yml, requirements_txt, ci_yml=None, exc
             pip_section.append(pkg)
 
     pip_section.sort()
+    dependencies = deduplicate_python(dependencies)
     base_env['dependencies'] = dependencies
 
     if dry_run:
