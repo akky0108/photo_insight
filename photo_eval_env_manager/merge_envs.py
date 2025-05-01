@@ -4,6 +4,7 @@ import subprocess
 import yaml
 import json
 import argparse
+import re
 
 def parse_pip_package(line):
     if ' @ ' in line:
@@ -62,7 +63,32 @@ def parse_pip_input(pip_json_path):
                 parsed.append({"name": name, "version": version})
             return parsed
 
+def validate_version_string(pkg_line):
+    """
+    Conda のパッケージバージョン指定が不正でないかを確認。
+    例: python=3.10 など。
+    """
+    version_pattern = re.compile(r"^[a-zA-Z0-9_\-]+([=<>!]=?[0-9a-zA-Z\.\*]+)?$")
+    return bool(version_pattern.match(pkg_line))
+
+def validate_dependencies(dependencies):
+    for dep in dependencies:
+        if isinstance(dep, str):
+            if not validate_version_string(dep):
+                print(f"⚠️ 無効なバージョン指定: {dep}")
+        elif isinstance(dep, dict) and 'pip' in dep:
+            for pip_pkg in dep['pip']:
+                if '==' not in pip_pkg:
+                    print(f"⚠️ pip パッケージのバージョンが明示されていません: {pip_pkg}")
+
 def merge_envs(base_yml, pip_json, final_yml, requirements_txt, ci_yml=None, exclude_for_ci=None, strict=False, dry_run=False, only_pip=False, audit=False):
+    if not os.path.exists(base_yml):
+        print(f"❌ ベース環境ファイルが存在しません: {base_yml}")
+        sys.exit(1)
+    if not os.path.exists(pip_json):
+        print(f"❌ pip list のJSONファイルが存在しません: {pip_json}")
+        sys.exit(1)
+
     pip_packages = parse_pip_input(pip_json)
 
     pip_package_names = set()
@@ -95,6 +121,8 @@ def merge_envs(base_yml, pip_json, final_yml, requirements_txt, ci_yml=None, exc
         base_env = yaml.safe_load(f)
 
     dependencies = base_env.get('dependencies', [])
+    validate_dependencies(dependencies)
+    
     pip_section = None
     for dep in dependencies:
         if isinstance(dep, dict) and 'pip' in dep:
