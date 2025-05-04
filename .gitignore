@@ -1,8 +1,22 @@
-__pycache__/
-*.pyc
+# .env ファイルを無視
 .env
-*.log
+
+# ログファイルや一時ファイルを無視
 logs/
 output/
 temp/
+processed_txt/
 wandb/
+
+# Python のコンパイル済みファイルを無視
+*.pyc
+__pycache__/
+
+# Conda ロックファイルなども無視
+conda-lock.yml
+
+# その他、依存関係管理関連
+pip_list.json
+
+# シェルスクリプトなどの実行ログファイル
+*.log

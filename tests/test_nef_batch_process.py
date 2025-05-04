@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from src.batch_processor.nef_batch_process import NEFFileBatchProcess  # ← あなたのモジュールパスに合わせてね
+from batch_processor.nef_batch_process import NEFFileBatchProcess  # ← あなたのモジュールパスに合わせてね
 
 @pytest.fixture
 def dummy_processor(tmp_path):

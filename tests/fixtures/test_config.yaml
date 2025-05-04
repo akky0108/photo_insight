@@ -1,0 +1,10 @@
+batch_size: 2
+output_directory: tests/output
+base_directory_root: tests/fixtures/images
+
+image_dir: tests/fixtures/images
+output_dir: tests/fixtures/output
+image_list_file: tests/fixtures/image_list.json
+
+watch_config: false
+
