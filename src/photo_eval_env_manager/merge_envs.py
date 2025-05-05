@@ -1,127 +1,24 @@
-# merge_envs.py（修正版）
-
 import os
 import sys
-import subprocess
 import yaml
-import json
 import argparse
-import re
+from photo_eval_env_manager.envmerge.file_utils import run_pip_list, load_exclude_list
+from photo_eval_env_manager.envmerge.pip_utils import parse_pip_input, run_security_audit, parse_pip_package
+from photo_eval_env_manager.envmerge.env_utils import normalize_python_version, deduplicate_python, validate_dependencies, validate_versions
+from photo_eval_env_manager.envmerge.exceptions import (
+    InvalidVersionError,
+    DuplicatePackageError,
+    VersionMismatchError
+)
 
-def parse_pip_package(line):
-    if ' @ ' in line:
-        return line.split(' @ ')[0].strip().lower()
-    for sep in ['==', '>=', '<=']:
-        if sep in line:
-            return line.split(sep)[0].strip().lower()
-    return line.strip().lower()
 
-def run_pip_list(output_file):
-    try:
-        print("\n📦 Running 'pip list'...")
-        result = subprocess.run(["pip", "list", "--format=json"], check=True, capture_output=True, text=True)
-        with open(output_file, 'w') as f:
-            f.write(result.stdout)
-        print(f"✅ Generated {output_file}")
-    except subprocess.CalledProcessError:
-        print("❌ Failed to run pip list.")
-        sys.exit(1)
+def merge_envs(base_yml, pip_json, final_yml, requirements_txt, ci_yml=None,
+               exclude_for_ci=None, strict=False, dry_run=False, only_pip=False, audit=False):
 
-def run_security_audit(requirements_txt):
-    try:
-        print("\n🔍 Running security audit with pip-audit...")
-        subprocess.run(["pip-audit", "-r", requirements_txt], check=True)
-    except FileNotFoundError:
-        print("⚠️ pip-audit not found. Try 'pip install pip-audit'.")
-    except subprocess.CalledProcessError:
-        print("❌ Security vulnerabilities found.")
-
-def load_exclude_list(file_path):
-    try:
-        with open(file_path, 'r') as f:
-            return set(pkg.strip().lower() for pkg in f if pkg.strip())
-    except Exception as e:
-        print(f"❌ Failed to read exclude list: {e}")
-        return set()
-
-def parse_pip_input(pip_json_path):
-    with open(pip_json_path, 'r') as f:
-        content = f.read()
-        try:
-            return json.loads(content)
-        except json.JSONDecodeError:
-            parsed = []
-            for line in content.splitlines():
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-                name = parse_pip_package(line)
-                version = line.split('==')[-1] if '==' in line else 'unknown'
-                parsed.append({"name": name, "version": version})
-            return parsed
-
-def validate_version_string(pkg_line):
-    pattern = re.compile(r"^[a-zA-Z0-9_\-]+([=<>!]=?[0-9a-zA-Z\.\*]+)?$")
-    return bool(pattern.match(pkg_line))
-
-def validate_dependencies(dependencies):
-    for dep in dependencies:
-        if isinstance(dep, str):
-            if dep.lower().startswith("python") and ',' in dep:
-                print(f"❌ Invalid python specifier (multiple versions?): {dep}")
-                sys.exit(1)
-            if not validate_version_string(dep):
-                print(f"⚠️ Invalid version format: {dep}")
-        elif isinstance(dep, dict) and 'pip' in dep:
-            for pip_pkg in dep['pip']:
-                if '==' not in pip_pkg:
-                    print(f"⚠️ No version specified for pip package: {pip_pkg}")
-
-def normalize_python_version(dependencies):
-    """Remove invalid or compound python version specs and replace with python=3.10"""
-    python_idx = -1
-    for i, dep in enumerate(dependencies):
-        if isinstance(dep, str) and dep.lower().startswith("python"):
-            version_spec = dep.split('=', 1)[-1] if '=' in dep else ''
-            # 検出条件：明示的に複数バージョン指定 or 不正な形式
-            if ',' in version_spec or not re.fullmatch(r'3\.10(\.\*)?', version_spec):
-                print(f"⚠️ Replacing invalid python spec: {dep} → python=3.10")
-                dependencies[i] = "python=3.10"
-            python_idx = i
-            break
-    if python_idx == -1:
-        print("✅ Adding python=3.10 to dependencies (was missing)")
-        dependencies.insert(0, "python=3.10")
-
-def deduplicate_python(dependencies):
-    seen = False
-    filtered = []
-    for dep in dependencies:
-        if isinstance(dep, str) and dep.lower().startswith("python"):
-            if not seen:
-                filtered.append(dep)
-                seen = True
-            else:
-                print(f"⚠️ Removing duplicate python entry: {dep}")
-        else:
-            filtered.append(dep)
-    return filtered
-
-def validate_final_env(env_yml):
-    print(f"\n🧪 Validating {env_yml} with conda dry-run...")
-    result = subprocess.run(["conda", "env", "create", "-f", env_yml, "--dry-run"], capture_output=True, text=True)
-    if result.returncode != 0:
-        print(f"❌ {env_yml} is invalid:\n{result.stderr}")
-    else:
-        print(f"✅ {env_yml} is valid.")
-
-def merge_envs(base_yml, pip_json, final_yml, requirements_txt, ci_yml=None, exclude_for_ci=None, strict=False, dry_run=False, only_pip=False, audit=False):
     if not os.path.exists(base_yml):
-        print(f"❌ Base YAML not found: {base_yml}")
-        sys.exit(1)
+        raise FileNotFoundError(f"Base YAML not found: {base_yml}")
     if not os.path.exists(pip_json):
-        print(f"❌ pip list JSON not found: {pip_json}")
-        sys.exit(1)
+        raise FileNotFoundError(f"pip list JSON not found: {pip_json}")
 
     pip_packages = parse_pip_input(pip_json)
 
@@ -156,6 +53,25 @@ def merge_envs(base_yml, pip_json, final_yml, requirements_txt, ci_yml=None, exc
     normalize_python_version(dependencies)
     validate_dependencies(dependencies)
 
+    # pip セクションを dependencies から抽出
+    pip_section = []
+    for dep in dependencies:
+        if isinstance(dep, dict) and 'pip' in dep:
+            pip_section.extend(dep['pip'])
+
+    # --- 重複パッケージのチェック（conda側） ---
+    conda_names = [parse_pip_package(dep) for dep in dependencies if isinstance(dep, str)]
+    conda_dups = {name for name in conda_names if conda_names.count(name) > 1}
+    if conda_dups:
+        versions = [dep for dep in dependencies if isinstance(dep, str) and parse_pip_package(dep) in conda_dups]
+        raise DuplicatePackageError(sorted(conda_dups), versions)
+
+    # --- 重複パッケージのチェック（pip側） ---
+    pip_names = [parse_pip_package(pkg) for pkg in pip_section]
+    pip_dups = {name for name in pip_names if pip_names.count(name) > 1}
+    if pip_dups:
+        raise DuplicatePackageError(f"Duplicate pip packages: {sorted(pip_dups)}")
+
     pip_section = None
     for dep in dependencies:
         if isinstance(dep, dict) and 'pip' in dep:
@@ -169,6 +85,10 @@ def merge_envs(base_yml, pip_json, final_yml, requirements_txt, ci_yml=None, exc
     existing_pip = {parse_pip_package(pkg): pkg for pkg in pip_section}
     conda_pkgs = {parse_pip_package(dep): dep for dep in dependencies if isinstance(dep, str)}
 
+    version_mismatches = []
+
+    pip_name_to_line = {parse_pip_package(line): line for line in clean_pip_lines}
+
     for pkg in clean_pip_lines:
         name = parse_pip_package(pkg)
         if name in conda_pkgs:
@@ -176,11 +96,28 @@ def merge_envs(base_yml, pip_json, final_yml, requirements_txt, ci_yml=None, exc
             pip_ver = pkg.split('==')[-1]
             if conda_ver != pip_ver:
                 print(f"⚠️ Version mismatch: {name} (conda: {conda_ver}, pip: {pip_ver})")
-                if strict:
-                    print("❌ Stopped due to strict mode.")
-                    sys.exit(1)
+                version_mismatches.append((name, conda_ver, pip_ver))
         if name not in existing_pip:
             pip_section.append(pkg)
+
+    if strict:
+        all_names = set(conda_pkgs.keys()).union(pip_name_to_line.keys())
+        for name in all_names:
+            in_conda = name in conda_pkgs
+            in_pip = name in pip_name_to_line
+
+            if in_conda and in_pip:
+                continue  # すでに上のループでバージョン不一致はチェック済み
+            elif in_conda and not in_pip:
+                conda_ver = conda_pkgs[name].split('=')[-1] if '=' in conda_pkgs[name] else 'unknown'
+                version_mismatches.append((name, conda_ver, 'missing in pip'))
+            elif in_pip and not in_conda:
+                pip_ver = pip_name_to_line[name].split('==')[-1]
+                version_mismatches.append((name, 'missing in conda', pip_ver))
+
+    if strict and version_mismatches:
+        mismatch_msgs = [f"{name}: conda={cv}, pip={pv}" for name, cv, pv in version_mismatches]
+        raise VersionMismatchError("Version mismatch detected:\n" + "\n".join(mismatch_msgs))
 
     pip_section.sort()
     dependencies = deduplicate_python(dependencies)
@@ -223,34 +160,37 @@ def merge_envs(base_yml, pip_json, final_yml, requirements_txt, ci_yml=None, exc
                 yaml.dump(base_env_ci, f, sort_keys=False)
             print(f"✅ Created {ci_yml}")
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Conda Environment Merge Tool")
     parser.add_argument('--base', default='environment_base.yml')
     parser.add_argument('--pip-json', default='pip_list.json')
     parser.add_argument('--final', default='environment_combined.yml')
     parser.add_argument('--requirements', default='requirements.txt')
-    parser.add_argument('--ci', default='environment_ci.yml')
-    parser.add_argument('--exclude', default='exclude_ci.txt')
+    parser.add_argument('--ci', default=None)
+    parser.add_argument('--exclude-for-ci', default=None)
     parser.add_argument('--strict', action='store_true')
     parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--only-pip', action='store_true')
     parser.add_argument('--audit', action='store_true')
     args = parser.parse_args()
 
-    script_dir = os.getcwd()
-
-    base_yml = os.path.join(script_dir, args.base)
-    pip_json = os.path.join(script_dir, args.pip_json)
-    final_yml = os.path.join(script_dir, args.final)
-    requirements_txt = os.path.join(script_dir, args.requirements)
-    ci_yml = os.path.join(script_dir, args.ci)
-    exclude_txt = os.path.join(script_dir, args.exclude)
-
-    run_pip_list(pip_json)
-    exclude_for_ci = load_exclude_list(exclude_txt) if not args.only_pip else set()
-
-    merge_envs(
-        base_yml, pip_json, final_yml, requirements_txt,
-        ci_yml, exclude_for_ci,
-        strict=args.strict, dry_run=args.dry_run, only_pip=args.only_pip, audit=args.audit
-    )
+    try:
+        merge_envs(args.base, args.pip_json, args.final, args.requirements,
+                   args.ci, args.exclude_for_ci, args.strict, args.dry_run,
+                   args.only_pip, args.audit)
+    except FileNotFoundError as e:
+        print(f"❌ File not found: {e}")
+        sys.exit(1)
+    except InvalidVersionError as e:
+        print(f"❌ Invalid version format or mismatch: {e}")
+        sys.exit(1)
+    except DuplicatePackageError as e:
+        print(f"❌ Duplicate package found: {e}")
+        sys.exit(1)
+    except VersionMismatchError as e:
+        print(f"❌ Version mismatch error: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Unexpected error: {e}")
+        sys.exit(1)

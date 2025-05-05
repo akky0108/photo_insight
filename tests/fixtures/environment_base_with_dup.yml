@@ -1,0 +1,7 @@
+name: testenv
+dependencies:
+  - python=3.10
+  - numpy=1.23.0
+  - Numpy=1.23.0  # ← 重複によるエラー誘発
+  - pip:
+      - pandas==1.5.3

@@ -1,0 +1,6 @@
+name: myenv
+dependencies:
+  - python=3.10
+  - numpy=1.23.0
+  - pip:
+      - pandas==1.5.3

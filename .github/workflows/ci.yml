@@ -62,14 +62,14 @@ jobs:
         conda env remove -n photo_eval_env || true
         conda env create -n photo_eval_env -f environment_ci.yml
 
-    - name: Install test dependencies
+    - name: Set PYTHONPATH
       shell: bash -l {0}
       run: |
-        conda activate photo_eval_env
-        conda install -y pytest pytest-mock
+        echo "export PYTHONPATH=$(pwd)" >> $GITHUB_ENV
 
-    - name: Run tests
+    - name: Install & Run Tests
       shell: bash -l {0}
       run: |
         conda activate photo_eval_env
-        pytest --maxfail=1 --disable-warnings -q
+        conda install -y pytest pytest-mock pytest-cov
+        pytest --maxfail=1 --disable-warnings --cov=src --cov-report=term-missing -q
