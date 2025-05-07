@@ -49,7 +49,8 @@ def check_version_mismatches(conda_pkgs: Dict[str, str], pip_lines: List[str], s
 
 
 def merge_envs(base_yml, pip_json, final_yml, requirements_txt, ci_yml=None,
-               exclude_for_ci=None, strict=False, dry_run=False, only_pip=False, audit=False):
+               exclude_for_ci=None, strict=False, dry_run=False, only_pip=False,
+               audit=False, cpu_only=False):
 
     if not os.path.exists(base_yml):
         raise FileNotFoundError(f"Base YAML not found: {base_yml}")
@@ -155,6 +156,14 @@ def merge_envs(base_yml, pip_json, final_yml, requirements_txt, ci_yml=None,
             print("\n🧺 [dry-run] environment_ci.yml:")
             print(yaml.dump(base_env_ci, sort_keys=False))
         else:
+            if cpu_only:
+                def to_cpu_version(pkg: str) -> str:
+                    if pkg.startswith("torch==") and "+cu" in pkg:
+                        return pkg.split("+")[0]
+                    return pkg
+                for dep in base_env_ci['dependencies']:
+                    if isinstance(dep, dict) and 'pip' in dep:
+                        dep['pip'] = [to_cpu_version(pkg) for pkg in dep['pip']]
             with open(ci_yml, 'w') as f:
                 yaml.dump(base_env_ci, f, sort_keys=False)
             print(f"✅ Created {ci_yml}")
@@ -172,6 +181,7 @@ if __name__ == "__main__":
     parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--only-pip', action='store_true')
     parser.add_argument('--audit', action='store_true')
+    parser.add_argument('--cpu-only', action='store_true')
     args = parser.parse_args()
 
     try:
@@ -185,7 +195,8 @@ if __name__ == "__main__":
             strict=args.strict,
             dry_run=args.dry_run,
             only_pip=args.only_pip,
-            audit=args.audit
+            audit=args.audit,
+            cpu_only=args.cpu_only
         )
     except FileNotFoundError as e:
         print(f"❌ File not found: {e}")

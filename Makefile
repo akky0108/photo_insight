@@ -31,8 +31,8 @@ merge:
 	fi
 	python $(MERGE_SCRIPT) --base $(BASE_YML) --pip-json $(PIP_JSON) \
 		--final $(FINAL_YML) --requirements $(REQUIREMENTS) \
-		--ci $(CI_YML) --exclude-for-ci $(EXCLUDE_CI)
-
+		--ci $(CI_YML) --exclude-for-ci $(EXCLUDE_CI) $(EXTRA_ARGS)
+		
 dry-run:
 	python $(MERGE_SCRIPT) --base $(BASE_YML) --pip-json $(PIP_JSON) \
 		--final $(FINAL_YML) --requirements $(REQUIREMENTS) \
