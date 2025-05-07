@@ -74,8 +74,20 @@ def merge_envs(base_yml, pip_json, final_yml, requirements_txt, ci_yml=None,
     if only_pip:
         if dry_run:
             print("\n🧺 [dry-run] requirements.txt (only-pip):")
-            print('\n'.join(clean_pip_lines))
+            if cpu_only:
+                def to_cpu_version(pkg: str) -> str:
+                    if pkg.startswith("torch==") and "+cu" in pkg:
+                        return pkg.split("+")[0]
+                    return pkg
+                pip_section = [to_cpu_version(pkg) for pkg in pip_section]
+            print('\n'.join(pip_section))
         else:
+            if cpu_only:
+                def to_cpu_version(pkg: str) -> str:
+                    if pkg.startswith("torch==") and "+cu" in pkg:
+                        return pkg.split("+")[0]
+                    return pkg
+                pip_section = [to_cpu_version(pkg) for pkg in pip_section]
             with open(requirements_txt, 'w') as f:
                 f.write('\n'.join(clean_pip_lines))
             print(f"✅ Created {requirements_txt} (only-pip)")
