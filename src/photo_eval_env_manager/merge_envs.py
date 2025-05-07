@@ -12,14 +12,14 @@ from photo_eval_env_manager.envmerge.exceptions import (
     VersionMismatchError
 )
 
-
+# 重複チェックのための効率的な関数
 def check_pip_duplicates(pip_section: List[str]):
     pip_names = [parse_pip_package(pkg) for pkg in pip_section]
     pip_dups = {name for name in pip_names if pip_names.count(name) > 1}
     if pip_dups:
         raise DuplicatePackageError(f"Duplicate pip packages: {sorted(pip_dups)}")
 
-
+# バージョン不一致チェックを効率化
 def check_version_mismatches(conda_pkgs: Dict[str, str], pip_lines: List[str], strict: bool):
     version_mismatches = []
     pip_name_to_line = {parse_pip_package(line): line for line in pip_lines}
@@ -30,23 +30,35 @@ def check_version_mismatches(conda_pkgs: Dict[str, str], pip_lines: List[str], s
             conda_ver = conda_pkgs[name].split('=')[-1] if '=' in conda_pkgs[name] else 'unknown'
             pip_ver = line.split('==')[-1]
             if conda_ver != pip_ver:
-                print(f"⚠️ Version mismatch: {name} (conda: {conda_ver}, pip: {pip_ver})")
                 version_mismatches.append((name, conda_ver, pip_ver))
 
     if strict:
-        all_names = set(conda_pkgs.keys()).union(pip_name_to_line.keys())
-        for name in all_names:
-            in_conda = name in conda_pkgs
-            in_pip = name in pip_name_to_line
-            if in_conda and not in_pip:
-                version_mismatches.append((name, conda_pkgs[name], 'missing in pip'))
-            elif in_pip and not in_conda:
+        # 両方に存在しないパッケージをチェック
+        for name in set(conda_pkgs).union(pip_name_to_line):
+            if name not in conda_pkgs:
                 version_mismatches.append((name, 'missing in conda', pip_name_to_line[name].split('==')[-1]))
+            elif name not in pip_name_to_line:
+                version_mismatches.append((name, conda_pkgs[name], 'missing in pip'))
 
-    if strict and version_mismatches:
+    if version_mismatches:
         msg = '\n'.join([f"{name}: conda={cv}, pip={pv}" for name, cv, pv in version_mismatches])
-        raise VersionMismatchError("Version mismatch detected:\n" + msg)
+        raise VersionMismatchError(f"Version mismatch detected:\n{msg}")
 
+# CPU専用バージョンへの変換関数
+def to_cpu_version(pkg: str) -> str:
+    if pkg.startswith("torch==") and "+cu" in pkg:
+        return pkg.split("+")[0]
+    return pkg
+
+# requirements.txt の書き込み処理
+def write_requirements_txt(pip_section, requirements_txt, dry_run):
+    if dry_run:
+        print("\n🧺 [dry-run] requirements.txt:")
+        print('\n'.join(pip_section))
+    else:
+        with open(requirements_txt, 'w') as f:
+            f.write('\n'.join(pip_section))
+        print(f"✅ Created {requirements_txt}")
 
 def merge_envs(base_yml, pip_json, final_yml, requirements_txt, ci_yml=None,
                exclude_for_ci=None, strict=False, dry_run=False, only_pip=False,
@@ -72,25 +84,12 @@ def merge_envs(base_yml, pip_json, final_yml, requirements_txt, ci_yml=None,
     clean_pip_lines.sort()
 
     if only_pip:
-        if dry_run:
-            print("\n🧺 [dry-run] requirements.txt (only-pip):")
-            if cpu_only:
-                def to_cpu_version(pkg: str) -> str:
-                    if pkg.startswith("torch==") and "+cu" in pkg:
-                        return pkg.split("+")[0]
-                    return pkg
-                pip_section = [to_cpu_version(pkg) for pkg in pip_section]
-            print('\n'.join(pip_section))
+        if cpu_only:
+            pip_section = [to_cpu_version(pkg) for pkg in clean_pip_lines]
         else:
-            if cpu_only:
-                def to_cpu_version(pkg: str) -> str:
-                    if pkg.startswith("torch==") and "+cu" in pkg:
-                        return pkg.split("+")[0]
-                    return pkg
-                pip_section = [to_cpu_version(pkg) for pkg in pip_section]
-            with open(requirements_txt, 'w') as f:
-                f.write('\n'.join(clean_pip_lines))
-            print(f"✅ Created {requirements_txt} (only-pip)")
+            pip_section = clean_pip_lines
+        write_requirements_txt(pip_section, requirements_txt, dry_run)
+
         if audit:
             run_security_audit(requirements_txt)
         return
@@ -135,16 +134,13 @@ def merge_envs(base_yml, pip_json, final_yml, requirements_txt, ci_yml=None,
     if dry_run:
         print("\n🧺 [dry-run] Final environment_combined.yml:")
         print(yaml.dump(base_env, sort_keys=False))
-        print("\n🧺 [dry-run] requirements.txt:")
-        print('\n'.join(pip_section))
+        write_requirements_txt(pip_section, requirements_txt, dry_run)
     else:
         with open(final_yml, 'w') as f:
             yaml.dump(base_env, f, sort_keys=False)
         print(f"✅ Created {final_yml}")
 
-        with open(requirements_txt, 'w') as f:
-            f.write('\n'.join(pip_section))
-        print(f"✅ Created {requirements_txt}")
+        write_requirements_txt(pip_section, requirements_txt, dry_run)
 
     if audit:
         run_security_audit(requirements_txt)
@@ -169,17 +165,12 @@ def merge_envs(base_yml, pip_json, final_yml, requirements_txt, ci_yml=None,
             print(yaml.dump(base_env_ci, sort_keys=False))
         else:
             if cpu_only:
-                def to_cpu_version(pkg: str) -> str:
-                    if pkg.startswith("torch==") and "+cu" in pkg:
-                        return pkg.split("+")[0]
-                    return pkg
                 for dep in base_env_ci['dependencies']:
                     if isinstance(dep, dict) and 'pip' in dep:
                         dep['pip'] = [to_cpu_version(pkg) for pkg in dep['pip']]
             with open(ci_yml, 'w') as f:
                 yaml.dump(base_env_ci, f, sort_keys=False)
             print(f"✅ Created {ci_yml}")
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Conda Environment Merge Tool")

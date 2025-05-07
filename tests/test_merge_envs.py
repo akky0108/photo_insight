@@ -49,6 +49,7 @@ def test_merge_envs_success():
         assert "requests" not in ci_content
         assert "flask==2.0.1" in ci_content
 
+
 # 異常系: Base YAMLがない場合の挙動
 def test_base_yml_not_found():
     with pytest.raises(FileNotFoundError):
@@ -77,3 +78,20 @@ def test_duplicate_package_error():
             final_yml=FINAL_YML,
             requirements_txt=REQUIREMENTS_TXT
         )
+
+
+# 異常系: CPU専用バージョン変換（CPUモード）
+def test_cpu_only_version_conversion():
+    # 実行
+    merge_envs(
+        base_yml=BASE_YML,
+        pip_json=PIP_JSON,
+        final_yml=FINAL_YML,
+        requirements_txt=REQUIREMENTS_TXT,
+        cpu_only=True
+    )
+
+    # 検証: torch のバージョンがCPUバージョンに変換されていることを確認
+    with open(REQUIREMENTS_TXT) as f:
+        content = f.read()
+        assert "torch==1.9.0" in content  # "torch+cu" から "torch" へ変換されたか
