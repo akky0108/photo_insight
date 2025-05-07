@@ -1,3 +1,9 @@
+# OS固有ファイル
+.DS_Store
+
+# IDE・エディタ設定
+.vscode/
+
 # .env ファイルを無視
 .env
 
@@ -16,7 +22,26 @@ __pycache__/
 conda-lock.yml
 
 # その他、依存関係管理関連
-pip_list.json
+*.json
+*.txt
+*.yml
+!environment_*.yml
+!requirements.txt
+
+# CI用に除外する依存関係ファイル
+exclude_for_ci.txt
 
 # シェルスクリプトなどの実行ログファイル
 *.log
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# テスト・ビルドキャッシュなど
+htmlcov/
+.tox/
+.cache/
+pytest_cache/
+*.egg-info/
+dist/
+build/
