@@ -25,6 +25,7 @@ conda-lock.yml
 *.json
 *.txt
 *.yml
+!environment.yml
 !environment_*.yml
 !requirements.txt
 
