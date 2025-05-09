@@ -12,7 +12,7 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-      
+
       - name: Show environment.yml
         run: cat environment.yml
 
@@ -23,10 +23,18 @@ jobs:
           python-version: 3.10  # この指定だけ残す
           # activate-environment は削除！
 
+      - name: Debug:print conda info
+        run: |
+          conda info
+          conda list
+
       - name: Manually create conda environment
         run: |
           conda env create -f environment.yml
           conda activate photo_eval_env || source activate photo_eval_env
+
+      - name: Clear conda cache
+        run: conda clean --all -y
 
       - name: Install pip-only dependencies
         run: |
