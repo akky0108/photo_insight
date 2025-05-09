@@ -17,8 +17,8 @@ jobs:
         uses: conda-incubator/setup-miniconda@v3
         with:
           auto-update-conda: true
-          python-version: 3.10
-          activate-environment: photo_eval_env
+          python-version: 3.10  # この指定だけ残す
+          # activate-environment は削除！
 
       - name: Manually create conda environment
         run: |
