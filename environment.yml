@@ -1,8 +1,7 @@
 name: photo_eval_env
 channels:
-  - conda-forge  
-  - defaults
+  - conda-forge
 dependencies:
   - python=3.10
-  - numpy
-  - pytorch
+  - pip
+
