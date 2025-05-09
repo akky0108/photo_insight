@@ -13,6 +13,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      - name: Update conda (念のため)
+        run: conda update -n base -c defaults conda -y
+
       - name: Set up Miniconda
         uses: conda-incubator/setup-miniconda@v3
         with:
