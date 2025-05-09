@@ -69,8 +69,8 @@ class BaseBatchProcessor(ABC):
         signal.signal(signal.SIGTERM, self._handle_shutdown)
 
     def _get_default_logger(self):
-        import log_util  # 遅延インポート
-        return log_util.AppLogger(
+        from utils.app_logger import Logger  # 遅延インポート（循環依存回避用）
+        return Logger.AppLogger(
             project_root=self.project_root,
             logger_name=self.__class__.__name__
         ).get_logger()

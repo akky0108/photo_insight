@@ -107,3 +107,6 @@ class AppLogger:
     def isEnabledFor(self, level: int) -> bool:
         """特定のログレベルが有効かどうかを確認"""
         return self.logger.isEnabledFor(level)
+
+# エイリアスとして公開
+Logger = AppLogger
