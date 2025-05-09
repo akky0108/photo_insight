@@ -12,6 +12,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+      
+      - name: Show environment.yml
+        run: cat environment.yml
 
       - name: Set up Miniconda
         uses: conda-incubator/setup-miniconda@v3
