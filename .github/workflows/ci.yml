@@ -13,16 +13,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Update conda (念のため)
-        run: conda update -n base -c defaults conda -y
-
       - name: Set up Miniconda
         uses: conda-incubator/setup-miniconda@v3
         with:
           auto-update-conda: true
           python-version: 3.10
-          environment-file: environment.yml
-          activate-environment: photo_eval_env  # ←ここだけ変わった！
+          activate-environment: photo_eval_env
+
+      - name: Manually create conda environment
+        run: |
+          conda env create -f environment.yml
+          conda activate photo_eval_env || source activate photo_eval_env
 
       - name: Install pip-only dependencies
         run: |
@@ -40,8 +41,3 @@ jobs:
 
       - name: Skip tests (for now)
         run: echo "Skipping pytest execution"
-
-      # - name: Run tests
-      #   run: |
-      #     export PYTHONPATH=./src
-      #     pytest
