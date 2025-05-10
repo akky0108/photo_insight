@@ -2,7 +2,7 @@ import os
 import time
 from dotenv import load_dotenv
 from file_handler.csv_file_handler import CSVFileHandler
-from log_util import Logger  # ログクラスをインポート
+from utils.app_logger import Logger  # ログクラスをインポート
 from batch_framework.base_batch import BaseBatchProcessor
 from composition_evaluator import CompositionEvaluator  # CompositionEvaluator クラスをインポート
 

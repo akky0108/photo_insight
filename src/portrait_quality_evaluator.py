@@ -18,7 +18,7 @@ from evaluators.local_contrast_evaluator import LocalContrastEvaluator
 from evaluators.rule_based_composition_evaluator import RuleBasedCompositionEvaluator
 from detectors.body_detection import FullBodyDetector
 from image_loader import ImageLoader
-from log_util import AppLogger
+from utils.app_logger import Logger
 from utils.image_utils import ImageUtils
 
 
@@ -32,13 +32,13 @@ class PortraitQualityEvaluator:
         self,
         image_input: str | np.ndarray,
         is_raw: bool = False,
-        logger: Optional[AppLogger] = None,
+        logger: Optional[Logger] = None,
         file_name: Optional[str] = None,
         max_noise_value: float = 100.0,
         local_region_size: int = 32
     ):
         self.is_raw = is_raw
-        self.logger = logger or AppLogger(logger_name='PortraitQualityEvaluator')
+        self.logger = logger or Logger(logger_name='PortraitQualityEvaluator')
         self.image_loader = ImageLoader(logger=self.logger)
         self.file_name = file_name if isinstance(image_input, np.ndarray) else os.path.basename(image_input)
         self.image_path = image_input if isinstance(image_input, str) else None

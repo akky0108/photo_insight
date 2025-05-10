@@ -1,7 +1,7 @@
 from evaluators.rule_based_composition_evaluator import RuleBasedCompositionEvaluator
 from evaluators.fullbody_composition_evaluator import FullBodyCompositionEvaluator
 from evaluators.base_composition_evaluator import BaseCompositionEvaluator
-from log_util import AppLogger
+from utils.app_logger import Logger
 import numpy as np
 
 
@@ -22,7 +22,7 @@ class CompositeCompositionEvaluator(BaseCompositionEvaluator):
         Args:
             logger: 任意のロガーインスタンス。指定がない場合はAppLoggerを使用。
         """
-        self.logger = logger or AppLogger('CompositeCompositionEvaluator')
+        self.logger = logger or Logger('CompositeCompositionEvaluator')
         self.face_evaluator = RuleBasedCompositionEvaluator(logger=self.logger)
         self.body_evaluator = FullBodyCompositionEvaluator(logger=self.logger)
 

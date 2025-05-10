@@ -1,4 +1,16 @@
-# Log_Util.py
+"""
+utils.app_logger
+
+プロジェクト全体で共通して使えるログユーティリティ。
+
+- ロギング設定は YAML ファイルで読み込む
+- Singleton パターンで logger インスタンスを管理
+- メトリクス出力や cleanup 処理など便利機能付き
+
+例:
+    logger = AppLogger(project_root=".", logger_name="MyLogger").get_logger()
+    logger.info("Hello!")
+"""
 
 import logging
 import logging.config
@@ -9,6 +21,21 @@ import atexit
 from typing import Optional
 
 class AppLogger:
+    """
+    アプリケーション用のロガー管理クラス（Singleton）。
+
+    ログ設定は YAML ファイルから読み込み、指定された logger_name に基づいてロガーを生成。
+    cleanup により、プログラム終了時にハンドラのクローズも行う。
+
+    引数:
+        project_root (Optional[str]): プロジェクトルートパス（config/logging_config.yaml を探すのに使用）
+        config_file (Optional[str]): 明示的にロギング設定ファイルを指定したい場合のパス
+        logger_name (str): 作成するロガーの名前（クラス名などを推奨）
+
+    使い方:
+        logger = AppLogger(project_root=".", logger_name="MyLogger").get_logger()
+        logger.info("起動完了")
+    """
     _instance = None  # シングルトンインスタンス
     _lock = threading.Lock()  # スレッドセーフのためのロック
 
@@ -29,6 +56,9 @@ class AppLogger:
                 config_file = os.path.join(project_root, 'config', 'logging_config.yaml')
             else:
                 config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config', 'logging_config.yaml')
+
+        log_dir = os.path.join(project_root, "logs")
+        os.makedirs(log_dir, exist_ok=True)
 
         # YAMLファイルからロギング設定を読み込む
         if os.path.exists(config_file):
