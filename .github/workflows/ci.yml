@@ -49,7 +49,7 @@ jobs:
         run: |
           source $HOME/miniforge/bin/activate
           conda activate photo_eval_env
-          python merge_envs.py \
+          python src/photo_eval_env_manager/merge_envs.py \
             --conda environment.yml \
             --pip requirements.txt \
             --output merged_env.yml \
@@ -68,7 +68,7 @@ jobs:
 
       - name: Run merge_envs.py
         run: |
-          conda run -n photo_eval_env python merge_envs.py \
+          conda run -n photo_eval_env python src/photo_eval_env_manager/merge_envs.py \
             --conda environment.yml \
             --pip requirements.txt \
             --output merged_env.yml \
