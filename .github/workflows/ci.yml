@@ -19,14 +19,12 @@ jobs:
         run: cat environment.yml
 
       - name: Set up Miniconda
-        uses: conda-incubator/setup-miniconda@v3
+        uses: conda-incubator/setup-miniconda@v2  # v2に変更してみる
         with:
           auto-update-conda: true
           python-version: 3.10
-          channels: conda-forge
+          miniforge-version: "3"  # Miniforge3 を使用
           activate-environment: photo_eval_env
-          environment-file: environment.yml
-          miniforge-variant: Mambaforge  # これが効くと速くて安定する
 
       - name: Install pip-only dependencies
         run: |
