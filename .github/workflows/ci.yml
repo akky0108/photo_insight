@@ -2,7 +2,9 @@ name: CI Minimal + Merge Envs
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - fix/ci-conda-setup
   pull_request:
 
 jobs:
