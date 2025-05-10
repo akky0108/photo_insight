@@ -27,12 +27,33 @@ jobs:
       - name: Clear conda cache
         run: conda clean --all --yes
         
-      - name: Set up Miniconda
-        uses: conda-incubator/setup-miniconda@v2  # v2に変更してみる
-        with:
-          auto-update-conda: false
-          python-version: 3.10
-          activate-environment: photo_eval_env
+      - name: Install Miniforge manually
+        run: |
+          wget https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh -O miniforge.sh
+          bash miniforge.sh -b -p $HOME/miniforge
+          echo "$HOME/miniforge/bin" >> $GITHUB_PATH
+          source $HOME/miniforge/bin/activate
+          conda init bash
+
+      - name: Create and activate conda env
+        run: |
+          source $HOME/miniforge/bin/activate
+          conda create -n photo_eval_env python=3.10 -y
+          conda activate photo_eval_env
+          pip install -r requirements.txt
+
+      - name: Run merge_envs.py
+        run: |
+          source $HOME/miniforge/bin/activate
+          conda activate photo_eval_env
+          python merge_envs.py \
+            --conda environment.yml \
+            --pip requirements.txt \
+            --output merged_env.yml \
+            --strict \
+            --cpu-only
+        env:
+          PYTHONPATH: ./src
 
       - name: Update conda
         run: |
