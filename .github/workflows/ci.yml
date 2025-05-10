@@ -24,9 +24,13 @@ jobs:
       - name: Set up Miniconda
         uses: conda-incubator/setup-miniconda@v2  # v2に変更してみる
         with:
-          auto-update-conda: true
+          auto-update-conda: false
           python-version: 3.10
           activate-environment: photo_eval_env
+
+      - name: Update conda
+        run: |
+          conda update -n base -c defaults conda -y
 
       - name: Install pip-only dependencies
         run: |
