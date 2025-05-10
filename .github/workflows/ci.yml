@@ -18,6 +18,12 @@ jobs:
       - name: Show environment.yml
         run: cat environment.yml
 
+      - name: "Debug: List conda envs"
+        run: conda env list
+
+      - name: Remove existing env if exists
+        run: conda remove -y --name photo_eval_env --all || true
+        
       - name: Clear conda cache
         run: conda clean --all --yes
         
