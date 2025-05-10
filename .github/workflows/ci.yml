@@ -18,6 +18,9 @@ jobs:
       - name: Show environment.yml
         run: cat environment.yml
 
+      - name: Clear conda cache
+        run: conda clean --all --yes
+        
       - name: Set up Miniconda
         uses: conda-incubator/setup-miniconda@v2  # v2に変更してみる
         with:
