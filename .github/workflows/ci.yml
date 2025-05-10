@@ -19,36 +19,27 @@ jobs:
       - name: Set up Miniconda
         uses: conda-incubator/setup-miniconda@v3
         with:
-          auto-update-conda: false
-          python-version: 3.10  # この指定だけ残す
-          # activate-environment は削除！
-
-      - name: "Debug: print conda info"
-        run: |
-          conda info
-          conda list
-
-      - name: Manually create conda environment
-        run: |
-          conda env create -f environment.yml
-          conda activate photo_eval_env || source activate photo_eval_env
-
-      - name: Clear conda cache
-        run: conda clean --all -y
+          auto-update-conda: true
+          python-version: 3.10
+          channels: conda-forge
+          activate-environment: photo_eval_env
+          environment-file: environment.yml
+          miniforge-variant: Mambaforge  # これが効くと速くて安定する
 
       - name: Install pip-only dependencies
         run: |
-          pip install -r requirements.txt
+          conda run -n photo_eval_env pip install -r requirements.txt
 
       - name: Run merge_envs.py
         run: |
-          export PYTHONPATH=./src
-          python merge_envs.py \
+          conda run -n photo_eval_env python merge_envs.py \
             --conda environment.yml \
             --pip requirements.txt \
             --output merged_env.yml \
             --strict \
             --cpu-only
+        env:
+          PYTHONPATH: ./src
 
       - name: Skip tests (for now)
         run: echo "Skipping pytest execution"
