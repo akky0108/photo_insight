@@ -42,6 +42,9 @@ jobs:
           conda activate photo_eval_env
           pip install -r requirements.txt
 
+      - name: "Debug: show files"
+        run: ls -R
+
       - name: Run merge_envs.py
         run: |
           source $HOME/miniforge/bin/activate
