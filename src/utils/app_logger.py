@@ -50,6 +50,10 @@ class AppLogger:
         if getattr(self, '_initialized', False):
             return  # 既に初期化済みの場合は何もしない
 
+        # project_rootがNoneの場合にデフォルト値を設定
+        if project_root is None:
+            project_root = os.path.dirname(os.path.abspath(__file__))  # ログ設定ファイルが配置されている場所をデフォルトに
+
         # プロジェクトルートからデフォルトのconfig_fileパスを指定
         if config_file is None:
             if project_root:
