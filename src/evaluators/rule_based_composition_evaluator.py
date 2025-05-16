@@ -1,6 +1,6 @@
 import numpy as np
 from evaluators.base_composition_evaluator import BaseCompositionEvaluator
-from log_util import AppLogger
+from utils.app_logger import Logger
 
 class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
     """
@@ -22,7 +22,7 @@ class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
     FRAME_MARGIN_RATIO = 0.05
 
     def __init__(self, logger=None):
-        self.logger = logger or AppLogger(logger_name='RuleBasedCompositionEvaluator')
+        self.logger = logger or Logger(logger_name='RuleBasedCompositionEvaluator')
 
         # 関数参照ベースのルール評価関数群（IDE補完・安全性向上）
         self.RULE_EVALUATORS = [

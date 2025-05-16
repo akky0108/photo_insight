@@ -5,7 +5,7 @@ import rawpy
 from PIL import Image
 import numpy as np
 from typing import Optional
-from log_util import AppLogger
+from utils.app_logger import Logger
 
 class ImageLoader:
     """
@@ -17,14 +17,14 @@ class ImageLoader:
     SUPPORTED_TIFF_EXTENSIONS = ['.tiff', '.tif']
     SUPPORTED_RAW_EXTENSIONS = ['.nef', '.cr2', '.arw', '.dng', '.rw2', '.orf']
 
-    def __init__(self, logger: Optional[AppLogger] = None):
+    def __init__(self, logger: Optional[Logger] = None):
         """
         コンストラクタ:
         Loggerオブジェクトを使用して、処理ログを管理します。
 
         :param logger: ログ出力を行うLoggerオブジェクト (デフォルト: None)
         """
-        self.logger = logger if logger else AppLogger(logger_name='ImageLoader')
+        self.logger = logger if logger else Logger(logger_name='ImageLoader')
 
     def load_image(self, filepath: str, output_bps: int = 8, apply_exif_rotation: bool = True, orientation: Optional[int] = None) -> np.ndarray:
         """

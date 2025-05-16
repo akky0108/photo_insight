@@ -3,7 +3,7 @@ from typing import List, Optional, Tuple, Dict
 
 from evaluators.rule_based_composition_evaluator import RuleBasedCompositionEvaluator
 from evaluators.base_composition_evaluator import BaseCompositionEvaluator
-from log_util import AppLogger
+from utils.app_logger import Logger
 
 
 class FullBodyCompositionEvaluator(BaseCompositionEvaluator):
@@ -31,8 +31,8 @@ class FullBodyCompositionEvaluator(BaseCompositionEvaluator):
         POSE_DYNAMICS: 0.3
     }
 
-    def __init__(self, logger: Optional[AppLogger] = None) -> None:
-        self.logger = logger or AppLogger(logger_name='FullBodyCompositionEvaluator')
+    def __init__(self, logger: Optional[Logger] = None) -> None:
+        self.logger = logger or Logger(logger_name='FullBodyCompositionEvaluator')
 
     def evaluate(self, image: np.ndarray, body_keypoints: List[Optional[List[float]]]) -> Dict[str, float]:
         """

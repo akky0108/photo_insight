@@ -6,7 +6,7 @@ import numpy as np
 import os
 from typing import List, Dict, Optional
 from batch_framework.base_batch import BaseBatchProcessor
-from log_util import Logger
+from utils.app_logger import Logger
 from image_loader import ImageLoader  # 画像読み込みクラスをインポート
 
 DEFAULT_IMAGE_DIR = "/mnt/l/picture/2025"

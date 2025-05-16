@@ -4,7 +4,7 @@ import rawpy
 from skimage.metrics import structural_similarity as ssim
 from file_handler.exif_file_handler import ExifFileHandler
 from image_loader import ImageLoader
-from log_util import Logger
+from utils.app_logger import Logger
 
 
 class CompositionEvaluator:
