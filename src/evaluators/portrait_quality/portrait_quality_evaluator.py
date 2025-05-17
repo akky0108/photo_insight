@@ -1,8 +1,8 @@
 import numpy as np
 import os
 import traceback
-import cv2
 import gc
+import cv2
 
 from typing import Optional, Tuple, Dict, Any
 
@@ -17,9 +17,8 @@ from evaluators.local_sharpness_evaluator import LocalSharpnessEvaluator
 from evaluators.local_contrast_evaluator import LocalContrastEvaluator
 from evaluators.rule_based_composition_evaluator import RuleBasedCompositionEvaluator
 from detectors.body_detection import FullBodyDetector
-from image_loader import ImageLoader
 from utils.app_logger import Logger
-from utils.image_utils import ImageUtils
+from image_utils.image_preprocessor import ImagePreprocessor
 
 
 class PortraitQualityEvaluator:
@@ -39,13 +38,15 @@ class PortraitQualityEvaluator:
     ):
         self.is_raw = is_raw
         self.logger = logger or Logger(logger_name='PortraitQualityEvaluator')
-        self.image_loader = ImageLoader(logger=self.logger)
         self.file_name = file_name if isinstance(image_input, np.ndarray) else os.path.basename(image_input)
         self.image_path = image_input if isinstance(image_input, str) else None
 
-        self.rgb_image = self._load_image(image_input)
-        self.resized_image_2048 = ImageUtils.resize_image(self.rgb_image, max_dimension=2048)
-        self.resized_image_1024 = ImageUtils.resize_image(self.rgb_image, max_dimension=1024)
+        # 前処理器で画像を一括取得
+        self.preprocessor = ImagePreprocessor(logger=self.logger, is_raw=self.is_raw, gamma=1.2)
+        images = self.preprocessor.load_and_resize(image_input)
+        self.rgb_image = images["original"]
+        self.resized_image_2048 = images["resized_2048"]
+        self.resized_image_1024 = images["resized_1024"]
 
         self.evaluators = {
             "face": FaceEvaluator(backend='insightface'),
@@ -62,14 +63,6 @@ class PortraitQualityEvaluator:
         self.composition_evaluator = RuleBasedCompositionEvaluator(logger=self.logger)
 
         self.logger.info(f"画像ファイル {self.file_name} をロードしました")
-
-    def _load_image(self, image_input: str | np.ndarray) -> np.ndarray:
-        if isinstance(image_input, str):
-            return self.image_loader.load_image(image_input, output_bps=16 if self.is_raw else 8)
-        elif isinstance(image_input, np.ndarray):
-            return image_input
-        else:
-            raise ValueError("無効な入力タイプの画像データ")
 
     def evaluate(self) -> Dict[str, Any]:
         self.logger.info(f"評価開始: 画像ファイル {self.file_name}")

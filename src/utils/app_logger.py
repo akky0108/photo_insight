@@ -50,6 +50,10 @@ class AppLogger:
         if getattr(self, '_initialized', False):
             return  # 既に初期化済みの場合は何もしない
 
+        if project_root is None:
+            # カレントディレクトリをプロジェクトルートに設定
+            project_root = os.getcwd()
+
         # プロジェクトルートからデフォルトのconfig_fileパスを指定
         if config_file is None:
             if project_root:

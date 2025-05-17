@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from batch_framework.base_batch import BaseBatchProcessor
 from image_loader import ImageLoader
-from portrait_quality_evaluator import PortraitQualityEvaluator
+from evaluators.portrait_quality.portrait_quality_evaluator import PortraitQualityEvaluator
 from portrait_quality_header import PortraitQualityHeaderGenerator
 from monitoring.memory_monitor import MemoryMonitor
 

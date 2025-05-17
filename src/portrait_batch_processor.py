@@ -8,7 +8,7 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 from batch_framework.base_batch import BaseBatchProcessor
 from image_loader import ImageLoader
-from portrait_quality_evaluator import PortraitQualityEvaluator
+from evaluators.portrait_quality.portrait_quality_evaluator import PortraitQualityEvaluator
 from utils.image_utils import ImageUtils
 import time
 import gc
