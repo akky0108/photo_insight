@@ -1,9 +1,11 @@
-name: myenv
+name: photo_eval_env
+channels:
+- defaults
+- conda-forge
 dependencies:
 - python=3.10
-- numpy=1.23.0
 - pip:
-  - flask==2.0.1
   - numpy==1.25.0
-  - pandas==1.5.3
+  - flask==2.0.1
   - torch==1.9.0+cu111
+  - pandas==1.5.3

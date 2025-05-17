@@ -4,8 +4,9 @@ from unittest.mock import patch
 from photo_eval_env_manager.merge_envs import merge_envs
 from photo_eval_env_manager.envmerge.exceptions import DuplicatePackageError, VersionMismatchError
 
-# mock データ用のパス設定
+# テストで使用するfixtureファイルのパスを設定
 BASE_YML = 'tests/fixtures/environment_base.yml'
+BASE_YML_MIS = 'tests/fixtures/environment_base_with_dup.yml'
 PIP_JSON = 'tests/fixtures/pip_list.json'
 FINAL_YML = 'tests/fixtures/environment_combined.yml'
 REQUIREMENTS_TXT = 'tests/fixtures/requirements.txt'
@@ -13,13 +14,19 @@ CI_YML = "tests/fixtures/environment_ci.yml"
 EXCLUDE_CI_TXT = "tests/fixtures/exclude_ci.txt"
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 
-# 正常系: merge_envsが正常に動作するか確認
+
 def test_merge_envs_success():
-    # exclude list をセット
+    """
+    正常系テスト: merge_envs関数が正しく環境ファイルをマージできるか検証する。
+
+    - exclude_ci.txtに記載されたパッケージはCI環境用YAMLに含まれないことを確認。
+    - 通常の環境YAML・requirements.txtファイルに期待されるパッケージが含まれていることを検証。
+    """
+    # CI除外リストをファイルから読み込み
     with open(EXCLUDE_CI_TXT) as f:
         exclude_for_ci = [line.strip() for line in f if line.strip()]
 
-    # 実行
+    # merge_envsを実行
     merge_envs(
         base_yml=BASE_YML,
         pip_json=PIP_JSON,
@@ -29,47 +36,59 @@ def test_merge_envs_success():
         exclude_for_ci=exclude_for_ci
     )
 
-    # 検証: 通常環境
+    # 出力ファイルが存在することを検証
     assert os.path.exists(FINAL_YML)
     assert os.path.exists(REQUIREMENTS_TXT)
 
+    # requirements.txtに特定パッケージが含まれていることを検証
     with open(REQUIREMENTS_TXT) as f:
         content = f.read()
         assert "requests==2.31.0" in content
         assert "flask==2.0.1" in content
 
+    # 環境YAMLにも同様のパッケージが含まれていることを検証
     with open(FINAL_YML) as f:
         yml_content = f.read()
         assert "requests==2.31.0" in yml_content
 
-    # 検証: CI 環境
+    # CI環境用YAMLの検証
     assert os.path.exists(CI_YML)
     with open(CI_YML) as f:
         ci_content = f.read()
+        # excludeリストにあるrequestsは含まれないこと
         assert "requests" not in ci_content
+        # flaskは含まれていること
         assert "flask==2.0.1" in ci_content
 
 
-# 異常系: Base YAMLがない場合の挙動
 def test_base_yml_not_found():
+    """
+    異常系テスト: ベースYAMLファイルが存在しない場合にFileNotFoundErrorが発生することを検証。
+    """
     with pytest.raises(FileNotFoundError):
         merge_envs('non_existent_file.yml', PIP_JSON, FINAL_YML, REQUIREMENTS_TXT)
 
 
-# 異常系: pip list JSON がない場合の挙動
 def test_pip_json_not_found():
+    """
+    異常系テスト: pipリストJSONファイルが存在しない場合にFileNotFoundErrorが発生することを検証。
+    """
     with pytest.raises(FileNotFoundError):
         merge_envs(BASE_YML, 'non_existent_pip_list.json', FINAL_YML, REQUIREMENTS_TXT)
 
 
-# 異常系: 依存パッケージのバージョン不一致（Strictモード）
 def test_version_mismatch_strict(capfd):
+    """
+    異常系テスト: strict=Trueモードでバージョン不一致がある場合にVersionMismatchErrorが発生することを検証。
+    """
     with pytest.raises(VersionMismatchError):
-        merge_envs(BASE_YML, PIP_JSON, FINAL_YML, REQUIREMENTS_TXT, strict=True)
+        merge_envs(BASE_YML_MIS, PIP_JSON, FINAL_YML, REQUIREMENTS_TXT, strict=True)
 
 
-# 異常系: 重複パッケージが存在する場合
 def test_duplicate_package_error():
+    """
+    異常系テスト: ベースYAMLに重複パッケージが存在する場合にDuplicatePackageErrorが発生することを検証。
+    """
     base_yml_with_dup = os.path.join(FIXTURES_DIR, "environment_base_with_dup.yml")
     with pytest.raises(DuplicatePackageError):
         merge_envs(
@@ -80,9 +99,10 @@ def test_duplicate_package_error():
         )
 
 
-# 異常系: CPU専用バージョン変換（CPUモード）
 def test_cpu_only_version_conversion():
-    # 実行
+    """
+    異常系テスト: cpu_only=TrueオプションでtorchのバージョンがCPU専用版に変換されることを検証。
+    """
     merge_envs(
         base_yml=BASE_YML,
         pip_json=PIP_JSON,
@@ -91,7 +111,7 @@ def test_cpu_only_version_conversion():
         cpu_only=True
     )
 
-    # 検証: torch のバージョンがCPUバージョンに変換されていることを確認
+    # torchがGPU版からCPU版に変換されていることをrequirements.txtから確認
     with open(REQUIREMENTS_TXT) as f:
         content = f.read()
-        assert "torch==1.9.0" in content  # "torch+cu" から "torch" へ変換されたか
+        assert "torch==1.9.0" in content  # GPU付きバージョンからCPUバージョンに変換済み

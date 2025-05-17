@@ -1,5 +1,5 @@
-flask==2.0.1
 numpy==1.25.0
-pandas==1.5.3
 requests==2.31.0
-torch==1.9.0+cu111
+flask==2.0.1
+torch==1.9.0
+pandas==1.5.3
