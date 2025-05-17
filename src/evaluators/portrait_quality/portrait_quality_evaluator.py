@@ -16,15 +16,31 @@ from evaluators.exposure_evaluator import ExposureEvaluator
 from evaluators.local_sharpness_evaluator import LocalSharpnessEvaluator
 from evaluators.local_contrast_evaluator import LocalContrastEvaluator
 from evaluators.rule_based_composition_evaluator import RuleBasedCompositionEvaluator
+from evaluators.color_balance_evaluator import ColorBalanceEvaluator
 from detectors.body_detection import FullBodyDetector
 from utils.app_logger import Logger
 from image_utils.image_preprocessor import ImagePreprocessor
 
+from image_utils.image_preprocessor import ImagePreprocessor
 
 class PortraitQualityEvaluator:
     """
     ポートレート画像の品質を多角的に評価するためのクラス。
-    顔認識、構図、シャープネス、ノイズ、コントラスト等を統合的にスコア化する。
+
+    顔認識、構図、シャープネス、ノイズ、コントラスト等を統合的にスコア化し、
+    画像全体および顔領域に対する評価結果を辞書形式で返却する。
+
+    引数:
+        image_input (str | np.ndarray): 評価対象の画像（パスまたはRGB画像データ）
+        is_raw (bool): RAW画像として処理するかどうか
+        logger (Optional[Logger]): ロガーインスタンス（未指定時は内部生成）
+        file_name (Optional[str]): ログ出力時などに使うファイル名
+        max_noise_value (float): ノイズ評価の正規化上限値
+        local_region_size (int): 局所評価時のブロックサイズ
+        preprocessor_resize_size (Tuple[int, int]): 前処理時のリサイズサイズ
+
+    戻り値:
+        Dict[str, Any]: 各評価項目のスコアを格納した辞書
     """
 
     def __init__(
@@ -34,7 +50,8 @@ class PortraitQualityEvaluator:
         logger: Optional[Logger] = None,
         file_name: Optional[str] = None,
         max_noise_value: float = 100.0,
-        local_region_size: int = 32
+        local_region_size: int = 32,
+        preprocessor_resize_size: Tuple[int, int] = (224, 224)
     ):
         self.is_raw = is_raw
         self.logger = logger or Logger(logger_name='PortraitQualityEvaluator')
@@ -57,6 +74,7 @@ class PortraitQualityEvaluator:
             "local_sharpness": LocalSharpnessEvaluator(block_size=local_region_size),
             "local_contrast": LocalContrastEvaluator(block_size=local_region_size),
             "exposure": ExposureEvaluator(),
+            "color_balance": ColorBalanceEvaluator()
         }
 
         self.body_detector = FullBodyDetector()
@@ -106,6 +124,16 @@ class PortraitQualityEvaluator:
             return {}
 
     def _evaluate_face(self, evaluator, image):
+        """
+        顔検出および顔スコアの算出を行う。
+
+        引数:
+            evaluator: 顔評価用の Evaluator インスタンス
+            image: 評価対象の画像（RGB形式）
+
+        戻り値:
+            dict: 顔スコアおよび検出顔情報
+        """
         try:
             result = evaluator.evaluate(image)
             self.logger.info(f"顔評価結果: {result}")
@@ -115,6 +143,16 @@ class PortraitQualityEvaluator:
             return {"face_score": 0, "faces": []}
 
     def _evaluate_composition(self, image: np.ndarray, face_boxes: list) -> Dict[str, Any]:
+        """
+        顔領域の位置情報を基に構図の評価を実施する。
+
+        引数:
+            image (np.ndarray): 評価対象の画像（RGB形式）
+            face_boxes (list): 顔のバウンディングボックスリスト
+
+        戻り値:
+            Dict[str, Any]: 構図に関する各種スコアとグループID情報
+        """
         try:
             if not face_boxes:
                 self.logger.warning("構図評価スキップ：face_boxes が空です。")
@@ -150,6 +188,17 @@ class PortraitQualityEvaluator:
             }
 
     def _safe_evaluate(self, evaluator, image: np.ndarray, name: str) -> Dict[str, Any]:
+        """
+        各評価器を安全に実行し、例外時にはデフォルト値を返す。
+
+        引数:
+            evaluator: 評価器インスタンス
+            image (np.ndarray): 評価対象の画像
+            name (str): 評価指標の名称（"sharpness" など）
+
+        戻り値:
+            Dict[str, Any]: 評価スコアおよび必要に応じた補助情報
+        """
         try:
             result = evaluator.evaluate(image)
             output = {
@@ -175,7 +224,7 @@ class PortraitQualityEvaluator:
         顔領域に対して個別評価器を適用し、局所スコアを算出する。
         """
         face_scores = {}
-        for key in ["sharpness", "contrast", "noise", "local_sharpness", "local_contrast", "exposure"]:
+        for key in ["sharpness", "contrast", "noise", "local_sharpness", "local_contrast", "exposure", "color_balance"]:
             evaluator = self.evaluators.get(key)
             if evaluator is None:
                 continue
