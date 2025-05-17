@@ -1,8 +1,8 @@
 import numpy as np
 import os
 import traceback
-import cv2
 import gc
+import cv2
 
 from typing import Optional, Tuple, Dict, Any
 
@@ -18,9 +18,8 @@ from evaluators.local_contrast_evaluator import LocalContrastEvaluator
 from evaluators.rule_based_composition_evaluator import RuleBasedCompositionEvaluator
 from evaluators.color_balance_evaluator import ColorBalanceEvaluator
 from detectors.body_detection import FullBodyDetector
-from image_loader import ImageLoader
 from utils.app_logger import Logger
-from utils.image_utils import ImageUtils
+from image_utils.image_preprocessor import ImagePreprocessor
 
 from image_utils.image_preprocessor import ImagePreprocessor
 
@@ -56,29 +55,15 @@ class PortraitQualityEvaluator:
     ):
         self.is_raw = is_raw
         self.logger = logger or Logger(logger_name='PortraitQualityEvaluator')
-        self.image_loader = ImageLoader(logger=self.logger)
         self.file_name = file_name if isinstance(image_input, np.ndarray) else os.path.basename(image_input)
         self.image_path = image_input if isinstance(image_input, str) else None
 
-        # image_input に基づいて rgb_image を初期化
-        if isinstance(image_input, np.ndarray):
-            self.rgb_image = image_input  # 画像データが渡された場合、直接セット
-        elif isinstance(image_input, str):
-            # 画像パスの場合、画像をロード
-            self.rgb_image = self.image_loader.load_image(image_input)
-        else:
-            raise ValueError("image_input must be a path or np.ndarray.")
-
-        # 元画像の読み込み
-        preprocessor = ImagePreprocessor(
-            resize_size=preprocessor_resize_size,
-            logger=self.logger
-        )
-        self.rgb_image = preprocessor.process(self.rgb_image)
-
-        # リサイズ後の画像を取得
-        self.resized_image_2048 = ImageUtils.resize_image(self.rgb_image, max_dimension=2048)
-        self.resized_image_1024 = ImageUtils.resize_image(self.rgb_image, max_dimension=1024)
+        # 前処理器で画像を一括取得
+        self.preprocessor = ImagePreprocessor(logger=self.logger, is_raw=self.is_raw, gamma=1.2)
+        images = self.preprocessor.load_and_resize(image_input)
+        self.rgb_image = images["original"]
+        self.resized_image_2048 = images["resized_2048"]
+        self.resized_image_1024 = images["resized_1024"]
 
         self.evaluators = {
             "face": FaceEvaluator(backend='insightface'),
@@ -97,41 +82,7 @@ class PortraitQualityEvaluator:
 
         self.logger.info(f"画像ファイル {self.file_name} をロードしました")
 
-    def _load_image(self, image_input: str | np.ndarray) -> np.ndarray:
-        """
-        指定された画像入力を読み込み、RGB形式の NumPy 配列として返す。
-
-        引数:
-            image_input (str | np.ndarray): 画像のファイルパスまたは NumPy 配列
-
-        戻り値:
-            np.ndarray: RGB形式の画像データ
-
-        例外:
-            ValueError: 入力が無効な場合（None、不正な形式）
-        """
-        if image_input is None:
-            raise ValueError("image_input is None")
-
-        if isinstance(image_input, str):
-            return self.image_loader.load_image(image_input, output_bps=16 if self.is_raw else 8)
-        elif isinstance(image_input, np.ndarray):
-            if image_input.ndim != 3 or image_input.shape[2] != 3:
-                raise ValueError("画像の shape は (H, W, 3) である必要があります")
-            return image_input
-        else:
-            raise ValueError("image_input はファイルパスまたは NumPy 配列である必要があります")
-
-    def evaluate(self, image_input) -> Dict[str, Any]:
-        """
-        画像に対する包括的な品質評価を実行し、各指標ごとのスコアを辞書で返す。
-
-        引数:
-            image_input: 評価対象の画像入力（未使用、初期化時に読み込み済み）
-
-        戻り値:
-            Dict[str, Any]: 各評価項目のスコアと属性情報
-        """
+    def evaluate(self) -> Dict[str, Any]:
         self.logger.info(f"評価開始: 画像ファイル {self.file_name}")
         results = {}
 

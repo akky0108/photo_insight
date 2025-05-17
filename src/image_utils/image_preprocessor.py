@@ -1,53 +1,77 @@
-import cv2
 import numpy as np
+import cv2
+from typing import Optional, Union
+from PIL import Image, ExifTags
+from image_loader import ImageLoader
+from utils.image_utils import ImageUtils
+from utils.app_logger import Logger
+
 
 class ImagePreprocessor:
-    def __init__(
-        self,
-        resize_size=(224, 224),
-        denoise: bool = False,
-        adjust_contrast: bool = False,
-        logger=None
-    ):
-        self.resize_size = resize_size
-        self.denoise = denoise
-        self.adjust_contrast = adjust_contrast
-        self.logger = logger
+    def __init__(self, logger: Optional[Logger] = None, is_raw: bool = False, gamma: Optional[float] = None):
+        self.logger = logger or Logger("ImagePreprocessor")
+        self.image_loader = ImageLoader(logger=self.logger)
+        self.is_raw = is_raw
+        self.gamma = gamma  # None なら補正しない
 
-        if self.logger:
-            self.logger.debug(f"Resizing image to {self.resize_size}")
+    def load_and_resize(self, image_input: Union[str, np.ndarray]) -> dict:
+        image = self._load_image(image_input)
+        image = self._correct_orientation(image_input, image)
+        image = self._convert_bgr_to_rgb(image)
+        if self.gamma is not None:
+            image = self._adjust_gamma(image, self.gamma)
 
-    def process(self, image: np.ndarray) -> np.ndarray:
-        if image is None:
-            raise ValueError("Input image is None.")
-        if not isinstance(image, np.ndarray):
-            raise ValueError(f"Input must be a numpy array, but got {type(image)}.")
-        if image.ndim != 3 or image.shape[2] not in [3, 4]:
-            raise ValueError(
-                f"Invalid image shape: expected 3D array with 3 or 4 channels, got {image.shape}."
+        resized = {
+            "original": image,
+            "resized_2048": ImageUtils.resize_image(image, max_dimension=2048),
+            "resized_1024": ImageUtils.resize_image(image, max_dimension=1024),
+        }
+        return resized
+
+    def _load_image(self, image_input: Union[str, np.ndarray]) -> np.ndarray:
+        if isinstance(image_input, str):
+            return self.image_loader.load_image(image_input, output_bps=16 if self.is_raw else 8)
+        elif isinstance(image_input, np.ndarray):
+            return image_input
+        else:
+            raise ValueError("Invalid input type for image.")
+
+    def _convert_bgr_to_rgb(self, image: np.ndarray) -> np.ndarray:
+        if image.shape[-1] == 3:  # Assume color image
+            return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        return image
+
+    def _adjust_gamma(self, image: np.ndarray, gamma: float) -> np.ndarray:
+        inv_gamma = 1.0 / gamma
+        table = np.array([(i / 255.0) ** inv_gamma * 255 for i in range(256)]).astype("uint8")
+        return cv2.LUT(image, table)
+
+    def _correct_orientation(self, image_path: Union[str, np.ndarray], image: np.ndarray) -> np.ndarray:
+        if not isinstance(image_path, str):
+            return image  # ndarray なら回転補正スキップ
+
+        try:
+            pil_image = Image.open(image_path)
+            exif = pil_image._getexif()
+            if not exif:
+                return image
+
+            orientation_key = next(
+                (k for k, v in ExifTags.TAGS.items() if v == 'Orientation'), None
             )
+            if orientation_key is None:
+                return image
 
-        # RGB変換（必要であればチャンネル数に応じて調整）
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            orientation = exif.get(orientation_key, 1)
 
-        if self.denoise:
-            image = cv2.GaussianBlur(image, (3, 3), 0)
-            if self.logger:
-                self.logger.debug("ガウシアンブラーでノイズ除去を実施")
+            if orientation == 3:
+                image = cv2.rotate(image, cv2.ROTATE_180)
+            elif orientation == 6:
+                image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+            elif orientation == 8:
+                image = cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
-        if self.adjust_contrast:
-            # HSVでVを強調する簡易処理（高度な手法に差し替え可能）
-            hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
-            h, s, v = cv2.split(hsv)
-            v = cv2.equalizeHist(v)
-            hsv = cv2.merge((h, s, v))
-            image = cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
-            if self.logger:
-                self.logger.debug("ヒストグラム均等化でコントラスト調整を実施")
+        except Exception as e:
+            self.logger.warning(f"EXIF 回転補正に失敗: {str(e)}")
 
-        # リサイズ
-        image = cv2.resize(image, self.resize_size)
-
-        # 正規化
-        image = image / 255.0
-        return image.astype(np.float32)
+        return image
