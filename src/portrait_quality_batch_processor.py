@@ -54,9 +54,6 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         self.logger.info("Setting up PortraitQualityBatchProcessor...")
         self._set_directories_and_files()
 
-        if os.path.exists(self.result_csv_file):
-            self.logger.info(f"Result file exists: {self.result_csv_file} — continuing from previous run.")
-
         self._load_processed_images()
         self.image_data = self.load_image_data()
         self.data = self.image_data
@@ -68,8 +65,6 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
         self.memory_threshold_exceeded = False
         self.completed_all_batches = False
-
-        self.base_directory = self.config.get("base_directory", "output")
 
     def _set_directories_and_files(self) -> None:
         """
@@ -91,6 +86,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             self.result_csv_file = os.path.join(self.output_directory, "evaluation_results.csv")
             self.processed_images_file = os.path.join(self.output_directory, "processed_images.txt")
 
+        os.makedirs(self.base_directory, exist_ok=True) 
+        self.logger.info(f"ベースディレクトリ: {self.base_directory}")
+
     def _load_processed_images(self) -> None:
         """
         既に処理済みの画像ファイル名を読み込む。
@@ -99,6 +97,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             with open(self.processed_images_file, 'r') as f:
                 self.processed_images = set(f.read().splitlines())
             self.logger.info(f"Loaded {len(self.processed_images)} previously processed images.")
+
+        if os.path.exists(self.result_csv_file):
+            self.logger.info(f"Result file exists: {self.result_csv_file} — continuing from previous run.")
 
     def load_image_data(self) -> List[Dict[str, str]]:
         """
@@ -126,6 +127,8 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                     })
         except FileNotFoundError:
             self.logger.warning(f"File not found: {self.image_csv_file}. Proceeding with empty data.")
+        except csv.Error as e:
+            self.logger.error(f"CSV parsing error in {self.image_csv_file}: {e}")
         return image_data
 
     def _process_batch(self, batch: List[Dict[str, str]]) -> None:
@@ -214,7 +217,6 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             eval_result = evaluator.evaluate()
             del image
             del evaluator
-            gc.collect()
 
             if eval_result:
                 result.update(eval_result)
