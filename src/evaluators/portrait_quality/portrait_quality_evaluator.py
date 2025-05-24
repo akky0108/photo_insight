@@ -19,9 +19,10 @@ from evaluators.rule_based_composition_evaluator import RuleBasedCompositionEval
 from evaluators.color_balance_evaluator import ColorBalanceEvaluator
 from detectors.body_detection import FullBodyDetector
 from utils.app_logger import Logger
-from image_utils.image_preprocessor import ImagePreprocessor
 
 from image_utils.image_preprocessor import ImagePreprocessor
+from face_detectors.face_processor import FaceProcessor
+
 
 class PortraitQualityEvaluator:
     """
@@ -51,14 +52,21 @@ class PortraitQualityEvaluator:
         file_name: Optional[str] = None,
         max_noise_value: float = 100.0,
         local_region_size: int = 32,
-        preprocessor_resize_size: Tuple[int, int] = (224, 224)
+        preprocessor_resize_size: Tuple[int, int] = (224, 224),
+        face_processor: Optional[FaceProcessor] = None,
+        skip_face_processing: bool = False
     ):
         self.is_raw = is_raw
         self.logger = logger or Logger(logger_name='PortraitQualityEvaluator')
         self.file_name = file_name if isinstance(image_input, np.ndarray) else os.path.basename(image_input)
         self.image_path = image_input if isinstance(image_input, str) else None
+        self.skip_face_processing = skip_face_processing
+        self.image = None
 
         # 前処理器で画像を一括取得
+        self.face_evaluator = FaceEvaluator(backend='insightface')
+        self.face_processor = FaceProcessor(self.face_evaluator, logger=self.logger)
+
         self.preprocessor = ImagePreprocessor(logger=self.logger, is_raw=self.is_raw, gamma=1.2)
         images = self.preprocessor.load_and_resize(image_input)
         self.rgb_image = images["original"]
@@ -91,8 +99,35 @@ class PortraitQualityEvaluator:
                 self.logger.error("resized_image_2048 が None です。評価をスキップします。")
                 return {}
 
-            face_result = self._evaluate_face(self.evaluators["face"], self.rgb_image)
-            results.update(face_result)
+            if self.skip_face_processing:
+                self.logger.info("顔処理をスキップします。")
+                faces = []
+            else:
+                face_result = self.face_processor.detect_faces(self.rgb_image)
+                faces = face_result.get("faces", [])
+
+            results["face_detected"] = bool(faces)
+            results["faces"] = faces
+
+            composition_result = self._evaluate_composition(self.rgb_image, faces)
+            results.update(composition_result)
+
+            # 顔のスコア計算（顔全体に対して）
+            results.update(self._evaluate_face(self.evaluators["face"], self.rgb_image))
+
+            best_face = self.face_processor.get_best_face(face_result["faces"])
+
+            # 最も信頼性の高い顔に対する局所評価と属性追加
+            if best_face:
+                cropped_face = self.face_processor.crop_face(self.rgb_image, best_face)
+                face_attrs = self.face_processor.extract_attributes(best_face)
+
+                results["yaw"] = face_attrs.get("yaw", 0)
+                results["pitch"] = face_attrs.get("pitch", 0)
+                results["roll"] = face_attrs.get("roll", 0)
+                results["gaze"] = face_attrs.get("gaze", [0, 0])
+
+                results.update(self._evaluate_face_region(cropped_face))
 
             composition_result = self._evaluate_composition(self.rgb_image, face_result.get("faces", []))
             results.update(composition_result)
@@ -101,20 +136,6 @@ class PortraitQualityEvaluator:
                 if key == "face":
                     continue
                 results.update(self._safe_evaluate(evaluator, self.resized_image_2048, key))
-
-            # 最も信頼性の高い顔に対する局所評価と属性追加
-            if face_result.get("faces"):
-                best_face = max(face_result["faces"], key=lambda f: f.get("confidence", 0))
-                box = best_face.get("box") or best_face.get("bbox")
-                if box and len(box) == 4:
-                    x1, y1, x2, y2 = map(int, box)
-                    face_crop = self.rgb_image[y1:y2, x1:x2]
-                    results.update(self._evaluate_face_region(face_crop))
-
-                # 追加属性セット
-                for attr in ["yaw", "pitch", "roll", "gaze"]:
-                    if attr in best_face:
-                        results[attr] = best_face[attr]
 
             return results
 

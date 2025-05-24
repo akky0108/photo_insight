@@ -70,7 +70,7 @@ class BaseBatchProcessor(ABC):
 
     def _get_default_logger(self):
         from utils.app_logger import Logger  # 遅延インポート（循環依存回避用）
-        return Logger.AppLogger(
+        return Logger(
             project_root=self.project_root,
             logger_name=self.__class__.__name__
         ).get_logger()
