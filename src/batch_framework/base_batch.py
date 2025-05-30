@@ -36,7 +36,7 @@ class ConfigChangeHandler(FileSystemEventHandler):
 
 
 class BaseBatchProcessor(ABC):
-    def __init__(self, config_path: Optional[str] = None, max_workers: int = 2, max_process_count: Optional[int] = None):
+    def __init__(self, config_path: Optional[str] = None, max_workers: int = 2):
         load_dotenv()
         self.project_root = os.getenv('PROJECT_ROOT') or os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         self.default_config = {
@@ -48,7 +48,6 @@ class BaseBatchProcessor(ABC):
         self.max_workers = max_workers
         self.config_path = config_path or self.default_config["config_path"]
         self.config = self.default_config.copy()
-        self.max_process_count = max_process_count
         self.processed_count = 0
 
         self.hooks: Dict[HookType, List[Tuple[int, Callable[[], None]]]] = {hook_type: [] for hook_type in HookType}
