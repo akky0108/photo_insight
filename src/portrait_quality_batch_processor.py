@@ -1,7 +1,7 @@
 import os
 import csv
 import gc
-from typing import List, Dict, Optional, Union
+from typing import Any, List, Dict, Optional, Union
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from batch_framework.base_batch import BaseBatchProcessor
@@ -133,7 +133,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
     def _process_batch(self, batch: List[Dict[str, str]]) -> None:
         """
-        指定された画像バッチを並列処理する。
+        指定された画像バッチを処理する。
         処理済み画像はスキップし、結果を CSV に保存する。
         """
         batch = [img for img in batch if img["file_name"] not in self.processed_images]
@@ -141,35 +141,14 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             self.logger.info("All images in this batch are already processed. Skipping.")
             return
 
-        results = []
-        max_workers = self.max_workers or 2
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_img = {
-                executor.submit(
-                    self.process_image,
-                    os.path.join(self.base_directory, img_info["file_name"]),
-                    img_info["orientation"],
-                    img_info["bit_depth"]
-                ): img_info
-                for img_info in batch
-            }
-
-            for future in as_completed(future_to_img):
-                img_info = future_to_img[future]
-                try:
-                    result = future.result()
-                    if result:
-                        self.logger.info(f"Processed image: {img_info['file_name']}")
-                        results.append(result)
-                        self._mark_as_processed(img_info["file_name"])
-                except Exception as e:
-                    self.logger.error(f"Failed to process image {img_info['file_name']}: {e}")
+        if (self.max_workers or 2) == 1:
+            results = self._process_batch_serial(batch)
+        else:
+            results = self._process_batch_parallel(batch)
 
         if results:
             self.save_results(results, self.result_csv_file)
 
-        results.clear()
         gc.collect()
         self.memory_monitor.log_usage(prefix="Post batch GC")
 
@@ -228,6 +207,43 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         except Exception as e:
             self.logger.error(f"Error processing image {file_name}: {e}")
         return None
+
+    def _process_single_image(self, img_info: Dict[str, str]) -> Optional[Dict[str, Any]]:
+        try:
+            result = self.process_image(
+                os.path.join(self.base_directory, img_info["file_name"]),
+                img_info["orientation"],
+                img_info["bit_depth"]
+            )
+            if result:
+                self.logger.info(f"Processed image: {img_info['file_name']}")
+                self._mark_as_processed(img_info["file_name"])
+                return result
+        except Exception as e:
+            self.logger.error(f"Failed to process image {img_info['file_name']}: {e}")
+        return None
+
+    def _process_batch_serial(self, batch: List[Dict[str, str]]) -> List[Dict[str, Any]]:
+        results = []
+        for img_info in batch:
+            result = self._process_single_image(img_info)
+            if result:
+                results.append(result)
+        return results
+
+    def _process_batch_parallel(self, batch: List[Dict[str, str]]) -> List[Dict[str, Any]]:
+        results = []
+        with ThreadPoolExecutor(max_workers=self.max_workers or 2) as executor:
+            future_to_img = {
+                executor.submit(self._process_single_image, img_info): img_info
+                for img_info in batch
+            }
+
+            for future in as_completed(future_to_img):
+                result = future.result()
+                if result:
+                    results.append(result)
+        return results
 
     def _mark_as_processed(self, file_name: str) -> None:
         """
