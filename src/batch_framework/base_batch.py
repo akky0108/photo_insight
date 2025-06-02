@@ -51,7 +51,14 @@ class ConfigChangeHandler(FileSystemEventHandler):
 
 
 class BaseBatchProcessor(ABC):
-    def __init__(self, config_path: Optional[str] = None, max_workers: int = 2):
+    def __init__(
+        self,
+        config_path: Optional[str] = None,
+        max_workers: int = 2,
+        hook_manager: Optional[HookManager] = None,
+        config_manager: Optional[ConfigManager] = None,
+        signal_handler: Optional[SignalHandler] = None,
+    ):
         """
         バッチ処理の基底クラスコンストラクタ。
         設定ファイルのロード、フック管理、設定監視の初期化を行う。
