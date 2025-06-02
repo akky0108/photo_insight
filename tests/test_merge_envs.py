@@ -1,7 +1,7 @@
 import os
 import pytest
 from unittest.mock import patch
-from photo_eval_env_manager.merge_envs import merge_envs
+from photo_eval_env_manager.merge_envs import merge_envs, parse_conda_yaml, parse_pip_requirements, build_merged_env_dict
 from photo_eval_env_manager.envmerge.exceptions import DuplicatePackageError, VersionMismatchError
 
 # テストで使用するfixtureファイルのパスを設定
@@ -13,7 +13,7 @@ REQUIREMENTS_TXT = 'tests/fixtures/requirements.txt'
 CI_YML = "tests/fixtures/environment_ci.yml"
 EXCLUDE_CI_TXT = "tests/fixtures/exclude_ci.txt"
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
-
+ENV_NAME = "photo_eval_env"
 
 def test_merge_envs_success():
     """
@@ -115,3 +115,35 @@ def test_cpu_only_version_conversion():
     with open(REQUIREMENTS_TXT) as f:
         content = f.read()
         assert "torch==1.9.0" in content  # GPU付きバージョンからCPUバージョンに変換済み
+
+def test_parse_conda_yaml():
+    dummy_yaml = {
+        "dependencies": [
+            "python=3.10",
+            "numpy",
+            {"pip": ["requests", "scikit-learn"]}
+        ]
+    }
+    conda, pip = parse_conda_yaml(dummy_yaml)
+    assert conda == ["python=3.10", "numpy"]
+    assert pip == ["requests", "scikit-learn"]
+
+def test_parse_pip_requirements_json():
+    json_input = '[{"name": "numpy", "version": "1.24.1"}, {"name": "pandas", "version": "1.3.5"}]'
+    expected = ["numpy==1.24.1", "pandas==1.3.5"]
+    assert parse_pip_requirements(json_input) == expected
+
+def test_parse_pip_requirements_text():
+    text_input = "torch==2.0.0\n# コメント行\nscikit-learn==1.2.1"
+    expected = ["torch==2.0.0", "scikit-learn==1.2.1"]
+    assert parse_pip_requirements(text_input) == expected
+
+def test_build_merged_env_dict():
+    conda = ["python=3.10", "numpy=1.24.0", {"pip": ["some-old-thing==1.0.0"]}]
+    pip = ["torch==2.0.1", "scikit-learn==1.3.0"]
+    env_dict = build_merged_env_dict(conda, pip)
+
+    assert env_dict["name"] == ENV_NAME
+    assert {"pip": pip} in env_dict["dependencies"]
+    assert not any(isinstance(dep, dict) and "pip" in dep and dep["pip"] == ["some-old-thing==1.0.0"]
+                   for dep in env_dict["dependencies"][:-1])  # pipセクションは最後のみにあること

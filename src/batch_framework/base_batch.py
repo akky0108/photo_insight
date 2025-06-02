@@ -26,14 +26,20 @@ class HookType(Enum):
 class ConfigChangeHandler(FileSystemEventHandler):
     def __init__(self, processor: 'BaseBatchProcessor'):
         """
-        設定ファイルの変更を検知してバッチプロセッサに通知するイベントハンドラ。
+        コンフィグファイルの変更を監視し、変更があればプロセッサに通知するハンドラクラス
+
+        Args:
+            processor (BaseBatchProcessor): 監視対象のバッチプロセッサ
         """
         self.processor = processor
         self._last_modified_time = 0
 
     def on_modified(self, event):
         """
-        設定ファイルが変更された場合にコールされ、設定の再読み込みをトリガーする。
+        ファイルが変更された際に呼ばれるメソッド。短時間で連続変更された場合は無視する。
+
+        Args:
+            event: watchdogのファイル変更イベント
         """
         now = time.time()
         if now - self._last_modified_time < 1.0:
@@ -45,20 +51,14 @@ class ConfigChangeHandler(FileSystemEventHandler):
 
 
 class BaseBatchProcessor(ABC):
-    def __init__(
-        self,
-        config_path: Optional[str] = None,
-        max_workers: int = 2,
-        hook_manager: Optional[HookManager] = None,
-        config_manager: Optional[ConfigManager] = None,
-        signal_handler: Optional[SignalHandler] = None,
-    ):
+    def __init__(self, config_path: Optional[str] = None, max_workers: int = 2):
         """
-        バッチ処理の基本的な初期化を行う。
+        バッチ処理の基底クラスコンストラクタ。
+        設定ファイルのロード、フック管理、設定監視の初期化を行う。
 
         Args:
-            config_path (Optional[str]): 設定ファイルのパス（指定がない場合はデフォルトを使用）
-            max_workers (int): フック処理の並列実行に使用する最大スレッド数
+            config_path (Optional[str]): 設定ファイルのパス。指定なければデフォルトパスを使用。
+            max_workers (int): フックの並列実行数。
         """
         load_dotenv()
         self.project_root = os.getenv('PROJECT_ROOT') or os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -83,8 +83,12 @@ class BaseBatchProcessor(ABC):
 
     def execute(self) -> None:
         """
-        全フェーズを実行するエントリポイント。
-        エラーが発生した場合はログ出力し、終了時には処理時間も記録。
+        バッチ処理のメイン実行メソッド。
+        setup→process→cleanup の各フェーズのフックと処理を順次実行し、
+        処理時間計測、エラーハンドリングを行う。
+
+        Raises:
+            RuntimeError: フェーズ中にエラーが起きた場合に送出される
         """
         self.start_time = time.time()
         self.logger.info("Batch process started.")
@@ -103,7 +107,13 @@ class BaseBatchProcessor(ABC):
 
     def _execute_phase(self, pre_hook_type: HookType, post_hook_type: HookType, phase_function: Callable[[], None], errors: List[Exception]) -> None:
         """
-        各フェーズ（setup, process, cleanup）とその前後のhookを順に実行する。
+        フェーズごとに、事前フック、メイン関数、事後フックを順に実行する。
+
+        Args:
+            pre_hook_type (HookType): 事前フックの種類
+            post_hook_type (HookType): 事後フックの種類
+            phase_function (Callable[[], None]): フェーズ本体の関数
+            errors (List[Exception]): 発生した例外を格納するリスト
         """
         phase_name = pre_hook_type.name.split('_')[1].lower()
         self._run_phase_hooks(pre_hook_type, errors)
@@ -112,7 +122,11 @@ class BaseBatchProcessor(ABC):
 
     def _run_phase_hooks(self, hook_type: HookType, errors: List[Exception]) -> None:
         """
-        指定された HookType に応じてフック処理を実行し、エラーがあればリストに追加する。
+        指定フックタイプのフック関数群を実行し、例外を捕捉してerrorsに格納する。
+
+        Args:
+            hook_type (HookType): 実行するフックタイプ
+            errors (List[Exception]): 例外格納用リスト
         """
         try:
             self.hook_manager.execute_hooks(hook_type)
@@ -122,7 +136,12 @@ class BaseBatchProcessor(ABC):
 
     def _run_phase_function(self, func: Callable[[], None], name: str, errors: List[Exception]) -> None:
         """
-        実際のフェーズ処理を実行し、エラー時はログとリストに追加する。
+        フェーズ本体の関数を実行し、例外を捕捉してerrorsに格納する。
+
+        Args:
+            func (Callable[[], None]): 実行する関数
+            name (str): フェーズ名（ログ用）
+            errors (List[Exception]): 例外格納用リスト
         """
         try:
             start_time = time.time()

@@ -6,14 +6,20 @@ import re
 import json
 
 from pathlib import Path
+from photo_eval_env_manager.envmerge.env_utils import load_yaml_file, parse_conda_yaml, parse_pip_requirements, build_merged_env_dict
 from photo_eval_env_manager.envmerge.exceptions import VersionMismatchError, DuplicatePackageError
 from collections import defaultdict
 
-ENV_NAME = "photo_eval_env"
 PYTHON_VERSION = "3.10"
 
 
 def parse_args():
+    """
+    コマンドライン引数をパースして返す。
+
+    Returns:
+        argparse.Namespace: パースされた引数オブジェクト。
+    """
     parser = argparse.ArgumentParser(description="Merge conda and pip dependencies into a reproducible environment.")
     parser.add_argument("--conda", type=Path, required=True, help="Path to environment.yml")
     parser.add_argument("--pip", type=Path, required=True, help="Path to requirements.txt")
@@ -23,47 +29,56 @@ def parse_args():
     return parser.parse_args()
 
 
-def load_conda_env(path):
-    if not path.exists():
-        raise FileNotFoundError(f"[ERROR] Conda environment file not found: {path}")
-    with open(path, "r") as f:
-        data = yaml.safe_load(f)
-    deps = data.get("dependencies", [])
-    conda_deps = []
-    pip_section = []
-    for dep in deps:
-        if isinstance(dep, dict) and "pip" in dep:
-            pip_section.extend(dep["pip"])
-        else:
-            conda_deps.append(dep)
-    return conda_deps, pip_section
+def load_pip_reqs(path: Path) -> list[str]:
+    """
+    pip用requirementsファイルを読み込んで、依存パッケージのリストを返す。
 
-def load_pip_reqs(path):
+    Args:
+        path (Path): requirements.txtファイルのパス
+
+    Returns:
+        list[str]: パッケージのリスト
+
+    Raises:
+        FileNotFoundError: ファイルが存在しない場合
+    """
     if not path.exists():
         raise FileNotFoundError(f"[ERROR] Pip requirements file not found: {path}")
-    
+
     with open(path, "r") as f:
-        content = f.read().strip()
+        content = f.read()
 
-    try:
-        # JSON array の場合（e.g. [{"name":..., "version":...}, ...]）
-        pip_data = json.loads(content)
-        if isinstance(pip_data, list):
-            return [f"{pkg['name']}=={pkg['version']}" for pkg in pip_data]
-    except json.JSONDecodeError:
-        pass  # 普通のテキスト形式として扱う
+    return parse_pip_requirements(content)
 
-    # 通常の行ベース
-    lines = content.splitlines()
-    return [line.strip() for line in lines if line.strip() and not line.startswith("#")]
 
 def normalize_pkg_name(pkg):
+    """
+    パッケージ名からバージョン指定や条件を取り除き、正規化した名前を返す。
+
+    Args:
+        pkg (str): パッケージの指定（例: "requests==2.31.0"）
+
+    Returns:
+        str: 正規化されたパッケージ名（例: "requests"）
+    """
     if isinstance(pkg, str):
         return re.split(r"[=<>]", pkg.strip())[0].lower()
     return ""
 
 
 def resolve_conflicts(conda_deps, pip_deps, strict):
+    """
+    condaとpipの依存関係の重複・バージョン違いを検出し、必要に応じて例外を投げる。
+
+    Args:
+        conda_deps (list[str]): conda依存リスト
+        pip_deps (list[str]): pip依存リスト
+        strict (bool): 厳密なバージョン一致を求めるか
+
+    Raises:
+        VersionMismatchError: 厳密チェック時に重複パッケージが存在する場合
+        DuplicatePackageError: 同一パッケージ名でバージョンが異なる場合
+    """
     conda_pkgs = {normalize_pkg_name(pkg): pkg for pkg in conda_deps}
     pip_pkgs = {normalize_pkg_name(pkg): pkg for pkg in pip_deps}
     overlap = set(conda_pkgs) & set(pip_pkgs)
@@ -78,12 +93,10 @@ def resolve_conflicts(conda_deps, pip_deps, strict):
         else:
             print(f"[warn] Overlapping packages between conda and pip: {', '.join(overlap)}")
 
-        # 重複パッケージに関するバージョン情報を収集
         for name in overlap:
             versions_by_name[name].add(conda_pkgs[name])
             versions_by_name[name].add(pip_pkgs[name])
 
-    # 重複バージョンチェック
     for name, versions in versions_by_name.items():
         if len(versions) > 1:
             raise DuplicatePackageError(
@@ -93,49 +106,65 @@ def resolve_conflicts(conda_deps, pip_deps, strict):
 
 
 def apply_cpu_patch(pip_deps, conda_deps, cpu_only):
+    """
+    CPU専用環境に変換するため、GPU依存のパッケージ表記を修正する。
+
+    Args:
+        pip_deps (list[str]): pip依存リスト
+        conda_deps (list[str]): conda依存リスト
+        cpu_only (bool): CPU専用モードが有効かどうか
+    """
     if not cpu_only:
         return
 
-    # pip の torch バージョンから "+cu111" を削除
     for i, pkg in enumerate(pip_deps):
         if re.match(r"^torch(\W|$)", pkg):
             pip_deps[i] = re.sub(r"\+cu.*", "", pkg)
 
-    # conda の "pytorch" → "pytorch-cpu"
     for i, dep in enumerate(conda_deps):
         if isinstance(dep, str) and dep.startswith("pytorch"):
             conda_deps[i] = dep.replace("pytorch", "pytorch-cpu", 1)
 
+
 def ensure_python_version(conda_deps):
+    """
+    conda依存に明示的なPythonバージョンが含まれていない場合、デフォルトを追加する。
+
+    Args:
+        conda_deps (list[str]): conda依存リスト（変更可能）
+    """
     if not any(isinstance(pkg, str) and pkg.startswith("python=") for pkg in conda_deps):
         conda_deps.insert(0, f"python={PYTHON_VERSION}")
 
 
-def write_merged_env(conda_deps, pip_deps, output_path):
-    # conda_deps から pip ブロックを除去
-    filtered_deps = []
-    for dep in conda_deps:
-        # dep が dict で、かつ 'pip' キーがある場合は除外
-        if isinstance(dep, dict) and 'pip' in dep:
-            continue
-        filtered_deps.append(dep)
+def write_merged_env_file(env_dict: dict, output_path: Path):
+    """
+    環境辞書をYAML形式でファイルに書き出す。
 
-    env = {
-        "name": ENV_NAME,
-        "channels": ["defaults", "conda-forge"],
-        "dependencies": filtered_deps
-    }
-    if pip_deps:
-        env["dependencies"].append({"pip": pip_deps})
-
+    Args:
+        env_dict (dict): conda環境の定義（dependenciesなどを含む）
+        output_path (Path): 出力先ファイルパス
+    """
     with open(output_path, "w") as f:
-        yaml.dump(env, f, sort_keys=False, default_flow_style=False)
+        yaml.dump(env_dict, f, sort_keys=False, default_flow_style=False)
     print(f"Merged environment written to: {output_path}")
 
 
 def merge_envs(base_yml, pip_json, final_yml, requirements_txt,
                ci_yml=None, exclude_for_ci=None, strict=False, cpu_only=False):
-    # ✅ ここで全部 Path に変換しておく
+    """
+    condaとpipの依存ファイルをマージして、環境YAMLおよびrequirements.txtを生成する。
+
+    Args:
+        base_yml (str or Path): baseとなるconda環境YAML
+        pip_json (str or Path): pipパッケージ情報のrequirements.txt
+        final_yml (str or Path): 出力する統合conda YAML
+        requirements_txt (str or Path): 出力するrequirements.txt
+        ci_yml (str or Path, optional): CI用に除外処理したYAMLを出力するパス
+        exclude_for_ci (list[str], optional): CI用に除外するパッケージ名リスト
+        strict (bool): バージョン重複を厳密にチェックするか
+        cpu_only (bool): CPU専用モードを有効にするか
+    """
     base_yml = Path(base_yml)
     pip_json = Path(pip_json)
     final_yml = Path(final_yml)
@@ -143,32 +172,41 @@ def merge_envs(base_yml, pip_json, final_yml, requirements_txt,
     if ci_yml is not None:
         ci_yml = Path(ci_yml)
 
-    conda_deps, pip_from_conda = load_conda_env(base_yml)
+    raw_yaml = load_yaml_file(base_yml)
+    conda_deps, pip_from_conda = parse_conda_yaml(raw_yaml)
     pip_deps = load_pip_reqs(pip_json)
     pip_deps.extend(pip_from_conda)
 
     resolve_conflicts(conda_deps, pip_deps, strict)
     apply_cpu_patch(pip_deps, conda_deps, cpu_only)
 
-    write_merged_env(conda_deps, pip_deps, final_yml)
+    write_merged_env_file(build_merged_env_dict(conda_deps=conda_deps, pip_deps=pip_deps), final_yml)
     with requirements_txt.open("w") as f:
         for pkg in pip_deps:
             f.write(pkg + "\n")
 
     if ci_yml and exclude_for_ci:
         exclude_set = {name.lower() for name in exclude_for_ci}
+
         def get_pkg_name(dep):
             return dep.split('==')[0].lower()
-        ci_pip_deps = [pkg for pkg in pip_deps if get_pkg_name(pkg) not in exclude_set]
-        write_merged_env(conda_deps, ci_pip_deps, ci_yml)
 
+        ci_pip_deps = [pkg for pkg in pip_deps if get_pkg_name(pkg) not in exclude_set]
+
+        write_merged_env_file(
+            build_merged_env_dict(conda_deps=conda_deps, pip_deps=ci_pip_deps),
+            ci_yml
+        )
 
 
 def main():
+    """
+    スクリプトのエントリーポイント。コマンドライン引数を受け取り、環境マージ処理を実行する。
+    """
     args = parse_args()
 
     exclude_for_ci = []
-    if args.cpu_only:  # 例: 除外リストを固定ファイルから読んでもよい
+    if args.cpu_only:
         exclude_file = Path("exclude_ci.txt")
         if exclude_file.exists():
             with open(exclude_file) as f:
@@ -184,7 +222,6 @@ def main():
         strict=args.strict,
         cpu_only=args.cpu_only
     )
-
 
 
 if __name__ == "__main__":
