@@ -10,6 +10,9 @@ from enum import Enum
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
+from batch_framework.core.hook_manager import HookManager, HookType
+from batch_framework.core.config_manager import ConfigManager
+from batch_framework.core.signal_handler import SignalHandler
 
 class HookType(Enum):
     PRE_SETUP = 'pre_setup'
@@ -48,7 +51,14 @@ class ConfigChangeHandler(FileSystemEventHandler):
 
 
 class BaseBatchProcessor(ABC):
-    def __init__(self, config_path: Optional[str] = None, max_workers: int = 2):
+    def __init__(
+        self,
+        config_path: Optional[str] = None,
+        max_workers: int = 2,
+        hook_manager: Optional[HookManager] = None,
+        config_manager: Optional[ConfigManager] = None,
+        signal_handler: Optional[SignalHandler] = None,
+    ):
         """
         バッチ処理の基底クラスコンストラクタ。
         設定ファイルのロード、フック管理、設定監視の初期化を行う。
@@ -59,154 +69,24 @@ class BaseBatchProcessor(ABC):
         """
         load_dotenv()
         self.project_root = os.getenv('PROJECT_ROOT') or os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        self.default_config = {
-            "config_path": os.path.join(self.project_root, "config", "config.yaml"),
-            "batch_size": 100
-        }
-
-        self.logger = self._get_default_logger()
         self.max_workers = max_workers
-        self.config_path = config_path or self.default_config["config_path"]
-        self.config = self.default_config.copy()
+
+        # 明示的にconfig_pathを解決
+        resolved_config_path = config_path if config_path is not None else os.path.join(self.project_root, "config", "config.yaml")
+
+        # 明示的に依存性注入する
+        self.config_path = resolved_config_path
+        self.config_manager = config_manager if config_manager is not None else ConfigManager(config_path=self.config_path)
+        self.logger = self.config_manager.get_logger("BaseBatchProcessor")
+
+        self.hook_manager = hook_manager if hook_manager is not None else HookManager(max_workers=self.max_workers)
+        self.hook_manager.logger = self.logger
+
+        self.signal_handler = signal_handler if signal_handler is not None else SignalHandler(self)
+        self.signal_handler.logger = self.logger
+
         self.processed_count = 0
-
-        # フック管理辞書（HookTypeごとに優先度付きの関数リスト）
-        self.hooks: Dict[HookType, List[Tuple[int, Callable[[], None]]]] = {hook_type: [] for hook_type in HookType}
-
-        self.load_config(self.config_path)
-        self._start_config_watcher(self.config_path)
-
-        # プロセス終了シグナルのハンドリング登録
-        signal.signal(signal.SIGINT, self._handle_shutdown)
-        signal.signal(signal.SIGTERM, self._handle_shutdown)
-
-    def _get_default_logger(self):
-        """
-        デフォルトのロガーを取得する。
-
-        Returns:
-            logging.Logger: ロガーオブジェクト
-        """
-        from utils.app_logger import Logger
-        return Logger(
-            project_root=self.project_root,
-            logger_name=self.__class__.__name__
-        ).get_logger()
-
-    def load_config(self, config_path: str) -> None:
-        """
-        設定ファイルを読み込み、self.configに反映する。
-
-        Args:
-            config_path (str): 設定ファイルのパス
-
-        Raises:
-            Exception: 読み込み失敗時に例外を送出する
-        """
-        try:
-            self.logger.info(f"Loading configuration from {config_path}")
-            with open(config_path, 'r') as f:
-                self.config.clear()
-                self.config.update(yaml.safe_load(f))
-        except Exception:
-            self.logger.exception("Failed to load configuration.")
-            raise
-
-    def reload_config(self, config_path: Optional[str] = None) -> None:
-        """
-        設定ファイルを再読み込みする。
-
-        Args:
-            config_path (Optional[str]): 新たな設定ファイルパス。Noneなら既存のself.config_pathを使う。
-        """
-        self.logger.info("Reloading configuration.")
-        if config_path:
-            self.config_path = config_path
-        self.load_config(self.config_path)
-
-    def _start_config_watcher(self, config_path: str) -> None:
-        """
-        watchdogを使って設定ファイルの変更を監視するスレッドを起動する。
-
-        Args:
-            config_path (str): 監視対象の設定ファイルパス
-
-        Raises:
-            Exception: 監視起動失敗時に例外を送出する
-        """
-        try:
-            self.observer = Observer()
-            event_handler = ConfigChangeHandler(self)
-            self.observer.schedule(event_handler, path=os.path.dirname(config_path), recursive=False)
-            self.observer.start()
-            self.logger.info(f"Watching configuration changes in {config_path}")
-        except Exception:
-            self.logger.exception("Failed to start config watcher.")
-            raise
-
-    def add_hook(self, hook_type: HookType, func: Callable[..., None], priority: int = 0) -> None:
-        """
-        指定のフックタイプに関数を優先度付きで登録する。
-
-        Args:
-            hook_type (HookType): フックの種類
-            func (Callable[..., None]): 呼び出す関数
-            priority (int): 優先度（大きいほど先に呼ばれる）
-        """
-        hook_list = self.hooks[hook_type]
-        hook_list.append((priority, func))
-        hook_list.sort(reverse=True, key=lambda x: x[0])
-
-    def _execute_hooks(self, hook_type: HookType) -> None:
-        """
-        指定されたフックタイプの全登録関数を並列実行し、例外をロギングする。
-
-        Args:
-            hook_type (HookType): 実行するフックタイプ
-
-        Raises:
-            RuntimeError: フック実行中に例外があればhandle_errorで例外を送出する可能性あり
-        """
-        hooks = self.hooks[hook_type]
-        errors = []
-
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = [executor.submit(hook[1]) for hook in hooks]
-            for future in futures:
-                try:
-                    future.result()
-                except Exception as e:
-                    self.logger.exception(f"Error during hook execution: {e}")
-                    errors.append(Exception("Hook execution failed."))
-
-        if errors:
-            self.handle_error(f"Errors encountered during {hook_type.value} hook execution: {errors}")
-
-    def handle_error(self, message: str, raise_exception: bool = False) -> None:
-        """
-        エラーメッセージをログに出力し、必要なら例外を送出する。
-
-        Args:
-            message (str): ログに出すエラーメッセージ
-            raise_exception (bool): TrueならRuntimeErrorを送出する
-        """
-        self.logger.exception(message)
-        if raise_exception:
-            raise RuntimeError(message)
-
-    def _handle_shutdown(self, signum, frame):
-        """
-        シグナル受信時の終了処理。監視スレッド停止とcleanupを呼び出す。
-
-        Args:
-            signum: 受信したシグナル番号
-            frame: 現在のスタックフレーム
-        """
-        self.logger.info(f"Received shutdown signal {signum}.")
-        if hasattr(self, 'observer'):
-            self.observer.stop()
-            self.observer.join()
-        self.cleanup()
+        self.config = self.config_manager.config
 
     def execute(self) -> None:
         """
@@ -226,8 +106,7 @@ class BaseBatchProcessor(ABC):
             self._execute_phase(HookType.PRE_PROCESS, HookType.POST_PROCESS, self.process, errors)
         finally:
             self._execute_phase(HookType.PRE_CLEANUP, HookType.POST_CLEANUP, self.cleanup, errors)
-            self.end_time = time.time()
-            duration = self.end_time - self.start_time
+            duration = time.time() - self.start_time
             self.logger.info(f"Batch process completed in {duration:.2f} seconds.")
 
             if errors:
@@ -257,10 +136,10 @@ class BaseBatchProcessor(ABC):
             errors (List[Exception]): 例外格納用リスト
         """
         try:
-            self._execute_hooks(hook_type)
-        except Exception:
-            self.logger.exception(f"Error in {hook_type.name} hooks.")
-            errors.append(Exception(f"{hook_type.name} hook error"))
+            self.hook_manager.execute_hooks(hook_type)
+        except Exception as e:
+            self.logger.error(f"Error in {hook_type.name} hooks: {e}")
+            errors.append(e)
 
     def _run_phase_function(self, func: Callable[[], None], name: str, errors: List[Exception]) -> None:
         """
@@ -278,20 +157,39 @@ class BaseBatchProcessor(ABC):
             duration = time.time() - start_time
             self.logger.info(f"{name.capitalize()} phase completed in {duration:.2f} seconds.")
         except Exception as e:
-            self.logger.exception(f"Error during {name} phase: {e}")
-            errors.append(Exception(f"{name} phase error"))
+            self.logger.error(f"Error during {name} phase: {e}")
+            errors.append(e)
 
+    def add_hook(self, hook_type: HookType, func: Callable[[], None], priority: int = 0) -> None:
+        """
+        指定された種類のフックに関数を登録する。
+        """
+        self.hook_manager.add_hook(hook_type, func, priority)
+
+    def reload_config(self, config_path: Optional[str] = None) -> None:
+        """
+        設定ファイルを再読み込みする。
+        """
+        self.config_manager.reload_config(config_path)
+        self.config = self.config_manager.config
+
+    def handle_error(self, message: str, raise_exception: bool = False) -> None:
+        """
+        エラー処理：ログ出力し、必要に応じて例外をスローする。
+        """
+        self.logger.error(message)
+        if raise_exception:
+            raise RuntimeError(message)
+        
     def setup(self) -> None:
         """
-        バッチ処理のセットアップフェーズ。
-        必要に応じて継承先でオーバーライドして初期化処理を実装する。
+        セットアップフェーズの共通処理。必要に応じてサブクラスでオーバーライド可能。
         """
         self.logger.info("Executing common setup tasks in BaseBatchProcessor.")
 
     def process(self) -> None:
         """
-        バッチ処理のメイン処理フェーズ。
-        get_dataで取得したデータをバッチ分割し、_process_batchで順次処理する。
+        メイン処理フェーズ。データ取得とバッチ単位での処理を行う。
         """
         self.logger.info("Executing common batch processing tasks in BaseBatchProcessor.")
         data = self.get_data()
@@ -300,42 +198,42 @@ class BaseBatchProcessor(ABC):
             self.logger.info(f"Processing batch {i + 1}...")
             self._process_batch(batch)
 
+    def cleanup(self) -> None:
+        """
+        クリーンアップフェーズの共通処理。必要に応じてサブクラスでオーバーライド可能。
+        """
+        self.logger.info("Executing common cleanup tasks in BaseBatchProcessor.")
+
+    def _generate_batches(self, data: List[Dict]) -> List[List[Dict]]:
+        """
+        データを設定されたサイズで分割し、バッチ一覧を生成する。
+
+        Args:
+            data (List[Dict]): 元データ
+
+        Returns:
+            List[List[Dict]]: 分割されたバッチリスト
+        """
+        batch_size = self.config.get("batch_size", 100)
+        return [data[i:i + batch_size] for i in range(0, len(data), batch_size)]
+
     @abstractmethod
     def get_data(self) -> List[Dict]:
         """
-        処理対象データを取得する抽象メソッド。
+        データ取得メソッド。具体的な実装はサブクラスで行う必要がある。
 
         Returns:
-            List[Dict]: 処理対象のデータリスト
+            List[Dict]: バッチ処理対象のデータ一覧
         """
         pass
 
     @abstractmethod
     def _process_batch(self, batch: List[Dict]) -> None:
         """
-        1バッチ分のデータを処理する抽象メソッド。
+        バッチ単位の処理メソッド。サブクラスでの実装が必須。
 
         Args:
-            batch (List[Dict]): 処理対象のバッチデータ
+            batch (List[Dict]): 単一バッチのデータ
         """
         pass
 
-    def _generate_batches(self, data: List[Dict]) -> List[List[Dict]]:
-        """
-        処理データを設定値に従いバッチ分割する。
-
-        Args:
-            data (List[Dict]): 処理対象の全データ
-
-        Returns:
-            List[List[Dict]]: バッチ分割後のデータリスト
-        """
-        batch_size = self.config.get("batch_size", 100)
-        return [data[i:i + batch_size] for i in range(0, len(data), batch_size)]
-
-    def cleanup(self) -> None:
-        """
-        バッチ処理のクリーンアップフェーズ。
-        後処理やリソース解放処理を継承先で実装する場合にオーバーライドする。
-        """
-        self.logger.info("Executing common cleanup tasks in BaseBatchProcessor.")

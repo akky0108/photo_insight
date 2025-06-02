@@ -1,0 +1,33 @@
+# tests/integration/dummy_batch_processor.py
+
+from batch_framework.base_batch import BaseBatchProcessor
+
+class DummyBatchProcessor(BaseBatchProcessor):
+    def __init__(self, hook_manager, config_manager, signal_handler=None, logger=None):
+        super().__init__(
+            hook_manager=hook_manager,
+            config_manager=config_manager,
+            signal_handler=signal_handler,
+        )
+        if logger:
+            self.logger = logger
+        self.setup_called = False
+        self.process_called = False 
+        self.cleanup_called = False
+
+    def setup(self):
+        self.setup_called = True
+
+    def process(self):
+        self.process_called = True
+
+    def _process_batch(self, batch):
+        # ダミー実装（何もしない）
+        pass
+
+    def get_data(self):
+        # ダミー実装：空のデータを返す
+        return []
+
+    def cleanup(self):
+        self.cleanup_called = True
