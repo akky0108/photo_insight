@@ -147,3 +147,28 @@ def test_build_merged_env_dict():
     assert {"pip": pip} in env_dict["dependencies"]
     assert not any(isinstance(dep, dict) and "pip" in dep and dep["pip"] == ["some-old-thing==1.0.0"]
                    for dep in env_dict["dependencies"][:-1])  # pipセクションは最後のみにあること
+
+import logging
+from unittest.mock import Mock
+import pytest
+from photo_eval_env_manager.merge_envs import merge_envs
+from photo_eval_env_manager.envmerge.exceptions import VersionMismatchError
+
+def test_merge_envs_logs_exception_on_version_mismatch():
+    """
+    merge_envs が VersionMismatchError を raise するとき logger.exception が呼ばれることを検証する。
+    """
+    mock_logger = Mock(spec=logging.Logger)
+
+    with pytest.raises(VersionMismatchError):
+        merge_envs(
+            base_yml=BASE_YML_MIS,
+            pip_json=PIP_JSON,
+            final_yml=FINAL_YML,
+            requirements_txt=REQUIREMENTS_TXT,
+            strict=True,
+            logger=mock_logger
+        )
+
+    # logger.exception は merge_envs 内では呼ばれないので、これは呼ばれないはず
+    mock_logger.exception.assert_not_called()
