@@ -2,6 +2,7 @@
 import argparse
 import yaml
 import sys
+import logging
 import re
 import json
 
@@ -9,6 +10,7 @@ from pathlib import Path
 from photo_eval_env_manager.envmerge.env_utils import load_yaml_file, parse_conda_yaml, parse_pip_requirements, build_merged_env_dict
 from photo_eval_env_manager.envmerge.exceptions import VersionMismatchError, DuplicatePackageError
 from collections import defaultdict
+from utils.app_logger import AppLogger
 
 PYTHON_VERSION = "3.10"
 
@@ -26,6 +28,7 @@ def parse_args():
     parser.add_argument("--output", type=Path, default="merged_env.yml", help="Output merged environment file")
     parser.add_argument("--strict", action="store_true", help="Fail if packages overlap between conda and pip")
     parser.add_argument("--cpu-only", action="store_true", help="Replace GPU packages with CPU equivalents (e.g., PyTorch)")
+    parser.add_argument("--LogLevel", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], default="INFO", help="ログの詳細レベル（デフォルト: INFO）")
     return parser.parse_args()
 
 
@@ -151,7 +154,7 @@ def write_merged_env_file(env_dict: dict, output_path: Path):
 
 
 def merge_envs(base_yml, pip_json, final_yml, requirements_txt,
-               ci_yml=None, exclude_for_ci=None, strict=False, cpu_only=False):
+               ci_yml=None, exclude_for_ci=None, strict=False, cpu_only=False, logger=None):
     """
     condaとpipの依存ファイルをマージして、環境YAMLおよびrequirements.txtを生成する。
 
@@ -164,47 +167,79 @@ def merge_envs(base_yml, pip_json, final_yml, requirements_txt,
         exclude_for_ci (list[str], optional): CI用に除外するパッケージ名リスト
         strict (bool): バージョン重複を厳密にチェックするか
         cpu_only (bool): CPU専用モードを有効にするか
+        logger (AppLogger, optional): ログ出力用のロガーインスタンス
     """
-    base_yml = Path(base_yml)
-    pip_json = Path(pip_json)
-    final_yml = Path(final_yml)
-    requirements_txt = Path(requirements_txt)
-    if ci_yml is not None:
-        ci_yml = Path(ci_yml)
+    if logger is None:
+        logger = AppLogger(project_root=".", logger_name="envmerge").get_logger()
 
-    raw_yaml = load_yaml_file(base_yml)
-    conda_deps, pip_from_conda = parse_conda_yaml(raw_yaml)
-    pip_deps = load_pip_reqs(pip_json)
-    pip_deps.extend(pip_from_conda)
+    try:
+        base_yml = Path(base_yml)
+        pip_json = Path(pip_json)
+        final_yml = Path(final_yml)
+        requirements_txt = Path(requirements_txt)
+        if ci_yml is not None:
+            ci_yml = Path(ci_yml)
 
-    resolve_conflicts(conda_deps, pip_deps, strict)
-    apply_cpu_patch(pip_deps, conda_deps, cpu_only)
+        if logger:
+            logger.debug(f"Loading base conda environment from {base_yml}")
+        raw_yaml = load_yaml_file(base_yml)
 
-    write_merged_env_file(build_merged_env_dict(conda_deps=conda_deps, pip_deps=pip_deps), final_yml)
-    with requirements_txt.open("w") as f:
-        for pkg in pip_deps:
-            f.write(pkg + "\n")
+        if logger:
+            logger.debug("Parsing conda dependencies")
+        conda_deps, pip_from_conda = parse_conda_yaml(raw_yaml)
 
-    if ci_yml and exclude_for_ci:
-        exclude_set = {name.lower() for name in exclude_for_ci}
+        if logger:
+            logger.debug(f"Loading pip requirements from {pip_json}")
+        pip_deps = load_pip_reqs(pip_json)
+        pip_deps.extend(pip_from_conda)
 
-        def get_pkg_name(dep):
-            return dep.split('==')[0].lower()
+        if logger:
+            logger.debug("Resolving dependency conflicts")
+        resolve_conflicts(conda_deps, pip_deps, strict)
 
-        ci_pip_deps = [pkg for pkg in pip_deps if get_pkg_name(pkg) not in exclude_set]
+        if logger:
+            logger.debug("Applying CPU-only patch" if cpu_only else "Skipping CPU-only patch")
+        apply_cpu_patch(pip_deps, conda_deps, cpu_only)
 
-        write_merged_env_file(
-            build_merged_env_dict(conda_deps=conda_deps, pip_deps=ci_pip_deps),
-            ci_yml
-        )
+        if logger:
+            logger.debug(f"Writing merged conda environment to {final_yml}")
+        write_merged_env_file(build_merged_env_dict(conda_deps=conda_deps, pip_deps=pip_deps), final_yml)
 
+        if logger:
+            logger.debug(f"Writing pip requirements to {requirements_txt}")
+        with requirements_txt.open("w") as f:
+            for pkg in pip_deps:
+                f.write(pkg + "\n")
 
-def main():
+        if ci_yml and exclude_for_ci:
+            if logger:
+                logger.debug(f"Excluding packages for CI: {exclude_for_ci}")
+            exclude_set = {name.lower() for name in exclude_for_ci}
+
+            def get_pkg_name(dep):
+                return dep.split('==')[0].lower()
+
+            ci_pip_deps = [pkg for pkg in pip_deps if get_pkg_name(pkg) not in exclude_set]
+
+            if logger:
+                logger.debug(f"Writing CI-specific conda environment to {ci_yml}")
+            write_merged_env_file(
+                build_merged_env_dict(conda_deps=conda_deps, pip_deps=ci_pip_deps),
+                ci_yml
+            )
+    except Exception as e:
+        if logger:
+            logger.exception("An error occurred during merge_envs execution.")
+        raise 
+
+def run_cli(args, logger):
     """
-    スクリプトのエントリーポイント。コマンドライン引数を受け取り、環境マージ処理を実行する。
-    """
-    args = parse_args()
+    CLI 引数と logger を使って merge_envs を実行する。
 
+    Args:
+        args (argparse.Namespace): コマンドライン引数
+        logger (logging.Logger): ロガーインスタンス
+    """
     exclude_for_ci = []
     if args.cpu_only:
         exclude_file = Path("exclude_ci.txt")
@@ -220,9 +255,30 @@ def main():
         ci_yml="environment_ci.yml",
         exclude_for_ci=exclude_for_ci,
         strict=args.strict,
-        cpu_only=args.cpu_only
+        cpu_only=args.cpu_only,
+        logger=logger
     )
 
+def main():
+    """
+    スクリプトのエントリーポイント。コマンドライン引数を受け取り、環境マージ処理を実行する。
+    """
+
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument('--log-level', default='INFO')
+    pre_args, _ = pre_parser.parse_known_args()
+    log_level = pre_args.log_level.upper()
+
+    logger = AppLogger(project_root=".", logger_name="envmerge").get_logger()
+    logger.setLevel(getattr(logging, log_level, logging.INFO))
+
+    try:
+        args = parse_args()
+        logger.setLevel(getattr(logging, args.log_level, logging.INFO))
+        run_cli(args, logger)
+    except Exception:
+        logger.exception("UnHandled exception occurred")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
