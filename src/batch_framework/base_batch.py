@@ -14,15 +14,6 @@ from batch_framework.core.hook_manager import HookManager, HookType
 from batch_framework.core.config_manager import ConfigManager
 from batch_framework.core.signal_handler import SignalHandler
 
-class HookType(Enum):
-    PRE_SETUP = 'pre_setup'
-    POST_SETUP = 'post_setup'
-    PRE_PROCESS = 'pre_process'
-    POST_PROCESS = 'post_process'
-    PRE_CLEANUP = 'pre_cleanup'
-    POST_CLEANUP = 'post_cleanup'
-
-
 class ConfigChangeHandler(FileSystemEventHandler):
     def __init__(self, processor: 'BaseBatchProcessor'):
         """
