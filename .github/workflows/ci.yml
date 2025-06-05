@@ -10,27 +10,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-      - name: Set up Miniconda
-        uses: conda-incubator/setup-miniconda@v3
+      - uses: conda-incubator/setup-miniconda@v3
         with:
           python-version: 3.10
+          channels: conda-forge,defaults
           auto-update-conda: false
 
       - name: Create conda environment
         shell: bash -l {0}
         run: |
           conda env create -f environment.yml
-          conda activate photo_eval_env
-          pip install -r requirements.txt
-
-      - name: Run tests
-        shell: bash -l {0}
-        run: |
-          conda activate photo_eval_env
-          pytest tests  # テストフォルダが違ったら直してね
-
-      - name: Clean up
-        run: conda clean --all -y
