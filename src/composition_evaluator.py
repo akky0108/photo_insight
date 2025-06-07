@@ -11,21 +11,24 @@ class CompositionEvaluator:
     def __init__(self, image_path=None, logger=None, weights=None):
         self.loader = ImageLoader(logger)
         self.exif_handler = ExifFileHandler()
-        self.logger = logger if logger else Logger(logger_name='CompositionEvaluator').get_logger()
+        self.logger = (
+            logger
+            if logger
+            else Logger(logger_name="CompositionEvaluator").get_logger()
+        )
 
-        self.weights = weights if weights else {
-            'thirds': 1.0,
-            'golden': 0.8,
-            'symmetry': 1.0,
-            'depth': 1.0
-        }
+        self.weights = (
+            weights
+            if weights
+            else {"thirds": 1.0, "golden": 0.8, "symmetry": 1.0, "depth": 1.0}
+        )
 
         if image_path:
             self.load_image(image_path)
 
     def load_image(self, image_path):
         try:
-            if image_path.lower().endswith('.nef'):
+            if image_path.lower().endswith(".nef"):
                 self.image = self.load_raw_image(image_path)
             else:
                 self.image = self.loader.load_image(image_path)
@@ -46,7 +49,7 @@ class CompositionEvaluator:
 
     def correct_rotation(self, image_path):
         exif_data = self.exif_handler.get_exif_data(image_path)
-        orientation = exif_data.get('Orientation', 1)
+        orientation = exif_data.get("Orientation", 1)
         if self.image is None:
             return None
 
@@ -64,25 +67,25 @@ class CompositionEvaluator:
         # 中心座標ではなく、明るさの重心を使用
         gray = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
         moments = cv2.moments(gray)
-        if moments['m00'] == 0:
+        if moments["m00"] == 0:
             return 0
-        centroid_x = int(moments['m10'] / moments['m00'])
-        centroid_y = int(moments['m01'] / moments['m00'])
+        centroid_x = int(moments["m10"] / moments["m00"])
+        centroid_y = int(moments["m01"] / moments["m00"])
 
         thirds_x = [self.width / 3, 2 * self.width / 3]
         thirds_y = [self.height / 3, 2 * self.height / 3]
 
         distance_to_thirds = min(
             min(abs(centroid_x - thirds_x[0]), abs(centroid_x - thirds_x[1])),
-            min(abs(centroid_y - thirds_y[0]), abs(centroid_y - thirds_y[1]))
+            min(abs(centroid_y - thirds_y[0]), abs(centroid_y - thirds_y[1])),
         )
         return max(0, 1 - (distance_to_thirds / (min(self.width, self.height) / 6)))
 
     def evaluate_symmetry(self):
         if self.image is None:
             return None
-        left_half = self.image[:, :self.width // 2]
-        right_half = cv2.flip(self.image[:, self.width // 2:], 1)
+        left_half = self.image[:, : self.width // 2]
+        right_half = cv2.flip(self.image[:, self.width // 2 :], 1)
         right_half = cv2.resize(right_half, (left_half.shape[1], left_half.shape[0]))
         gray_left = cv2.cvtColor(left_half, cv2.COLOR_BGR2GRAY)
         gray_right = cv2.cvtColor(right_half, cv2.COLOR_BGR2GRAY)
@@ -103,9 +106,9 @@ class CompositionEvaluator:
         symmetry_score = self.evaluate_symmetry() or 0
         depth_score = self.evaluate_depth_and_focus() or 0
         weighted_score = (
-            thirds_score * self.weights['thirds'] +
-            symmetry_score * self.weights['symmetry'] +
-            depth_score * self.weights['depth']
+            thirds_score * self.weights["thirds"]
+            + symmetry_score * self.weights["symmetry"]
+            + depth_score * self.weights["depth"]
         )
         normalized_score = weighted_score / sum(self.weights.values())
         return round(normalized_score * 100, 2)
@@ -121,15 +124,11 @@ class CompositionEvaluator:
                 scores[image_path] = None
         return scores
 
+
 # 使用例
 if __name__ == "__main__":
     image_paths = ["portrait1.nef", "portrait2.nef", "portrait3.nef"]
-    weights = {
-        'thirds': 1.0,
-        'golden': 0.8,
-        'symmetry': 1.0,
-        'depth': 1.2
-    }
+    weights = {"thirds": 1.0, "golden": 0.8, "symmetry": 1.0, "depth": 1.2}
     evaluator = CompositionEvaluator(weights=weights)
     batch_scores = evaluator.evaluate_batch(image_paths)
     for image_path, score in batch_scores.items():

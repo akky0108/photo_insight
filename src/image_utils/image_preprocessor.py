@@ -8,7 +8,12 @@ from utils.app_logger import Logger
 
 
 class ImagePreprocessor:
-    def __init__(self, logger: Optional[Logger] = None, is_raw: bool = False, gamma: Optional[float] = None):
+    def __init__(
+        self,
+        logger: Optional[Logger] = None,
+        is_raw: bool = False,
+        gamma: Optional[float] = None,
+    ):
         self.logger = logger or Logger("ImagePreprocessor")
         self.image_loader = ImageLoader(logger=self.logger)
         self.is_raw = is_raw
@@ -30,7 +35,9 @@ class ImagePreprocessor:
 
     def _load_image(self, image_input: Union[str, np.ndarray]) -> np.ndarray:
         if isinstance(image_input, str):
-            return self.image_loader.load_image(image_input, output_bps=16 if self.is_raw else 8)
+            return self.image_loader.load_image(
+                image_input, output_bps=16 if self.is_raw else 8
+            )
         elif isinstance(image_input, np.ndarray):
             return image_input
         else:
@@ -43,10 +50,14 @@ class ImagePreprocessor:
 
     def _adjust_gamma(self, image: np.ndarray, gamma: float) -> np.ndarray:
         inv_gamma = 1.0 / gamma
-        table = np.array([(i / 255.0) ** inv_gamma * 255 for i in range(256)]).astype("uint8")
+        table = np.array([(i / 255.0) ** inv_gamma * 255 for i in range(256)]).astype(
+            "uint8"
+        )
         return cv2.LUT(image, table)
 
-    def _correct_orientation(self, image_path: Union[str, np.ndarray], image: np.ndarray) -> np.ndarray:
+    def _correct_orientation(
+        self, image_path: Union[str, np.ndarray], image: np.ndarray
+    ) -> np.ndarray:
         if not isinstance(image_path, str):
             return image  # ndarray なら回転補正スキップ
 
@@ -57,7 +68,7 @@ class ImagePreprocessor:
                 return image
 
             orientation_key = next(
-                (k for k, v in ExifTags.TAGS.items() if v == 'Orientation'), None
+                (k for k, v in ExifTags.TAGS.items() if v == "Orientation"), None
             )
             if orientation_key is None:
                 return image

@@ -2,6 +2,7 @@
 
 from batch_framework.base_batch import BaseBatchProcessor
 
+
 class DummyBatchProcessor(BaseBatchProcessor):
     def __init__(self, hook_manager, config_manager, signal_handler=None, logger=None):
         super().__init__(
@@ -12,7 +13,7 @@ class DummyBatchProcessor(BaseBatchProcessor):
         if logger:
             self.logger = logger
         self.setup_called = False
-        self.process_called = False 
+        self.process_called = False
         self.cleanup_called = False
 
     def setup(self):

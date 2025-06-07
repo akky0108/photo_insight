@@ -34,7 +34,7 @@ class ColorBalanceEvaluator:
         return {
             "color_balance_score": color_balance_score,
             "white_balance_score": white_balance_score,
-            "skin_tone_score": skin_tone_score
+            "skin_tone_score": skin_tone_score,
         }
 
     def _get_skin_mask(self, image: np.ndarray) -> np.ndarray:
@@ -44,8 +44,8 @@ class ColorBalanceEvaluator:
         b = image[:, :, 2].astype(np.float32)
 
         condition1 = (r > 95) & (g > 40) & (b > 20)
-        condition2 = ((np.max(image, axis=2) - np.min(image, axis=2)) > 15)
-        condition3 = (np.abs(r - g) > 15)
+        condition2 = (np.max(image, axis=2) - np.min(image, axis=2)) > 15
+        condition3 = np.abs(r - g) > 15
         condition4 = (r > g) & (r > b)
 
         skin_mask = condition1 & condition2 & condition3 & condition4

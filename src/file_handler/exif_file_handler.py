@@ -3,22 +3,31 @@ import subprocess
 import json
 from file_handler.file_handler import FileHandler
 
+
 class ExifFileHandler(FileHandler):
-    
+
     def __init__(self, raw_extensions=None):
         """コンストラクタ。対応するRAWファイルの拡張子を初期化"""
         super().__init__()
         # デフォルトのRAWファイル拡張子リスト
         self.raw_extensions = raw_extensions or [
-            ".NEF", ".NRW", ".CR2", ".CR3", ".ARW", ".RAF", ".RW2", ".ORF", ".PEF"
+            ".NEF",
+            ".NRW",
+            ".CR2",
+            ".CR3",
+            ".ARW",
+            ".RAF",
+            ".RW2",
+            ".ORF",
+            ".PEF",
         ]
 
-    def read_file(self, file_path, format='exif'):
+    def read_file(self, file_path, format="exif"):
         """単一のファイルを読み込む"""
         if not self.file_exists(file_path):
             raise FileNotFoundError(f"ファイルが存在しません: {file_path}")
 
-        if format == 'exif':
+        if format == "exif":
             return self.get_exif_data(file_path)
         else:
             plugin = self.get_plugin(format)
@@ -26,7 +35,9 @@ class ExifFileHandler(FileHandler):
                 return plugin.read(file_path)
             raise NotImplementedError(f"No plugin registered for format: {format}")
 
-    def write_file(self, output_file_path, data, format='text', header=None, write_mode='w'):
+    def write_file(
+        self, output_file_path, data, format="text", header=None, write_mode="w"
+    ):
         """ファイルにデータを書き込む"""
         plugin = self.get_plugin(format)
         if plugin:
@@ -40,18 +51,18 @@ class ExifFileHandler(FileHandler):
             raise FileNotFoundError(f"ファイルが存在しません: {file_path}")
         os.remove(file_path)
 
-    def update_file(self, file_path, data, format='text'):
+    def update_file(self, file_path, data, format="text"):
         """ファイルを更新する"""
         self.write_file(file_path, data, format)
 
     def read_files(self, directory_path, file_extensions=None):
         """
         指定したディレクトリ内のRAWファイルのEXIFデータを取得します。
-        
+
         Args:
             directory_path (str): 読み込み対象のディレクトリパス
             file_extensions (List[str]): 読み込み対象のファイル拡張子リスト
-        
+
         Returns:
             List[Dict[str, str]]: EXIFデータのリスト
         """
@@ -64,7 +75,8 @@ class ExifFileHandler(FileHandler):
 
         # 指定した拡張子のRAWファイルをリストアップ
         files = [
-            f for f in os.listdir(directory_path)
+            f
+            for f in os.listdir(directory_path)
             if any(f.lower().endswith(ext.lower()) for ext in file_extensions)
         ]
 
@@ -81,8 +93,10 @@ class ExifFileHandler(FileHandler):
         """ExifToolを使用してEXIFデータを取得"""
         try:
             result = subprocess.run(
-                ['exiftool', '-json', file_path],
-                capture_output=True, text=True, check=True
+                ["exiftool", "-json", file_path],
+                capture_output=True,
+                text=True,
+                check=True,
             )
             metadata = json.loads(result.stdout)
             if not metadata:
@@ -93,7 +107,7 @@ class ExifFileHandler(FileHandler):
 
             # ビット深度の取得
             bit_depth = self.get_bit_depth(metadata[0])
-            metadata[0]['BitDepth'] = bit_depth
+            metadata[0]["BitDepth"] = bit_depth
 
             return metadata[0]
         except subprocess.CalledProcessError as e:
@@ -105,26 +119,26 @@ class ExifFileHandler(FileHandler):
 
     def get_bit_depth(self, metadata):
         """ビット深度を取得"""
-        if 'BitsPerSample' in metadata:
-            return metadata['BitsPerSample']
-        elif 'BitDepth' in metadata:
-            return metadata['BitDepth']
+        if "BitsPerSample" in metadata:
+            return metadata["BitsPerSample"]
+        elif "BitDepth" in metadata:
+            return metadata["BitDepth"]
         else:
             return "ビット深度情報が見つかりません"
 
     def convert_to_numeric(self, metadata):
         """数値変換を行う"""
-        if 'ISO' in metadata:
-            metadata['ISO'] = self.convert_iso(metadata['ISO'])
+        if "ISO" in metadata:
+            metadata["ISO"] = self.convert_iso(metadata["ISO"])
 
-        if 'Aperture' in metadata:
-            metadata['Aperture'] = self.convert_aperture(metadata['Aperture'])
+        if "Aperture" in metadata:
+            metadata["Aperture"] = self.convert_aperture(metadata["Aperture"])
 
-        if 'FocalLength' in metadata:
-            metadata['FocalLength'] = self.convert_focal_length(metadata['FocalLength'])
+        if "FocalLength" in metadata:
+            metadata["FocalLength"] = self.convert_focal_length(metadata["FocalLength"])
 
-        if 'Orientation' in metadata:
-            metadata['Orientation'] = self.convert_orientation(metadata['Orientation'])
+        if "Orientation" in metadata:
+            metadata["Orientation"] = self.convert_orientation(metadata["Orientation"])
 
         return metadata
 
@@ -147,7 +161,9 @@ class ExifFileHandler(FileHandler):
     def convert_focal_length(self, focal_length_value):
         """FocalLengthを数値に変換"""
         try:
-            if isinstance(focal_length_value, str) and focal_length_value.endswith("mm"):
+            if isinstance(focal_length_value, str) and focal_length_value.endswith(
+                "mm"
+            ):
                 return float(focal_length_value[:-2])
             return float(focal_length_value)
         except ValueError:

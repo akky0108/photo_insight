@@ -3,6 +3,7 @@ import numpy as np
 import random
 import rawpy
 
+
 class ImageUtils:
     @staticmethod
     def preprocess_image_for_mtcNN(image, size=(640, 480), augment=False):
@@ -51,10 +52,10 @@ class ImageUtils:
 
         # RGB画像をfloat32に変換し、MTCNNに適した形式にする
         rgb_image = np.asarray(rgb_image, dtype=np.float32)
-        
+
         # 画素値を[0, 255]に正規化
         normalized_image = cv2.normalize(rgb_image, None, 0, 255, cv2.NORM_MINMAX)
-        
+
         # RGBに変換 (BGRの場合)
         normalized_image = cv2.cvtColor(normalized_image, cv2.COLOR_BGR2RGB)
 
@@ -89,7 +90,9 @@ class ImageUtils:
         rows, cols = image.shape[:2]
         # 画像のランダム回転
         rotation_angle = random.uniform(-15, 15)
-        rotation_matrix = cv2.getRotationMatrix2D((cols / 2, rows / 2), rotation_angle, 1)
+        rotation_matrix = cv2.getRotationMatrix2D(
+            (cols / 2, rows / 2), rotation_angle, 1
+        )
         rotated_image = cv2.warpAffine(image, rotation_matrix, (cols, rows))
 
         # スケール調整
@@ -143,7 +146,9 @@ class ImageUtils:
         return scaled_image
 
     @staticmethod
-    def apply_noise_filter(image: np.ndarray, method: str = 'median', kernel_size: int = 5) -> np.ndarray:
+    def apply_noise_filter(
+        image: np.ndarray, method: str = "median", kernel_size: int = 5
+    ) -> np.ndarray:
         """
         ノイズを軽減するためにフィルタを適用。デフォルトはメディアンフィルタ。
 
@@ -153,11 +158,11 @@ class ImageUtils:
         :return: フィルタ処理された画像
         """
         # 指定されたフィルタを適用
-        if method == 'median':
+        if method == "median":
             return cv2.medianBlur(image, kernel_size)
-        elif method == 'gaussian':
+        elif method == "gaussian":
             return cv2.GaussianBlur(image, (kernel_size, kernel_size), 0)
-        elif method == 'bilateral':
+        elif method == "bilateral":
             return cv2.bilateralFilter(image, kernel_size, 75, 75)
         else:
             raise ValueError(f"Unsupported filter method: {method}")
@@ -172,7 +177,7 @@ class ImageUtils:
         :return: 切り出した画像領域
         """
         x, y, w, h = box
-        return image[y:y + h, x:x + w]
+        return image[y : y + h, x : x + w]
 
     @staticmethod
     def scale_region(region, target_size=(300, 300)):
@@ -212,13 +217,13 @@ class ImageUtils:
         :param target_color_space: 変換する色空間の指定 (例: 'HSV', 'LAB', 'YUV')
         :return: 色空間が変換された画像
         """
-        if target_color_space == 'HSV':
+        if target_color_space == "HSV":
             return cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        elif target_color_space == 'LAB':
+        elif target_color_space == "LAB":
             return cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
-        elif target_color_space == 'YUV':
+        elif target_color_space == "YUV":
             return cv2.cvtColor(image, cv2.COLOR_BGR2YUV)
-        elif target_color_space == 'GRAY':
+        elif target_color_space == "GRAY":
             return ImageUtils.to_grayscale(image)
         else:
             raise ValueError(f"Unsupported color space: {target_color_space}")
@@ -257,7 +262,7 @@ class ImageUtils:
             return (image * 65535).astype(np.uint16)
         else:
             raise ValueError("Unsupported target bit depth. Use 8, 14, or 16.")
-        
+
     def resize_image(image, max_dimension):
         """
         画像を指定した最大サイズにリサイズします（アスペクト比を維持）。
@@ -269,5 +274,6 @@ class ImageUtils:
         if max(h, w) <= max_dimension:
             return image
         scale = max_dimension / max(h, w)
-        return cv2.resize(image, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
-    
+        return cv2.resize(
+            image, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA
+        )

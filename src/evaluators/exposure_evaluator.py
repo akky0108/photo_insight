@@ -3,6 +3,7 @@
 import cv2
 import numpy as np
 
+
 class ExposureEvaluator:
     def __init__(self, lower_thresh: float = 90, upper_thresh: float = 160):
         self.lower_thresh = lower_thresh
@@ -19,7 +20,4 @@ class ExposureEvaluator:
         else:
             score = 0.0
 
-        return {
-            "exposure_score": score,
-            "mean_brightness": mean_brightness
-        }
+        return {"exposure_score": score, "mean_brightness": mean_brightness}

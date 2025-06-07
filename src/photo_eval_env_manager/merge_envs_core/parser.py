@@ -4,6 +4,7 @@ from utils.app_logger import AppLogger
 
 logger = AppLogger().get_logger()
 
+
 def parse_env_file(file_path: Path) -> dict:
     """Parse a conda environment YAML file and return its content as a dictionary."""
     try:

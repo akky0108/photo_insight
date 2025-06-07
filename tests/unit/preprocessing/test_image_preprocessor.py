@@ -4,10 +4,12 @@ import cv2
 from unittest.mock import patch, MagicMock
 from image_utils.image_preprocessor import ImagePreprocessor
 
+
 @pytest.fixture
 def dummy_image():
     # 512x512 の RGB 画像
     return np.ones((512, 512, 3), dtype=np.uint8) * 128
+
 
 def test_ndarray_input_without_gamma(dummy_image):
     preprocessor = ImagePreprocessor(gamma=None)
@@ -18,6 +20,7 @@ def test_ndarray_input_without_gamma(dummy_image):
     assert result["resized_2048"].shape[0] <= 2048
     assert result["resized_1024"].shape[0] <= 1024
 
+
 def test_ndarray_input_with_gamma(dummy_image):
     preprocessor = ImagePreprocessor(gamma=2.2)
     result = preprocessor.load_and_resize(dummy_image)
@@ -25,6 +28,7 @@ def test_ndarray_input_with_gamma(dummy_image):
     assert result["original"].shape == dummy_image.shape
     # 画素値が変わっている（ガンマ補正された）
     assert not np.array_equal(result["original"], dummy_image)
+
 
 @patch("image_utils.image_preprocessor.ImageLoader")
 def test_path_input_with_exif(mock_loader_class, dummy_image, tmp_path):
@@ -44,16 +48,19 @@ def test_path_input_with_exif(mock_loader_class, dummy_image, tmp_path):
     assert result["resized_2048"].shape[0] <= 2048
     assert result["resized_1024"].shape[0] <= 1024
 
+
 def test_invalid_input_type_raises_value_error():
     preprocessor = ImagePreprocessor()
     with pytest.raises(ValueError):
         preprocessor.load_and_resize(123)  # intは不正
+
 
 def test_adjust_gamma_with_zero_raises_exception():
     preprocessor = ImagePreprocessor(gamma=0)
     dummy_image = np.ones((100, 100, 3), dtype=np.uint8) * 128
     with pytest.raises(ZeroDivisionError):
         preprocessor._adjust_gamma(dummy_image, 0)
+
 
 def test_non_image_file_path_does_not_crash(tmp_path):
     dummy_path = tmp_path / "not_an_image.txt"
@@ -64,6 +71,7 @@ def test_non_image_file_path_does_not_crash(tmp_path):
     result = preprocessor._correct_orientation(str(dummy_path), dummy_img)
     assert isinstance(result, np.ndarray)
 
+
 def test_invalid_exif_data_handled_gracefully(tmp_path):
     # 空のJPEGファイルを作る
     image_path = tmp_path / "bad_exif.jpg"
@@ -73,4 +81,3 @@ def test_invalid_exif_data_handled_gracefully(tmp_path):
     # 警告ログを出して処理が継続される
     result = preprocessor._correct_orientation(str(image_path), dummy_img)
     assert isinstance(result, np.ndarray)
-

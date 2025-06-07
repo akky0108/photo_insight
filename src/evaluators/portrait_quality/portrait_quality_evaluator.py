@@ -54,27 +54,33 @@ class PortraitQualityEvaluator:
         local_region_size: int = 32,
         preprocessor_resize_size: Tuple[int, int] = (224, 224),
         face_processor: Optional[FaceProcessor] = None,
-        skip_face_processing: bool = False
+        skip_face_processing: bool = False,
     ):
         self.is_raw = is_raw
-        self.logger = logger or Logger(logger_name='PortraitQualityEvaluator')
-        self.file_name = file_name if isinstance(image_input, np.ndarray) else os.path.basename(image_input)
+        self.logger = logger or Logger(logger_name="PortraitQualityEvaluator")
+        self.file_name = (
+            file_name
+            if isinstance(image_input, np.ndarray)
+            else os.path.basename(image_input)
+        )
         self.image_path = image_input if isinstance(image_input, str) else None
         self.skip_face_processing = skip_face_processing
         self.image = None
 
         # 前処理器で画像を一括取得
-        self.face_evaluator = FaceEvaluator(backend='insightface')
+        self.face_evaluator = FaceEvaluator(backend="insightface")
         self.face_processor = FaceProcessor(self.face_evaluator, logger=self.logger)
 
-        self.preprocessor = ImagePreprocessor(logger=self.logger, is_raw=self.is_raw, gamma=1.2)
+        self.preprocessor = ImagePreprocessor(
+            logger=self.logger, is_raw=self.is_raw, gamma=1.2
+        )
         images = self.preprocessor.load_and_resize(image_input)
         self.rgb_image = images["original"]
         self.resized_image_2048 = images["resized_2048"]
         self.resized_image_1024 = images["resized_1024"]
 
         self.evaluators = {
-            "face": FaceEvaluator(backend='insightface'),
+            "face": FaceEvaluator(backend="insightface"),
             "sharpness": SharpnessEvaluator(),
             "blurriness": BlurrinessEvaluator(),
             "contrast": ContrastEvaluator(),
@@ -82,7 +88,7 @@ class PortraitQualityEvaluator:
             "local_sharpness": LocalSharpnessEvaluator(block_size=local_region_size),
             "local_contrast": LocalContrastEvaluator(block_size=local_region_size),
             "exposure": ExposureEvaluator(),
-            "color_balance": ColorBalanceEvaluator()
+            "color_balance": ColorBalanceEvaluator(),
         }
 
         self.body_detector = FullBodyDetector()
@@ -96,7 +102,9 @@ class PortraitQualityEvaluator:
 
         try:
             if self.resized_image_2048 is None:
-                self.logger.error("resized_image_2048 が None です。評価をスキップします。")
+                self.logger.error(
+                    "resized_image_2048 が None です。評価をスキップします。"
+                )
                 return {}
 
             if self.skip_face_processing:
@@ -129,13 +137,17 @@ class PortraitQualityEvaluator:
 
                 results.update(self._evaluate_face_region(cropped_face))
 
-            composition_result = self._evaluate_composition(self.rgb_image, face_result.get("faces", []))
+            composition_result = self._evaluate_composition(
+                self.rgb_image, face_result.get("faces", [])
+            )
             results.update(composition_result)
 
             for key, evaluator in self.evaluators.items():
                 if key == "face":
                     continue
-                results.update(self._safe_evaluate(evaluator, self.resized_image_2048, key))
+                results.update(
+                    self._safe_evaluate(evaluator, self.resized_image_2048, key)
+                )
 
             return results
 
@@ -163,7 +175,9 @@ class PortraitQualityEvaluator:
             self.logger.warning(f"顔評価中にエラー: {str(e)}")
             return {"face_score": 0, "faces": []}
 
-    def _evaluate_composition(self, image: np.ndarray, face_boxes: list) -> Dict[str, Any]:
+    def _evaluate_composition(
+        self, image: np.ndarray, face_boxes: list
+    ) -> Dict[str, Any]:
         """
         顔領域の位置情報を基に構図の評価を実施する。
 
@@ -183,13 +197,15 @@ class PortraitQualityEvaluator:
                     "framing_score": 0,
                     "face_direction_score": 0,
                     "group_id": -1,
-                    "subgroup_id": -1
+                    "subgroup_id": -1,
                 }
 
             result = self.composition_evaluator.evaluate(image, face_boxes)
             self.logger.info(f"構図評価結果: {result}")
             return {
-                "composition_rule_based_score": result.get("composition_rule_based_score", 0),
+                "composition_rule_based_score": result.get(
+                    "composition_rule_based_score", 0
+                ),
                 "face_position_score": result.get("face_position_score", 0),
                 "framing_score": result.get("framing_score", 0),
                 "face_direction_score": result.get("face_direction_score", 0),
@@ -222,9 +238,7 @@ class PortraitQualityEvaluator:
         """
         try:
             result = evaluator.evaluate(image)
-            output = {
-                f"{name}_score": result.get(f"{name}_score", 0)
-            }
+            output = {f"{name}_score": result.get(f"{name}_score", 0)}
 
             if "local_" in name:
                 output[f"{name}_std"] = result.get(f"{name}_std", 0)
@@ -245,7 +259,15 @@ class PortraitQualityEvaluator:
         顔領域に対して個別評価器を適用し、局所スコアを算出する。
         """
         face_scores = {}
-        for key in ["sharpness", "contrast", "noise", "local_sharpness", "local_contrast", "exposure", "color_balance"]:
+        for key in [
+            "sharpness",
+            "contrast",
+            "noise",
+            "local_sharpness",
+            "local_contrast",
+            "exposure",
+            "color_balance",
+        ]:
             evaluator = self.evaluators.get(key)
             if evaluator is None:
                 continue
@@ -258,7 +280,9 @@ class PortraitQualityEvaluator:
                     face_scores[f"face_{key}_std"] = result.get(f"{key}_std", 0)
 
                 if key == "exposure":
-                    face_scores["face_mean_brightness"] = result.get("mean_brightness", 0)
+                    face_scores["face_mean_brightness"] = result.get(
+                        "mean_brightness", 0
+                    )
 
             except Exception as e:
                 self.logger.warning(f"顔領域の{key}評価に失敗: {str(e)}")

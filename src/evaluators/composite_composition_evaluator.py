@@ -22,11 +22,13 @@ class CompositeCompositionEvaluator(BaseCompositionEvaluator):
         Args:
             logger: 任意のロガーインスタンス。指定がない場合はAppLoggerを使用。
         """
-        self.logger = logger or Logger('CompositeCompositionEvaluator')
+        self.logger = logger or Logger("CompositeCompositionEvaluator")
         self.face_evaluator = RuleBasedCompositionEvaluator(logger=self.logger)
         self.body_evaluator = FullBodyCompositionEvaluator(logger=self.logger)
 
-    def evaluate(self, image: np.ndarray, face_boxes: list, body_keypoints: list) -> dict:
+    def evaluate(
+        self, image: np.ndarray, face_boxes: list, body_keypoints: list
+    ) -> dict:
         """
         顔と全身の構図評価を統合して実行。
 

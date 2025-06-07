@@ -2,6 +2,7 @@ import numpy as np
 from evaluators.base_composition_evaluator import BaseCompositionEvaluator
 from utils.app_logger import Logger
 
+
 class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
     """
     ルールベースの構図評価クラス。
@@ -22,7 +23,7 @@ class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
     FRAME_MARGIN_RATIO = 0.05
 
     def __init__(self, logger=None):
-        self.logger = logger or Logger(logger_name='RuleBasedCompositionEvaluator')
+        self.logger = logger or Logger(logger_name="RuleBasedCompositionEvaluator")
 
         # 関数参照ベースのルール評価関数群（IDE補完・安全性向上）
         self.RULE_EVALUATORS = [
@@ -30,7 +31,7 @@ class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
             self.evaluate_framing,
             self.evaluate_face_direction,
             self.evaluate_face_scale,
-            self.evaluate_eye_contact
+            self.evaluate_eye_contact,
         ]
 
     def evaluate(self, image: np.ndarray, face_boxes: list) -> dict:
@@ -52,7 +53,7 @@ class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
             self.FACE_SCALE: 0,
             self.EYE_CONTACT: 0,
             "group_id": "unclassified",
-            "subgroup_id": 0
+            "subgroup_id": 0,
         }
 
         if not face_boxes:
@@ -67,7 +68,7 @@ class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
             self.FRAMING,
             self.FACE_DIRECTION,
             self.FACE_SCALE,
-            self.EYE_CONTACT
+            self.EYE_CONTACT,
         ]
         scores = [results[k] for k in keys if results[k] is not None]
         avg_score = sum(scores) / len(scores) if scores else 0
@@ -75,40 +76,47 @@ class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
 
         results["group_id"] = self.classify_group(*[results[k] for k in keys])
         results["subgroup_id"] = (
-            int(results[self.FACE_POSITION] * 100) * 10000 +
-            int(results[self.FACE_DIRECTION] * 100) * 100 +
-            int(results[self.FRAMING] * 100)
+            int(results[self.FACE_POSITION] * 100) * 10000
+            + int(results[self.FACE_DIRECTION] * 100) * 100
+            + int(results[self.FRAMING] * 100)
         )
 
         self.logger.debug(f"Composition rule-based score: {avg_score:.2f}")
-        self.logger.debug(f"Group ID: {results['group_id']}, Subgroup ID: {results['subgroup_id']}")
+        self.logger.debug(
+            f"Group ID: {results['group_id']}, Subgroup ID: {results['subgroup_id']}"
+        )
         return results
 
-    def classify_group(self, fp: float, fr: float, fd: float, fs: float, ec: float) -> str:
+    def classify_group(
+        self, fp: float, fr: float, fd: float, fs: float, ec: float
+    ) -> str:
         """
         各スコアに基づき構図グループを分類。
         """
 
         def label_position(score):
             return (
-                "position=well" if score >= 0.8 else
-                "position=moderate" if score >= 0.5 else
-                "position=off"
+                "position=well"
+                if score >= 0.8
+                else "position=moderate" if score >= 0.5 else "position=off"
             )
 
         def label_direction(score):
             return (
-                "direction=good" if score >= 0.8 else
-                "direction=ok" if score >= 0.5 else
-                "direction=bad"
+                "direction=good"
+                if score >= 0.8
+                else "direction=ok" if score >= 0.5 else "direction=bad"
             )
 
         def label_scale(score):
             return (
-                "scale=very_small" if score < 0.2 else
-                "scale=small" if score < 0.5 else
-                "scale=large" if score > 0.9 else
-                "scale=ideal"
+                "scale=very_small"
+                if score < 0.2
+                else (
+                    "scale=small"
+                    if score < 0.5
+                    else "scale=large" if score > 0.9 else "scale=ideal"
+                )
             )
 
         def label_framing(score):
@@ -116,23 +124,27 @@ class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
 
         def label_eye_contact(score):
             return (
-                "eye_contact=strong" if score >= 0.8 else
-                "eye_contact=weak" if score >= 0.5 else
-                "eye_contact=none"
+                "eye_contact=strong"
+                if score >= 0.8
+                else "eye_contact=weak" if score >= 0.5 else "eye_contact=none"
             )
 
         if all(score >= 0.8 for score in [fp, fr, fd, fs, ec]):
             return "composition=ideal"
 
-        return " | ".join([
-            label_position(fp),
-            label_direction(fd),
-            label_scale(fs),
-            label_framing(fr),
-            label_eye_contact(ec)
-        ])
+        return " | ".join(
+            [
+                label_position(fp),
+                label_direction(fd),
+                label_scale(fs),
+                label_framing(fr),
+                label_eye_contact(ec),
+            ]
+        )
 
-    def evaluate_face_position(self, image: np.ndarray, face_boxes: list, results: dict):
+    def evaluate_face_position(
+        self, image: np.ndarray, face_boxes: list, results: dict
+    ):
         """
         顔の位置スコア（三分割法との距離）を計算。
         """
@@ -151,9 +163,15 @@ class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
         face_center_x = x + w / 2
         face_center_y = y + h / 2
 
-        thirds = [(width / 3, height / 3), (2 * width / 3, height / 3),
-                  (width / 3, 2 * height / 3), (2 * width / 3, 2 * height / 3)]
-        distances = [np.hypot(face_center_x - tx, face_center_y - ty) for tx, ty in thirds]
+        thirds = [
+            (width / 3, height / 3),
+            (2 * width / 3, height / 3),
+            (width / 3, 2 * height / 3),
+            (2 * width / 3, 2 * height / 3),
+        ]
+        distances = [
+            np.hypot(face_center_x - tx, face_center_y - ty) for tx, ty in thirds
+        ]
         max_distance = np.hypot(width / 3, height / 3)
         score = 1 - min(min(distances) / max_distance, 1)
         results[self.FACE_POSITION] = score
@@ -184,7 +202,9 @@ class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
 
         self.logger.debug(f"Framing score: {results[self.FRAMING]}")
 
-    def evaluate_face_direction(self, image: np.ndarray, face_boxes: list, results: dict):
+    def evaluate_face_direction(
+        self, image: np.ndarray, face_boxes: list, results: dict
+    ):
         """
         顔の向き（yaw）から正面度をスコア化。
         """

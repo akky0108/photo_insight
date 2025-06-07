@@ -1,7 +1,8 @@
 import numpy as np
 
+
 class MathUtils:
-    
+
     @staticmethod
     def log_scale(value):
         """
@@ -14,7 +15,7 @@ class MathUtils:
             return np.log1p(value)
         except (TypeError, ValueError) as e:
             raise ValueError(f"Invalid input for log scale: {value}. Error: {e}")
-    
+
     @staticmethod
     def min_max_normalization(value, min_value, max_value):
         """
@@ -26,7 +27,7 @@ class MathUtils:
         """
         if min_value == max_value:
             raise ValueError("min_value and max_value must be different.")
-        
+
         normalized_value = (value - min_value) / (max_value - min_value)
         return np.clip(normalized_value, 0, 100)  # 0〜1の範囲に収める
 
@@ -41,7 +42,7 @@ class MathUtils:
         """
         if std == 0:
             raise ValueError("Standard deviation cannot be zero.")
-        
+
         return (value - mean) / std
 
     @staticmethod
@@ -79,7 +80,7 @@ class MathUtils:
         """
         normalized_score = MathUtils.min_max_normalization(score, 0, max_value) * scale
         return MathUtils.clip_values(normalized_score, 0, scale)
-    
+
     @staticmethod
     def log_normalize_sharpness_score(score, log_base=10, scale=100):
         """

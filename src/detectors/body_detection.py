@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import mediapipe as mp
 
+
 class FullBodyDetector:
     def __init__(self, min_detection_confidence=0.5, min_tracking_confidence=0.5):
         """
@@ -12,7 +13,7 @@ class FullBodyDetector:
         self.mp_pose = mp.solutions.pose
         self.pose = self.mp_pose.Pose(
             min_detection_confidence=min_detection_confidence,
-            min_tracking_confidence=min_tracking_confidence
+            min_tracking_confidence=min_tracking_confidence,
         )
 
     def detect_full_body(self, image: np.ndarray) -> bool:
@@ -23,26 +24,26 @@ class FullBodyDetector:
         """
         # BGR → RGB に変換 (MediaPipeはRGB入力)
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        
+
         # 姿勢推定の実行
         results = self.pose.process(image_rgb)
-        
+
         # ランドマークが検出されたか確認
         if not results.pose_landmarks:
             return False  # 姿勢が検出されなければFalse
-        
+
         # ランドマークを取得
         landmarks = results.pose_landmarks.landmark
 
         # 主要なランドマーク（頭部・肩・腰・足）の存在確認
         required_landmarks = [
-            self.mp_pose.PoseLandmark.NOSE,       # 鼻（頭部）
-            self.mp_pose.PoseLandmark.LEFT_SHOULDER, 
+            self.mp_pose.PoseLandmark.NOSE,  # 鼻（頭部）
+            self.mp_pose.PoseLandmark.LEFT_SHOULDER,
             self.mp_pose.PoseLandmark.RIGHT_SHOULDER,  # 両肩
-            self.mp_pose.PoseLandmark.LEFT_HIP, 
-            self.mp_pose.PoseLandmark.RIGHT_HIP,      # 両腰
-            self.mp_pose.PoseLandmark.LEFT_ANKLE, 
-            self.mp_pose.PoseLandmark.RIGHT_ANKLE     # 両足首
+            self.mp_pose.PoseLandmark.LEFT_HIP,
+            self.mp_pose.PoseLandmark.RIGHT_HIP,  # 両腰
+            self.mp_pose.PoseLandmark.LEFT_ANKLE,
+            self.mp_pose.PoseLandmark.RIGHT_ANKLE,  # 両足首
         ]
 
         # すべてのランドマークが検出されているか

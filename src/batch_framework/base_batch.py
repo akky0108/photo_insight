@@ -14,8 +14,9 @@ from batch_framework.core.hook_manager import HookManager, HookType
 from batch_framework.core.config_manager import ConfigManager
 from batch_framework.core.signal_handler import SignalHandler
 
+
 class ConfigChangeHandler(FileSystemEventHandler):
-    def __init__(self, processor: 'BaseBatchProcessor'):
+    def __init__(self, processor: "BaseBatchProcessor"):
         """
         コンフィグファイルの変更を監視し、変更があればプロセッサに通知するハンドラクラス
 
@@ -37,7 +38,9 @@ class ConfigChangeHandler(FileSystemEventHandler):
             return
         self._last_modified_time = now
         if event.src_path == self.processor.config_path:
-            self.processor.logger.info(f"Config file {event.src_path} has been modified. Reloading...")
+            self.processor.logger.info(
+                f"Config file {event.src_path} has been modified. Reloading..."
+            )
             self.processor.reload_config()
 
 
@@ -59,21 +62,37 @@ class BaseBatchProcessor(ABC):
             max_workers (int): フックの並列実行数。
         """
         load_dotenv()
-        self.project_root = os.getenv('PROJECT_ROOT') or os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        self.project_root = os.getenv("PROJECT_ROOT") or os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..")
+        )
         self.max_workers = max_workers
 
         # 明示的にconfig_pathを解決
-        resolved_config_path = config_path if config_path is not None else os.path.join(self.project_root, "config", "config.yaml")
+        resolved_config_path = (
+            config_path
+            if config_path is not None
+            else os.path.join(self.project_root, "config", "config.yaml")
+        )
 
         # 明示的に依存性注入する
         self.config_path = resolved_config_path
-        self.config_manager = config_manager if config_manager is not None else ConfigManager(config_path=self.config_path)
+        self.config_manager = (
+            config_manager
+            if config_manager is not None
+            else ConfigManager(config_path=self.config_path)
+        )
         self.logger = self.config_manager.get_logger("BaseBatchProcessor")
 
-        self.hook_manager = hook_manager if hook_manager is not None else HookManager(max_workers=self.max_workers)
+        self.hook_manager = (
+            hook_manager
+            if hook_manager is not None
+            else HookManager(max_workers=self.max_workers)
+        )
         self.hook_manager.logger = self.logger
 
-        self.signal_handler = signal_handler if signal_handler is not None else SignalHandler(self)
+        self.signal_handler = (
+            signal_handler if signal_handler is not None else SignalHandler(self)
+        )
         self.signal_handler.logger = self.logger
 
         self.processed_count = 0
@@ -93,17 +112,31 @@ class BaseBatchProcessor(ABC):
         errors = []
 
         try:
-            self._execute_phase(HookType.PRE_SETUP, HookType.POST_SETUP, self.setup, errors)
-            self._execute_phase(HookType.PRE_PROCESS, HookType.POST_PROCESS, self.process, errors)
+            self._execute_phase(
+                HookType.PRE_SETUP, HookType.POST_SETUP, self.setup, errors
+            )
+            self._execute_phase(
+                HookType.PRE_PROCESS, HookType.POST_PROCESS, self.process, errors
+            )
         finally:
-            self._execute_phase(HookType.PRE_CLEANUP, HookType.POST_CLEANUP, self.cleanup, errors)
+            self._execute_phase(
+                HookType.PRE_CLEANUP, HookType.POST_CLEANUP, self.cleanup, errors
+            )
             duration = time.time() - self.start_time
             self.logger.info(f"Batch process completed in {duration:.2f} seconds.")
 
             if errors:
-                self.handle_error(f"Batch process encountered errors: {errors}", raise_exception=True)
+                self.handle_error(
+                    f"Batch process encountered errors: {errors}", raise_exception=True
+                )
 
-    def _execute_phase(self, pre_hook_type: HookType, post_hook_type: HookType, phase_function: Callable[[], None], errors: List[Exception]) -> None:
+    def _execute_phase(
+        self,
+        pre_hook_type: HookType,
+        post_hook_type: HookType,
+        phase_function: Callable[[], None],
+        errors: List[Exception],
+    ) -> None:
         """
         フェーズごとに、事前フック、メイン関数、事後フックを順に実行する。
 
@@ -113,7 +146,7 @@ class BaseBatchProcessor(ABC):
             phase_function (Callable[[], None]): フェーズ本体の関数
             errors (List[Exception]): 発生した例外を格納するリスト
         """
-        phase_name = pre_hook_type.name.split('_')[1].lower()
+        phase_name = pre_hook_type.name.split("_")[1].lower()
         self._run_phase_hooks(pre_hook_type, errors)
         self._run_phase_function(phase_function, phase_name, errors)
         self._run_phase_hooks(post_hook_type, errors)
@@ -132,7 +165,9 @@ class BaseBatchProcessor(ABC):
             self.logger.error(f"Error in {hook_type.name} hooks: {e}")
             errors.append(e)
 
-    def _run_phase_function(self, func: Callable[[], None], name: str, errors: List[Exception]) -> None:
+    def _run_phase_function(
+        self, func: Callable[[], None], name: str, errors: List[Exception]
+    ) -> None:
         """
         フェーズ本体の関数を実行し、例外を捕捉してerrorsに格納する。
 
@@ -146,12 +181,16 @@ class BaseBatchProcessor(ABC):
             self.logger.info(f"Executing {name} phase.")
             func()
             duration = time.time() - start_time
-            self.logger.info(f"{name.capitalize()} phase completed in {duration:.2f} seconds.")
+            self.logger.info(
+                f"{name.capitalize()} phase completed in {duration:.2f} seconds."
+            )
         except Exception as e:
             self.logger.error(f"Error during {name} phase: {e}")
             errors.append(e)
 
-    def add_hook(self, hook_type: HookType, func: Callable[[], None], priority: int = 0) -> None:
+    def add_hook(
+        self, hook_type: HookType, func: Callable[[], None], priority: int = 0
+    ) -> None:
         """
         指定された種類のフックに関数を登録する。
         """
@@ -171,7 +210,7 @@ class BaseBatchProcessor(ABC):
         self.logger.error(message)
         if raise_exception:
             raise RuntimeError(message)
-        
+
     def setup(self) -> None:
         """
         セットアップフェーズの共通処理。必要に応じてサブクラスでオーバーライド可能。
@@ -182,7 +221,9 @@ class BaseBatchProcessor(ABC):
         """
         メイン処理フェーズ。データ取得とバッチ単位での処理を行う。
         """
-        self.logger.info("Executing common batch processing tasks in BaseBatchProcessor.")
+        self.logger.info(
+            "Executing common batch processing tasks in BaseBatchProcessor."
+        )
         data = self.get_data()
         batches = self._generate_batches(data)
         for i, batch in enumerate(batches):
@@ -206,7 +247,7 @@ class BaseBatchProcessor(ABC):
             List[List[Dict]]: 分割されたバッチリスト
         """
         batch_size = self.config.get("batch_size", 100)
-        return [data[i:i + batch_size] for i in range(0, len(data), batch_size)]
+        return [data[i : i + batch_size] for i in range(0, len(data), batch_size)]
 
     @abstractmethod
     def get_data(self) -> List[Dict]:
@@ -227,4 +268,3 @@ class BaseBatchProcessor(ABC):
             batch (List[Dict]): 単一バッチのデータ
         """
         pass
-

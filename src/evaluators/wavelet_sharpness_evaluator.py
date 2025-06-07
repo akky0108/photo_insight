@@ -3,6 +3,7 @@ import numpy as np
 import pywt
 from utils.image_utils import ImageUtils
 
+
 class WaveletSharpnessEvaluator:
     def evaluate(self, image: np.ndarray) -> float:
         """
@@ -18,11 +19,17 @@ class WaveletSharpnessEvaluator:
             gray_image = image
 
         # ウェーブレット変換を行う
-        coeffs = pywt.wavedec2(gray_image, 'haar', level=2)
+        coeffs = pywt.wavedec2(gray_image, "haar", level=2)
         cA2, (cH2, cV2, cD2), (cH1, cV1, cD1) = coeffs
 
         # シャープネスの尺度として、高周波成分の絶対平均値を使用
-        sharpness_score = (np.mean(np.abs(cH1)) + np.mean(np.abs(cV1)) + np.mean(np.abs(cD1)) +
-                           np.mean(np.abs(cH2)) + np.mean(np.abs(cV2)) + np.mean(np.abs(cD2))) / 6
+        sharpness_score = (
+            np.mean(np.abs(cH1))
+            + np.mean(np.abs(cV1))
+            + np.mean(np.abs(cD1))
+            + np.mean(np.abs(cH2))
+            + np.mean(np.abs(cV2))
+            + np.mean(np.abs(cD2))
+        ) / 6
 
         return sharpness_score

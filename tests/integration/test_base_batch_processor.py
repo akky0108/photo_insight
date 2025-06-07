@@ -4,11 +4,12 @@ import pytest
 import logging
 import signal
 import json
-from unittest.mock import  Mock, call, MagicMock
+from unittest.mock import Mock, call, MagicMock
 from batch_framework.core.hook_manager import HookType
 from batch_framework.core.signal_handler import SignalHandler
 from batch_framework.core.config_manager import ConfigManager
 from tests.integration.dummy_batch_processor import DummyBatchProcessor
+
 
 def test_execute_runs_all_hooks_and_methods(tmp_path):
     config_path = tmp_path / "config.json"
@@ -34,7 +35,9 @@ def test_execute_runs_all_hooks_and_methods(tmp_path):
     # execute_hooks が6回呼ばれたか？
     assert mock_hook_manager.execute_hooks.call_count == 6
 
-    actual_calls = [args[0].value for args, kwargs in mock_hook_manager.execute_hooks.call_args_list]
+    actual_calls = [
+        args[0].value for args, kwargs in mock_hook_manager.execute_hooks.call_args_list
+    ]
     expected_calls = [
         "pre_setup",
         "post_setup",
@@ -48,6 +51,7 @@ def test_execute_runs_all_hooks_and_methods(tmp_path):
     # ログの確認
     mock_logger.info.assert_any_call("Batch process started.")
     mock_logger.info.assert_any_call("Batch process completed in 0.00 seconds.")
+
 
 def test_signal_handler_triggers_cleanup():
     # モック構成
@@ -63,7 +67,9 @@ def test_signal_handler_triggers_cleanup():
         config_manager=mock_config_manager,
         logger=mock_logger,
     )
-    signal_handler = SignalHandler(shutdown_callback=processor.cleanup, logger=mock_logger)
+    signal_handler = SignalHandler(
+        shutdown_callback=processor.cleanup, logger=mock_logger
+    )
 
     # 疑似的に SIGINT を送る（本物の OS シグナルではない）
     signal_handler._handle_shutdown(signal.SIGINT, None)

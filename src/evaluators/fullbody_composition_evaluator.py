@@ -22,19 +22,25 @@ class FullBodyCompositionEvaluator(BaseCompositionEvaluator):
     MEDIUM_QUALITY_THRESHOLD: float = 0.5
 
     # サブグループマッピング
-    SUBGROUP_MAP: Dict[str, int] = {"high_quality": 2, "medium_quality": 1, "low_quality": 0}
+    SUBGROUP_MAP: Dict[str, int] = {
+        "high_quality": 2,
+        "medium_quality": 1,
+        "low_quality": 0,
+    }
 
     # 重み設定
     WEIGHTS: Dict[str, float] = {
         BODY_POSITION: 0.4,
         BODY_BALANCE: 0.3,
-        POSE_DYNAMICS: 0.3
+        POSE_DYNAMICS: 0.3,
     }
 
     def __init__(self, logger: Optional[Logger] = None) -> None:
-        self.logger = logger or Logger(logger_name='FullBodyCompositionEvaluator')
+        self.logger = logger or Logger(logger_name="FullBodyCompositionEvaluator")
 
-    def evaluate(self, image: np.ndarray, body_keypoints: List[Optional[List[float]]]) -> Dict[str, float]:
+    def evaluate(
+        self, image: np.ndarray, body_keypoints: List[Optional[List[float]]]
+    ) -> Dict[str, float]:
         """
         画像とキーポイントから構図スコアを評価し、結果を返す。
         """
@@ -44,7 +50,7 @@ class FullBodyCompositionEvaluator(BaseCompositionEvaluator):
             self.BODY_BALANCE: 0.0,
             self.POSE_DYNAMICS: 0.0,
             "group_id": "unclassified",
-            "subgroup_id": 0
+            "subgroup_id": 0,
         }
 
         results[self.BODY_POSITION] = self.evaluate_body_position(image, body_keypoints)
@@ -76,8 +82,7 @@ class FullBodyCompositionEvaluator(BaseCompositionEvaluator):
             return 0.0
 
         weighted_sum: float = sum(
-            results[key] * weight
-            for key, weight in self.WEIGHTS.items()
+            results[key] * weight for key, weight in self.WEIGHTS.items()
         )
         return round(weighted_sum / total_weight, 4)
 
@@ -92,7 +97,9 @@ class FullBodyCompositionEvaluator(BaseCompositionEvaluator):
         else:
             return "low_quality"
 
-    def evaluate_body_position(self, image: np.ndarray, body_keypoints: List[Optional[List[float]]]) -> float:
+    def evaluate_body_position(
+        self, image: np.ndarray, body_keypoints: List[Optional[List[float]]]
+    ) -> float:
         """
         全身のフレーム内適合度を評価。
         """
@@ -112,7 +119,9 @@ class FullBodyCompositionEvaluator(BaseCompositionEvaluator):
 
         return (in_frame_count / valid_points) if valid_points else 0.0
 
-    def evaluate_body_balance(self, image: np.ndarray, body_keypoints: List[Optional[List[float]]]) -> float:
+    def evaluate_body_balance(
+        self, image: np.ndarray, body_keypoints: List[Optional[List[float]]]
+    ) -> float:
         """
         重心位置と左右対称性から体のバランスを評価。
         """
@@ -126,7 +135,9 @@ class FullBodyCompositionEvaluator(BaseCompositionEvaluator):
 
         return round((center_score + symmetry_score) / 2, 4)
 
-    def evaluate_pose_dynamics(self, image: np.ndarray, body_keypoints: List[Optional[List[float]]]) -> float:
+    def evaluate_pose_dynamics(
+        self, image: np.ndarray, body_keypoints: List[Optional[List[float]]]
+    ) -> float:
         """
         ポーズの動的表現度を評価。
         """
@@ -139,7 +150,9 @@ class FullBodyCompositionEvaluator(BaseCompositionEvaluator):
         valid_pairs: int = 0
 
         for a, b in limb_pairs:
-            if self._is_valid_point(body_keypoints[a]) and self._is_valid_point(body_keypoints[b]):
+            if self._is_valid_point(body_keypoints[a]) and self._is_valid_point(
+                body_keypoints[b]
+            ):
                 total_len += self._distance(body_keypoints[a], body_keypoints[b])
                 valid_pairs += 1
 
@@ -152,7 +165,9 @@ class FullBodyCompositionEvaluator(BaseCompositionEvaluator):
 
     # --- ヘルパーメソッド ---
 
-    def _validate_keypoints(self, keypoints: List[Optional[List[float]]], min_points: int = 1) -> bool:
+    def _validate_keypoints(
+        self, keypoints: List[Optional[List[float]]], min_points: int = 1
+    ) -> bool:
         if keypoints is None:
             return False
         valid_points = [kp for kp in keypoints if self._is_valid_point(kp)]
@@ -164,8 +179,15 @@ class FullBodyCompositionEvaluator(BaseCompositionEvaluator):
     def _distance(self, p1: List[float], p2: List[float]) -> float:
         return np.linalg.norm(np.array(p1[:2]) - np.array(p2[:2]))
 
-    def _calculate_center_score(self, keypoints: List[Optional[List[float]]], width: int) -> float:
-        center_pts: List[Optional[List[float]]] = [keypoints[5], keypoints[6], keypoints[11], keypoints[12]]
+    def _calculate_center_score(
+        self, keypoints: List[Optional[List[float]]], width: int
+    ) -> float:
+        center_pts: List[Optional[List[float]]] = [
+            keypoints[5],
+            keypoints[6],
+            keypoints[11],
+            keypoints[12],
+        ]
         valid_xs: List[float] = [pt[0] for pt in center_pts if self._is_valid_point(pt)]
         if not valid_xs:
             return 0.0
@@ -173,8 +195,17 @@ class FullBodyCompositionEvaluator(BaseCompositionEvaluator):
         deviation: float = abs(avg_x - width / 2) / (width / 2)
         return max(0.0, 1.0 - deviation)
 
-    def _calculate_symmetry_score(self, keypoints: List[Optional[List[float]]], width: int) -> float:
-        symmetry_pairs: List[Tuple[int, int]] = [(5, 6), (7, 8), (9, 10), (11, 12), (13, 14), (15, 16)]
+    def _calculate_symmetry_score(
+        self, keypoints: List[Optional[List[float]]], width: int
+    ) -> float:
+        symmetry_pairs: List[Tuple[int, int]] = [
+            (5, 6),
+            (7, 8),
+            (9, 10),
+            (11, 12),
+            (13, 14),
+            (15, 16),
+        ]
         diffs: List[float] = []
         for left_idx, right_idx in symmetry_pairs:
             left, right = keypoints[left_idx], keypoints[right_idx]

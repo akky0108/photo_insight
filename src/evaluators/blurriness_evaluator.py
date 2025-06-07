@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 from utils.image_utils import ImageUtils
 
+
 class BlurrinessEvaluator:
     """
     ぼやけ具合を評価するクラス（複数のアルゴリズムを使用）
@@ -42,14 +43,18 @@ class BlurrinessEvaluator:
 
         # 統合スコア（重みを調整）
         blurriness_score = (
-            0.4 * variance_of_gradient +
-            0.4 * variance_of_laplacian +
-            0.2 * variance_of_difference
+            0.4 * variance_of_gradient
+            + 0.4 * variance_of_laplacian
+            + 0.2 * variance_of_difference
         )
 
         # スコアの正規化（最大値と最小値を使ってスケーリング）
-        min_score = min(variance_of_gradient, variance_of_laplacian, variance_of_difference)
-        max_score = max(variance_of_gradient, variance_of_laplacian, variance_of_difference)
+        min_score = min(
+            variance_of_gradient, variance_of_laplacian, variance_of_difference
+        )
+        max_score = max(
+            variance_of_gradient, variance_of_laplacian, variance_of_difference
+        )
 
         # スコアの範囲を0〜1にスケーリング
         if max_score > min_score:
@@ -62,11 +67,11 @@ class BlurrinessEvaluator:
 
         # 結果を辞書形式で返す
         result = {
-            'blurriness_score': blurriness_score,
-            'variance_of_gradient': variance_of_gradient,
-            'variance_of_laplacian': variance_of_laplacian,
-            'variance_of_difference': variance_of_difference,
-            'success': True
+            "blurriness_score": blurriness_score,
+            "variance_of_gradient": variance_of_gradient,
+            "variance_of_laplacian": variance_of_laplacian,
+            "variance_of_difference": variance_of_difference,
+            "success": True,
         }
 
         return result

@@ -2,10 +2,11 @@ import os
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, List
 
+
 class FileHandler(ABC):
 
     plugins = {}
-    DEFAULT_FORMAT = 'text'  # デフォルトのファイルフォーマットをクラス変数として設定
+    DEFAULT_FORMAT = "text"  # デフォルトのファイルフォーマットをクラス変数として設定
 
     @classmethod
     def register_plugin(cls, format, plugin):
@@ -17,7 +18,11 @@ class FileHandler(ABC):
         """指定されたフォーマットに対応するプラグインを取得"""
         return cls.plugins.get(format)
 
-    def __init__(self, config: Optional[Dict[str, any]] = None, default_format: Optional[str] = None):
+    def __init__(
+        self,
+        config: Optional[Dict[str, any]] = None,
+        default_format: Optional[str] = None,
+    ):
         """
         初期化メソッド。オプションでコンフィグとデフォルトフォーマットを設定可能。
         コンフィグが指定されない場合は空の辞書が使用される。
@@ -62,13 +67,15 @@ class FileHandler(ABC):
             return os.path.getsize(file_path)
         return None
 
-    def validate_format(self, file_path: str, expected_formats: Optional[List[str]] = None):
+    def validate_format(
+        self, file_path: str, expected_formats: Optional[List[str]] = None
+    ):
         """
         ファイルの拡張子が期待されるフォーマット（単一または複数）と一致するか確認する。
         expected_formatsがNoneの場合はインスタンスのデフォルトフォーマットと比較。
         """
         _, ext = os.path.splitext(file_path)
-        ext = ext.lower().lstrip('.')  # 拡張子からピリオドを除去し、小文字に変換
+        ext = ext.lower().lstrip(".")  # 拡張子からピリオドを除去し、小文字に変換
         if expected_formats:
             # 複数のフォーマットと比較
             return ext in [fmt.lower() for fmt in expected_formats]

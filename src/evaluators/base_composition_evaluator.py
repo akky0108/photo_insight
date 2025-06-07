@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 import numpy as np
 
+
 class BaseCompositionEvaluator(ABC):
     @abstractmethod
     def evaluate(self, image: np.ndarray, face_boxes: list) -> dict:

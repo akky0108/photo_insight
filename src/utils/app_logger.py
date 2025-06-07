@@ -20,6 +20,7 @@ import threading
 import atexit
 from typing import Optional
 
+
 class AppLogger:
     """
     アプリケーション用のロガー管理クラス（Singleton）。
@@ -36,18 +37,24 @@ class AppLogger:
         logger = AppLogger(project_root=".", logger_name="MyLogger").get_logger()
         logger.info("起動完了")
     """
+
     _instance = None  # シングルトンインスタンス
     _lock = threading.Lock()  # スレッドセーフのためのロック
 
     def __new__(cls, *args, **kwargs):
-        """ シングルトンインスタンスを作成、または既存インスタンスを返す """
+        """シングルトンインスタンスを作成、または既存インスタンスを返す"""
         with cls._lock:
             if cls._instance is None:
                 cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self, project_root: Optional[str] = None, config_file: Optional[str] = None, logger_name: str = 'MyAppLogger'):
-        if getattr(self, '_initialized', False):
+    def __init__(
+        self,
+        project_root: Optional[str] = None,
+        config_file: Optional[str] = None,
+        logger_name: str = "MyAppLogger",
+    ):
+        if getattr(self, "_initialized", False):
             return  # 既に初期化済みの場合は何もしない
 
         if project_root is None:
@@ -57,9 +64,15 @@ class AppLogger:
         # プロジェクトルートからデフォルトのconfig_fileパスを指定
         if config_file is None:
             if project_root:
-                config_file = os.path.join(project_root, 'config', 'logging_config.yaml')
+                config_file = os.path.join(
+                    project_root, "config", "logging_config.yaml"
+                )
             else:
-                config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config', 'logging_config.yaml')
+                config_file = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)),
+                    "config",
+                    "logging_config.yaml",
+                )
 
         log_dir = os.path.join(project_root, "logs")
         os.makedirs(log_dir, exist_ok=True)
@@ -67,7 +80,7 @@ class AppLogger:
         # YAMLファイルからロギング設定を読み込む
         if os.path.exists(config_file):
             try:
-                with open(config_file, 'r') as f:
+                with open(config_file, "r") as f:
                     config = yaml.safe_load(f)
                     if isinstance(config, dict):
                         logging.config.dictConfig(config)
@@ -75,10 +88,14 @@ class AppLogger:
                         raise ValueError("Invalid config format")
                 print(f"Logging configured from {config_file}.")
             except (yaml.YAMLError, ValueError, FileNotFoundError) as e:
-                print(f"Error loading logging config: {e}. Using default logging settings.")
+                print(
+                    f"Error loading logging config: {e}. Using default logging settings."
+                )
                 logging.basicConfig(level=logging.DEBUG)
         else:
-            print(f"Config file {config_file} not found. Using default logging settings.")
+            print(
+                f"Config file {config_file} not found. Using default logging settings."
+            )
             logging.basicConfig(level=logging.DEBUG)
 
         # ロガーを設定
@@ -141,6 +158,7 @@ class AppLogger:
     def isEnabledFor(self, level: int) -> bool:
         """特定のログレベルが有効かどうかを確認"""
         return self.logger.isEnabledFor(level)
+
 
 # エイリアスとして公開
 Logger = AppLogger

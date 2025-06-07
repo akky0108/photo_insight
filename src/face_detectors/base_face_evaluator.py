@@ -4,6 +4,7 @@ import numpy as np
 import logging
 from typing import Optional
 
+
 class FaceDetectorBase(ABC):
     @abstractmethod
     def detect(self, image: np.ndarray) -> Dict[str, Any]:
@@ -20,8 +21,11 @@ class FaceDetectorBase(ABC):
         """
         pass
 
+
 class BaseFaceDetector(FaceDetectorBase):
-    def __init__(self, confidence_threshold=0.5, logger: Optional[logging.Logger] = None):
+    def __init__(
+        self, confidence_threshold=0.5, logger: Optional[logging.Logger] = None
+    ):
         self.confidence_threshold = confidence_threshold
         self.logger = logger or logging.getLogger(__name__)
         if not self.logger.hasHandlers():
@@ -43,15 +47,11 @@ class BaseFaceDetector(FaceDetectorBase):
             faces = []  # ここでは仮実装として空のリストを返す
 
             return {
-                'faces': faces,
-                'face_detected': bool(faces),
-                'num_faces': len(faces)
+                "faces": faces,
+                "face_detected": bool(faces),
+                "num_faces": len(faces),
             }
 
         except Exception as e:
             self.logger.error(f"Error during face detection: {str(e)}")
-            return {
-                'error': str(e),
-                'face_detected': False,
-                'num_faces': 0
-            }
+            return {"error": str(e), "face_detected": False, "num_faces": 0}

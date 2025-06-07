@@ -20,7 +20,7 @@ class InsightFaceDetector(BaseFaceDetector):
         :param gpu: GPU を使用するかどうか（True: GPU使用, False: CPU使用）
         """
         super().__init__(confidence_threshold)
-        self.app = FaceAnalysis(name='buffalo_l')  # モデル名は必要に応じて変更可能
+        self.app = FaceAnalysis(name="buffalo_l")  # モデル名は必要に応じて変更可能
         self.app.prepare(ctx_id=0 if gpu else -1)
 
     def detect(self, image: np.ndarray) -> Dict[str, Any]:
@@ -34,7 +34,7 @@ class InsightFaceDetector(BaseFaceDetector):
             faces_raw = self.app.get(image)
         except Exception as e:
             print(f"顔検出時のエラー: {e}")
-            return {'faces': [], 'face_detected': False, 'num_faces': 0}
+            return {"faces": [], "face_detected": False, "num_faces": 0}
 
         results = []
         for face in faces_raw:
@@ -44,20 +44,22 @@ class InsightFaceDetector(BaseFaceDetector):
                 yaw, pitch, roll = self._extract_pose(face)
                 gaze_vector = self._estimate_gaze_vector(yaw, pitch)
 
-                results.append({
-                    'box': box,
-                    'confidence': float(face.det_score),
-                    'landmarks': landmarks,
-                    'yaw': yaw,
-                    'pitch': pitch,
-                    'roll': roll,
-                    'gaze': gaze_vector
-                })
+                results.append(
+                    {
+                        "box": box,
+                        "confidence": float(face.det_score),
+                        "landmarks": landmarks,
+                        "yaw": yaw,
+                        "pitch": pitch,
+                        "roll": roll,
+                        "gaze": gaze_vector,
+                    }
+                )
 
         return {
-            'faces': results,
-            'face_detected': bool(results),
-            'num_faces': len(results)
+            "faces": results,
+            "face_detected": bool(results),
+            "num_faces": len(results),
         }
 
     def _extract_box(self, face) -> List[int]:
@@ -78,11 +80,11 @@ class InsightFaceDetector(BaseFaceDetector):
         """
         landmarks = face.kps.astype(int).tolist()
         return {
-            'left_eye': landmarks[0],
-            'right_eye': landmarks[1],
-            'nose': landmarks[2],
-            'mouth_left': landmarks[3],
-            'mouth_right': landmarks[4]
+            "left_eye": landmarks[0],
+            "right_eye": landmarks[1],
+            "nose": landmarks[2],
+            "mouth_left": landmarks[3],
+            "mouth_right": landmarks[4],
         }
 
     def _extract_pose(self, face) -> Tuple[float, float, float]:
@@ -94,9 +96,9 @@ class InsightFaceDetector(BaseFaceDetector):
         :param face: InsightFace で検出された顔オブジェクト
         :return: (yaw, pitch, roll) のタプル
         """
-        if hasattr(face, 'pose') and face.pose is not None:
+        if hasattr(face, "pose") and face.pose is not None:
             return tuple(face.pose)
-        elif hasattr(face, 'normed_pose') and face.normed_pose is not None:
+        elif hasattr(face, "normed_pose") and face.normed_pose is not None:
             return tuple(face.normed_pose)
         else:
             return 0.0, 0.0, 0.0  # 姿勢情報が無い場合はデフォルト値

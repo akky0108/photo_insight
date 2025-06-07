@@ -4,9 +4,11 @@ import cv2
 
 from evaluators.color_balance_evaluator import ColorBalanceEvaluator
 
+
 @pytest.fixture
 def evaluator():
     return ColorBalanceEvaluator()
+
 
 def test_color_balance_on_valid_image(evaluator):
     # 肌色に近い色合いの画像（ライトオレンジの単色）
@@ -19,6 +21,7 @@ def test_color_balance_on_valid_image(evaluator):
     assert 0 <= result["skin_tone_score"] <= 1
     assert 0 <= result["white_balance_score"] <= 1
 
+
 def test_color_balance_on_gray_image(evaluator):
     # 無彩色画像（白黒画像）
     gray_image = np.full((256, 256, 3), 128, dtype=np.uint8)
@@ -29,6 +32,7 @@ def test_color_balance_on_gray_image(evaluator):
     assert "white_balance_score" in result
     assert 0 <= result["skin_tone_score"] <= 1
     assert 0 <= result["white_balance_score"] <= 1
+
 
 def test_color_balance_on_invalid_input(evaluator):
     # 無効な入力（2D配列）

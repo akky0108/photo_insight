@@ -6,15 +6,15 @@ from photo_eval_env_manager.envmerge.exceptions import InvalidVersionError
 
 def validate_version_string(version: str) -> None:
     """バージョン文字列が正しい形式かどうか検証する。"""
-    if not re.match(r'^\d+(\.\d+)*$', version):
+    if not re.match(r"^\d+(\.\d+)*$", version):
         raise InvalidVersionError(version)
 
 
 def parse_pip_package(line):
     """パッケージ名を行から抽出（lowercaseで返す）"""
-    if ' @ ' in line:
-        return line.split(' @ ')[0].strip().lower()
-    for sep in ['==', '>=', '<=']:
+    if " @ " in line:
+        return line.split(" @ ")[0].strip().lower()
+    for sep in ["==", ">=", "<="]:
         if sep in line:
             return line.split(sep)[0].strip().lower()
     return line.strip().lower()
@@ -22,7 +22,7 @@ def parse_pip_package(line):
 
 def parse_pip_input(pip_json_path):
     """JSONまたは通常のrequirements.txtからパッケージとバージョンをパース"""
-    with open(pip_json_path, 'r') as f:
+    with open(pip_json_path, "r") as f:
         content = f.read()
         try:
             return json.loads(content)
@@ -30,11 +30,11 @@ def parse_pip_input(pip_json_path):
             parsed = []
             for line in content.splitlines():
                 line = line.strip()
-                if not line or line.startswith('#'):
+                if not line or line.startswith("#"):
                     continue
                 name = parse_pip_package(line)
-                version = line.split('==')[-1] if '==' in line else 'unknown'
-                if version != 'unknown':
+                version = line.split("==")[-1] if "==" in line else "unknown"
+                if version != "unknown":
                     validate_version_string(version)
                 parsed.append({"name": name, "version": version})
             return parsed

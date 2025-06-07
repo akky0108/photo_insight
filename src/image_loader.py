@@ -7,15 +7,16 @@ import numpy as np
 from typing import Optional
 from utils.app_logger import Logger
 
+
 class ImageLoader:
     """
     クラス概要:
     画像をロードし、前処理を行うクラスです。JPEG、PNG、BMP、GIF、TIFF、RAW形式の画像に対応しています。
     """
 
-    SUPPORTED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.gif']
-    SUPPORTED_TIFF_EXTENSIONS = ['.tiff', '.tif']
-    SUPPORTED_RAW_EXTENSIONS = ['.nef', '.cr2', '.arw', '.dng', '.rw2', '.orf']
+    SUPPORTED_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".bmp", ".gif"]
+    SUPPORTED_TIFF_EXTENSIONS = [".tiff", ".tif"]
+    SUPPORTED_RAW_EXTENSIONS = [".nef", ".cr2", ".arw", ".dng", ".rw2", ".orf"]
 
     def __init__(self, logger: Optional[Logger] = None):
         """
@@ -24,9 +25,15 @@ class ImageLoader:
 
         :param logger: ログ出力を行うLoggerオブジェクト (デフォルト: None)
         """
-        self.logger = logger if logger else Logger(logger_name='ImageLoader')
+        self.logger = logger if logger else Logger(logger_name="ImageLoader")
 
-    def load_image(self, filepath: str, output_bps: int = 8, apply_exif_rotation: bool = True, orientation: Optional[int] = None) -> np.ndarray:
+    def load_image(
+        self,
+        filepath: str,
+        output_bps: int = 8,
+        apply_exif_rotation: bool = True,
+        orientation: Optional[int] = None,
+    ) -> np.ndarray:
         """
         画像のロード:
         :param filepath: 画像ファイルのパス
@@ -46,8 +53,14 @@ class ImageLoader:
                 image, raw_orientation = self._load_with_rawpy(filepath)
 
                 # **整合性チェック**
-                if orientation is not None and raw_orientation is not None and orientation != raw_orientation:
-                    self.logger.warning(f"Orientation mismatch: provided={orientation}, detected={raw_orientation} for {filepath}")
+                if (
+                    orientation is not None
+                    and raw_orientation is not None
+                    and orientation != raw_orientation
+                ):
+                    self.logger.warning(
+                        f"Orientation mismatch: provided={orientation}, detected={raw_orientation} for {filepath}"
+                    )
                     orientation = raw_orientation  # 信頼できる方を使う（ここでは rawpy の値を採用）
             else:
                 raise ValueError(f"Unsupported file extension: {ext}")
@@ -61,7 +74,7 @@ class ImageLoader:
         except Exception as e:
             self.logger.error(f"Failed to load image from {filepath}: {e}")
             raise
-    
+
     def get_preimage(self):
         return self.pre_image
 
@@ -102,18 +115,22 @@ class ImageLoader:
         try:
             with rawpy.imread(filepath) as raw:
                 # Orientation取得（存在しない場合はNone）
-                orientation = raw.sizes.orientation if hasattr(raw.sizes, 'orientation') else None  
-                
+                orientation = (
+                    raw.sizes.orientation if hasattr(raw.sizes, "orientation") else None
+                )
+
                 rgb_image = raw.postprocess(
                     output_color=rawpy.ColorSpace.sRGB,
                     use_camera_wb=True,
                     no_auto_bright=True,
                     gamma=(1, 1),
-                    noise_thr=None
+                    noise_thr=None,
                 )
                 return rgb_image, orientation
         except Exception as e:
-            self.logger.error(f"Failed to load RAW image with rawpy from {filepath}: {e}")
+            self.logger.error(
+                f"Failed to load RAW image with rawpy from {filepath}: {e}"
+            )
             raise
 
     def _apply_exif_rotation(self, image: np.ndarray, orientation: int) -> np.ndarray:
@@ -127,10 +144,10 @@ class ImageLoader:
         try:
             # numpy配列をPILイメージに変換
             img_pil = Image.fromarray(image)
-            
+
             # EXIFの回転情報に基づいて画像を回転
             img_pil = img_pil.transpose(Image.Transpose.EXIF)
-            
+
             # PILイメージをnumpy配列に戻す
             return np.array(img_pil)
         except Exception as e:
@@ -153,7 +170,9 @@ class ImageLoader:
         equalized_image = clahe.apply(gray_image)
         return cv2.cvtColor(equalized_image, cv2.COLOR_GRAY2RGB)
 
-    def _apply_gamma_correction(self, image: np.ndarray, gamma: float = 2.2) -> np.ndarray:
+    def _apply_gamma_correction(
+        self, image: np.ndarray, gamma: float = 2.2
+    ) -> np.ndarray:
         """
         ガンマ補正を適用します。
 
@@ -192,14 +211,15 @@ class ImageLoader:
         else:
             h = max(5, min(30, int(noise_level / 2)))
 
-        return cv2.fastNlMeansDenoisingColored(image, None, h, templateWindowSize=7, searchWindowSize=21)
+        return cv2.fastNlMeansDenoisingColored(
+            image, None, h, templateWindowSize=7, searchWindowSize=21
+        )
 
     def _sharpen_image(self, image: np.ndarray, alpha: float = 1.5) -> np.ndarray:
-        """ アンシャープマスキングを使用したシャープ化処理 """
+        """アンシャープマスキングを使用したシャープ化処理"""
         h, w, _ = image.shape
         sigma = max(0.5, min(2.0, (h + w) / 2000))  # 画像サイズに応じてsigmaを調整
 
         blurred = cv2.GaussianBlur(image, (0, 0), sigma)
         sharpened = cv2.addWeighted(image, alpha, blurred, -0.5, 0)
         return sharpened
-    

@@ -2,12 +2,13 @@ import cv2
 import numpy as np
 from utils.image_utils import ImageUtils
 
+
 # Sharpness Evaluator
 class SharpnessEvaluator:
     """
     シャープネスを評価するクラス。
     """
-    
+
     def evaluate(self, image: np.ndarray) -> dict:
         """
         画像のシャープネスを評価します。
@@ -28,8 +29,8 @@ class SharpnessEvaluator:
         variance = laplacian.var()
 
         result = {
-            'sharpness_score': variance,  # シャープネススコア（高いほどシャープ）
-            'success': True,              # 成功フラグ（常に成功と仮定）
+            "sharpness_score": variance,  # シャープネススコア（高いほどシャープ）
+            "success": True,  # 成功フラグ（常に成功と仮定）
         }
 
         return result

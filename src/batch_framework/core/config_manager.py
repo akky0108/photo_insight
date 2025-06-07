@@ -8,6 +8,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from utils.app_logger import Logger
 
+
 class ConfigChangeHandler(FileSystemEventHandler):
     def __init__(self, callback: Callable[[], None]):
         self.callback = callback
@@ -34,8 +35,12 @@ class ConfigManager:
         """
         load_dotenv()
         self.logger = logger
-        self.project_root = os.getenv('PROJECT_ROOT') or os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        self.config_path = config_path or os.path.join(self.project_root, "config", "config.yaml")
+        self.project_root = os.getenv("PROJECT_ROOT") or os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..")
+        )
+        self.config_path = config_path or os.path.join(
+            self.project_root, "config", "config.yaml"
+        )
         self.config = {}
         self.observer = None
 
@@ -48,7 +53,7 @@ class ConfigManager:
         try:
             if self.logger:
                 self.logger.info(f"Loading configuration from {config_path}")
-            with open(config_path, 'r') as f:
+            with open(config_path, "r") as f:
                 self.config.clear()
                 data = yaml.safe_load(f)
                 if data:
@@ -76,10 +81,14 @@ class ConfigManager:
         try:
             handler = ConfigChangeHandler(callback=on_change_callback)
             self.observer = Observer()
-            self.observer.schedule(handler, path=os.path.dirname(self.config_path), recursive=False)
+            self.observer.schedule(
+                handler, path=os.path.dirname(self.config_path), recursive=False
+            )
             self.observer.start()
             if self.logger:
-                self.logger.info(f"Watching configuration changes in {self.config_path}")
+                self.logger.info(
+                    f"Watching configuration changes in {self.config_path}"
+                )
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Failed to start config watcher: {e}")
@@ -117,7 +126,7 @@ class ConfigManager:
             logger_name = self.__class__.__name__
 
         from utils.app_logger import Logger
+
         return Logger(
-            project_root=self.project_root,
-            logger_name=logger_name
+            project_root=self.project_root, logger_name=logger_name
         ).get_logger()

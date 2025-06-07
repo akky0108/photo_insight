@@ -2,13 +2,10 @@ import pytest
 import numpy as np
 from face_detectors.face_processor import FaceProcessor
 
+
 class TestFaceProcessor:
     def test_get_best_face_returns_highest_confidence(self):
-        faces = [
-            {"confidence": 0.8},
-            {"confidence": 0.95},
-            {"confidence": 0.7}
-        ]
+        faces = [{"confidence": 0.8}, {"confidence": 0.95}, {"confidence": 0.7}]
         best = FaceProcessor.get_best_face(faces)
         assert best["confidence"] == 0.95
 

@@ -8,6 +8,7 @@ from photo_eval_env_manager.envmerge.exceptions import InvalidVersionError
 
 ENV_NAME = "photo_eval_env"
 
+
 def validate_version_string(pkg_line: str) -> bool:
     """
     パッケージのバージョン指定が有効な形式かどうかを検証する。
@@ -19,6 +20,7 @@ def validate_version_string(pkg_line: str) -> bool:
     """
     pattern = re.compile(r"^[a-zA-Z0-9_\-]+([=<>!]=?[0-9a-zA-Z\.\*]+)?$")
     return bool(pattern.match(pkg_line))
+
 
 def validate_dependencies(dependencies: list[str | dict]) -> None:
     """
@@ -33,7 +35,7 @@ def validate_dependencies(dependencies: list[str | dict]) -> None:
     for dep in dependencies:
         if isinstance(dep, str):
             # python の複数指定を検出
-            if dep.lower().startswith("python") and ',' in dep:
+            if dep.lower().startswith("python") and "," in dep:
                 print(f"❌ Invalid python specifier (multiple versions?): {dep}")
                 sys.exit(1)
 
@@ -41,11 +43,12 @@ def validate_dependencies(dependencies: list[str | dict]) -> None:
             if not validate_version_string(dep):
                 print(f"⚠️ Invalid version format: {dep}")
 
-        elif isinstance(dep, dict) and 'pip' in dep:
-            for pip_pkg in dep['pip']:
+        elif isinstance(dep, dict) and "pip" in dep:
+            for pip_pkg in dep["pip"]:
                 # pip パッケージにバージョン指定がない場合
-                if '==' not in pip_pkg:
+                if "==" not in pip_pkg:
                     print(f"⚠️ No version specified for pip package: {pip_pkg}")
+
 
 def normalize_python_version(dependencies: list[str | dict]) -> None:
     """
@@ -59,8 +62,8 @@ def normalize_python_version(dependencies: list[str | dict]) -> None:
     python_idx = -1
     for i, dep in enumerate(dependencies):
         if isinstance(dep, str) and dep.lower().startswith("python"):
-            version_spec = dep.split('=', 1)[-1] if '=' in dep else ''
-            if ',' in version_spec or not re.fullmatch(r'3\.10(\.\*)?', version_spec):
+            version_spec = dep.split("=", 1)[-1] if "=" in dep else ""
+            if "," in version_spec or not re.fullmatch(r"3\.10(\.\*)?", version_spec):
                 print(f"⚠️ Replacing invalid python spec: {dep} → python=3.10")
                 dependencies[i] = "python=3.10"
             python_idx = i
@@ -69,6 +72,7 @@ def normalize_python_version(dependencies: list[str | dict]) -> None:
     if python_idx == -1:
         print("✅ Adding python=3.10 to dependencies (was missing)")
         dependencies.insert(0, "python=3.10")
+
 
 def deduplicate_python(dependencies: list[str | dict]) -> list[str | dict]:
     """
@@ -90,9 +94,9 @@ def deduplicate_python(dependencies: list[str | dict]) -> list[str | dict]:
             filtered.append(dep)
     return filtered
 
+
 def validate_versions(
-    conda_packages: dict[str, str], 
-    pip_packages: list[dict[str, str]]
+    conda_packages: dict[str, str], pip_packages: list[dict[str, str]]
 ) -> None:
     """
     conda と pip の両方に同じパッケージがある場合、バージョンが一致するかを検証する。
@@ -103,16 +107,17 @@ def validate_versions(
     """
     print("🔥 validate_versions called")
     for pip_pkg in pip_packages:
-        name = pip_pkg['name'].lower()
-        pip_ver = pip_pkg['version']
+        name = pip_pkg["name"].lower()
+        pip_ver = pip_pkg["version"]
         conda_entry = conda_packages.get(name)
 
         if conda_entry:
-            conda_ver = conda_entry.split('=')[-1] if '=' in conda_entry else None
+            conda_ver = conda_entry.split("=")[-1] if "=" in conda_entry else None
             if conda_ver and conda_ver != pip_ver:
                 raise InvalidVersionError(
                     f"Package '{name}' version mismatch: conda='{conda_ver}', pip='{pip_ver}'"
                 )
+
 
 def load_yaml_file(path: Path) -> dict:
     """
@@ -129,6 +134,7 @@ def load_yaml_file(path: Path) -> dict:
 
     with open(path, "r") as f:
         return yaml.safe_load(f)
+
 
 def parse_conda_yaml(data: dict) -> tuple[list[str | dict], list[str]]:
     """
@@ -151,6 +157,7 @@ def parse_conda_yaml(data: dict) -> tuple[list[str | dict], list[str]]:
 
     return conda_deps, pip_section
 
+
 def parse_pip_requirements(content: str) -> list[str]:
     """
     pip の依存関係（requirements.txt 形式 または JSON 形式）を解析し、パッケージ文字列のリストを返す。
@@ -172,10 +179,8 @@ def parse_pip_requirements(content: str) -> list[str]:
     lines = content.strip().splitlines()
     return [line.strip() for line in lines if line.strip() and not line.startswith("#")]
 
-def build_merged_env_dict(
-    conda_deps: list[str | dict], 
-    pip_deps: list[str]
-) -> dict:
+
+def build_merged_env_dict(conda_deps: list[str | dict], pip_deps: list[str]) -> dict:
     """
     conda と pip の依存関係をまとめて、環境ファイル用の dict を構築する。
 
@@ -186,12 +191,14 @@ def build_merged_env_dict(
     :param pip_deps: pip パッケージの依存関係リスト
     :return: conda 環境ファイルに対応した dict（name / channels / dependencies を含む）
     """
-    filtered_deps = [dep for dep in conda_deps if not (isinstance(dep, dict) and 'pip' in dep)]
+    filtered_deps = [
+        dep for dep in conda_deps if not (isinstance(dep, dict) and "pip" in dep)
+    ]
 
     env = {
         "name": ENV_NAME,
         "channels": ["defaults", "conda-forge"],
-        "dependencies": filtered_deps
+        "dependencies": filtered_deps,
     }
 
     if pip_deps:

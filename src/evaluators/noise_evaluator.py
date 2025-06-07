@@ -1,10 +1,12 @@
 import cv2
 import numpy as np
 
+
 class NoiseEvaluator:
     """
     画像のノイズを評価するクラス。
     """
+
     def __init__(self, max_noise_value=70.0):
         """
         初期化メソッド。
@@ -21,8 +23,10 @@ class NoiseEvaluator:
         :return: ノイズ評価の結果（スコアと成功フラグ）
         """
         if not isinstance(image, np.ndarray):
-            raise ValueError("Invalid input: expected a numpy array representing an image.")
-        
+            raise ValueError(
+                "Invalid input: expected a numpy array representing an image."
+            )
+
         # 画像がカラーの場合はグレースケールに変換
         if len(image.shape) == 3:
             gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -40,12 +44,16 @@ class NoiseEvaluator:
 
         # 逆スコア化: ノイズが少ないほど高いスコアにする
         normalized_score = max(0.0, 100 * (1 - (noise_std / self.max_noise_value)))
-        normalized_score = np.clip(normalized_score, 0, 100)  # スコアを 0〜100 の範囲にクリップ
+        normalized_score = np.clip(
+            normalized_score, 0, 100
+        )  # スコアを 0〜100 の範囲にクリップ
 
         # 結果を辞書で返す
         result = {
-            'noise_score': normalized_score,  # 正規化されたノイズスコア
-            'success': True if normalized_score > 0 else False,  # スコアが0以上なら成功とみなす
+            "noise_score": normalized_score,  # 正規化されたノイズスコア
+            "success": (
+                True if normalized_score > 0 else False
+            ),  # スコアが0以上なら成功とみなす
         }
 
         return result

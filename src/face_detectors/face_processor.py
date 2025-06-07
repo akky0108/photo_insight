@@ -4,6 +4,7 @@ from typing import List, Optional, Dict, Any
 from evaluators.face_evaluator import FaceEvaluator
 from utils.app_logger import Logger
 
+
 class FaceProcessor:
     def __init__(self, face_evaluator: FaceEvaluator, logger: Optional[Logger] = None):
         self.face_evaluator = face_evaluator
@@ -31,5 +32,8 @@ class FaceProcessor:
         return None
 
     def extract_attributes(self, face: dict) -> Dict[str, Any]:
-        return {attr: face[attr] for attr in ["yaw", "pitch", "roll", "gaze"] if attr in face}
-
+        return {
+            attr: face[attr]
+            for attr in ["yaw", "pitch", "roll", "gaze"]
+            if attr in face
+        }
