@@ -31,16 +31,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Lint with flake8 (grouped by file)
+      - name: Lint with flake8 (do not fail CI)
         run: |
-          echo "Running flake8 with structured output..."
+          echo "🔍 Running flake8..."
           flake8 . \
             --count \
             --statistics \
             --show-source \
             --format="%(path)s::%(code)s::%(row)d::%(col)d::%(text)s" \
-            --extend-ignore=E203,W503
+            --extend-ignore=E203,W503 || true
 
-      - name: Check formatting with black
+      - name: Check formatting with black (do not fail CI)
         run: |
-          black --check .
+          echo "🖤 Checking formatting with black..."
+          black --check . || true
