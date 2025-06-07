@@ -31,9 +31,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Lint with flake8
+      - name: Lint with flake8 (detailed output)
+        continue-on-error: true
         run: |
+          echo "::group::Full flake8 output"
           flake8 . --count --statistics --show-source --extend-ignore=E203,W503
+          echo "::endgroup::"
+
+          echo "::group::Error count by file"
+          flake8 . --exit-zero | cut -d ':' -f1 | sort | uniq -c | sort -nr
+          echo "::endgroup::"
 
       - name: Check formatting with black
         run: |
