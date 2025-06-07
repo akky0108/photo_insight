@@ -31,15 +31,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Lint with flake8 (do not fail CI)
+      - name: Lint with flake8 (log only)
         run: |
-          echo "🔍 Running flake8..."
+          mkdir -p ci_logs
           flake8 . \
             --count \
             --statistics \
             --show-source \
             --format="%(path)s::%(code)s::%(row)d::%(col)d::%(text)s" \
-            --extend-ignore=E203,W503 || true
+            --extend-ignore=E203,W503 \
+            > ci_logs/flake8.log || true
+
+      - name: Upload flake8 log
+        uses: actions/upload-artifact@v4
+        with:
+          name: flake8-log
+          path: ci_logs/flake8.log
 
       - name: Check formatting with black (do not fail CI)
         run: |
