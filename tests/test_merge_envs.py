@@ -1,6 +1,6 @@
 import os
 import pytest
-from unittest.mock import patch
+import logging
 from photo_eval_env_manager.merge_envs import (
     merge_envs,
     parse_conda_yaml,
@@ -11,6 +11,7 @@ from photo_eval_env_manager.envmerge.exceptions import (
     DuplicatePackageError,
     VersionMismatchError,
 )
+from unittest.mock import Mock
 
 # テストで使用するfixtureファイルのパスを設定
 BASE_YML = "tests/fixtures/environment_base.yml"
@@ -160,14 +161,6 @@ def test_build_merged_env_dict():
         and dep["pip"] == ["some-old-thing==1.0.0"]
         for dep in env_dict["dependencies"][:-1]
     )  # pipセクションは最後のみにあること
-
-
-import logging
-from unittest.mock import Mock
-import pytest
-from photo_eval_env_manager.merge_envs import merge_envs
-from photo_eval_env_manager.envmerge.exceptions import VersionMismatchError
-
 
 def test_merge_envs_logs_exception_on_version_mismatch():
     """

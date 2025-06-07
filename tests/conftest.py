@@ -2,7 +2,6 @@ import sys
 import os
 import pytest
 from unittest.mock import MagicMock
-
 from batch_framework.base_batch import BaseBatchProcessor
 from batch_framework.core.hook_manager import HookType
 
@@ -13,16 +12,17 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../s
 def fixture_config_path():
     return os.path.join("tests", "fixtures", "test_config.yaml")
 
-
 @pytest.fixture
 def fixture_image_dir():
     return os.path.join("tests", "fixtures", "images")
-
 
 @pytest.fixture
 def fixture_output_dir():
     return os.path.join("tests", "fixtures", "output")
 
+@pytest.fixture
+def dummy_processor():
+    return DummyBatchProcessor()
 
 class DummyBatchProcessor(BaseBatchProcessor):
     def _process_batch(self, batch):
@@ -42,8 +42,3 @@ class DummyBatchProcessor(BaseBatchProcessor):
         self.max_workers = 2
         self.max_process_count = None
         self.processed_count = 0
-
-
-@pytest.fixture
-def dummy_processor():
-    return DummyBatchProcessor()

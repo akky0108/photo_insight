@@ -1,5 +1,3 @@
-
-
 class GoldenRatioEvaluator:
     """
     黄金比に基づいて画像構図を評価するクラス。

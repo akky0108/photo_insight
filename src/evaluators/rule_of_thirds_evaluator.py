@@ -1,4 +1,3 @@
-
 class RuleOfThirdsEvaluator:
     """
     ルール・オブ・サード（3分割法）に基づいて画像構図を評価するクラス。

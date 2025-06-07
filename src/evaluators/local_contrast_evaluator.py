@@ -1,7 +1,6 @@
 import cv2
 import numpy as np
 
-
 class LocalContrastEvaluator:
     def __init__(self, block_size: int = 32):
         """

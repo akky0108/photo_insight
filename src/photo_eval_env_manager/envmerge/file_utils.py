@@ -1,7 +1,5 @@
 import subprocess
-import os
 import sys
-
 
 def run_pip_list(output_file):
     try:

@@ -45,7 +45,6 @@ def test_logger_called_on_load():
         tmp_path = tmp.name
 
     mock_logger = MagicMock()
-    cm = ConfigManager(config_path=tmp_path, logger=mock_logger)
 
     mock_logger.info.assert_any_call(f"Loading configuration from {tmp_path}")
 
