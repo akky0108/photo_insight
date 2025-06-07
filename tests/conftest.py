@@ -7,22 +7,26 @@ from batch_framework.core.hook_manager import HookType
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
-# === fixtures ===
+
 @pytest.fixture
 def fixture_config_path():
     return os.path.join("tests", "fixtures", "test_config.yaml")
+
 
 @pytest.fixture
 def fixture_image_dir():
     return os.path.join("tests", "fixtures", "images")
 
+
 @pytest.fixture
 def fixture_output_dir():
     return os.path.join("tests", "fixtures", "output")
 
+
 @pytest.fixture
 def dummy_processor():
     return DummyBatchProcessor()
+
 
 class DummyBatchProcessor(BaseBatchProcessor):
     def _process_batch(self, batch):

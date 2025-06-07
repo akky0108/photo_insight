@@ -1,6 +1,7 @@
 import subprocess
 import sys
 
+
 def run_pip_list(output_file):
     try:
         print("\n📦 Running 'pip list'...")

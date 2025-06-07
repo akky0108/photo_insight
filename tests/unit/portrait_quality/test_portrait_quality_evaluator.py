@@ -9,6 +9,7 @@ from utils.app_logger import Logger
 
 ASSETS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../assets"))
 
+
 @pytest.mark.parametrize(
     "filename, expected_face_detected",
     [
@@ -44,8 +45,10 @@ def create_dummy_face_image(width=512, height=512):
 
     return img
 
+
 def create_dummy_logger(tmp_path):
     return Logger(project_root=str(tmp_path), logger_name="test_logger")
+
 
 def test_portrait_quality_evaluate_face_keys_and_types(tmp_path):
     dummy_img = np.ones((512, 512, 3), dtype=np.uint8)
@@ -66,6 +69,7 @@ def test_portrait_quality_evaluate_face_keys_and_types(tmp_path):
         assert isinstance(face, dict)
         assert "box" in face or "bbox" in face
 
+
 def test_portrait_quality_evaluate_no_face_detected(tmp_path):
     # 黒画像で顔検出されない前提
     dummy_img = np.zeros((512, 512, 3), dtype=np.uint8)
@@ -80,6 +84,7 @@ def test_portrait_quality_evaluate_no_face_detected(tmp_path):
     assert "faces" in results
     assert isinstance(results["faces"], list)
     assert len(results["faces"]) == 0
+
 
 def test_portrait_quality_evaluation(filename, expected_face_detected):
     path = os.path.join(ASSETS_DIR, filename)

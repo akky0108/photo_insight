@@ -9,6 +9,7 @@ from batch_framework.base_batch import BaseBatchProcessor
 
 ExifData = Dict[str, str]
 
+
 class NEFFileBatchProcess(BaseBatchProcessor):
     """RAWファイルのバッチ処理を行うクラス"""
 
@@ -152,7 +153,6 @@ class NEFFileBatchProcess(BaseBatchProcessor):
         for dir_path in batch:
             self.logger.info(f"バッチ処理対象: {dir_path}")
             self.process_directory(dir_path)
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NEFファイルバッチ処理ツール")

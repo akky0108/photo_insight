@@ -162,6 +162,7 @@ def test_build_merged_env_dict():
         for dep in env_dict["dependencies"][:-1]
     )  # pipセクションは最後のみにあること
 
+
 def test_merge_envs_logs_exception_on_version_mismatch():
     """
     merge_envs が VersionMismatchError を raise するとき logger.exception が呼ばれることを検証する。

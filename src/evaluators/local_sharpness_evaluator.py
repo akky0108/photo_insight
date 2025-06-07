@@ -1,5 +1,7 @@
 import cv2
 import numpy as np
+
+
 class LocalSharpnessEvaluator:
     def __init__(self, block_size: int = 32):
         """
