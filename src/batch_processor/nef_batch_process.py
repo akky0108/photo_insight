@@ -1,14 +1,13 @@
 import csv
+import time
+import argparse
 from datetime import datetime
 from typing import List, Dict
 from pathlib import Path
-import time
-
 from file_handler.exif_file_handler import ExifFileHandler
 from batch_framework.base_batch import BaseBatchProcessor
 
 ExifData = Dict[str, str]
-
 
 class NEFFileBatchProcess(BaseBatchProcessor):
     """RAWファイルのバッチ処理を行うクラス"""
@@ -156,8 +155,6 @@ class NEFFileBatchProcess(BaseBatchProcessor):
 
 
 if __name__ == "__main__":
-    import argparse
-
     parser = argparse.ArgumentParser(description="NEFファイルバッチ処理ツール")
     parser.add_argument(
         "--config_path",
