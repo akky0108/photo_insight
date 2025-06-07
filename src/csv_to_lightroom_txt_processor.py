@@ -4,7 +4,6 @@ import shutil
 from batch_framework.base_batch import (
     BaseBatchProcessor,
 )  # バッチ処理の基底クラスをインポート
-import logging  # ロギング用
 
 
 class CsvToTxtProcessor(BaseBatchProcessor):

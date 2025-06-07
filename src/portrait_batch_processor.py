@@ -5,7 +5,6 @@ import threading
 import numpy as np
 from typing import List, Optional, Tuple
 import argparse
-from concurrent.futures import ThreadPoolExecutor
 from batch_framework.base_batch import BaseBatchProcessor
 from image_loader import ImageLoader
 from evaluators.portrait_quality.portrait_quality_evaluator import (

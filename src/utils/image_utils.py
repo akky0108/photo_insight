@@ -76,7 +76,7 @@ class ImageUtils:
             with rawpy.imread(raw_image_path) as raw:
                 rgb_image = raw.postprocess(output_bps=16)
             return np.array(rgb_image)
-        except Exception as e:
+        except Exception:
             raise
 
     @staticmethod

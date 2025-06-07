@@ -274,7 +274,7 @@ def merge_envs(
                 build_merged_env_dict(conda_deps=conda_deps, pip_deps=ci_pip_deps),
                 ci_yml,
             )
-    except Exception as e:
+    except Exception:
         if logger:
             logger.exception("An error occurred during merge_envs execution.")
         raise

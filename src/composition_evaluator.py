@@ -1,5 +1,4 @@
 import cv2
-import numpy as np
 import rawpy
 from skimage.metrics import structural_similarity as ssim
 from file_handler.exif_file_handler import ExifFileHandler

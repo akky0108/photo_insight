@@ -1,6 +1,5 @@
 import os
 import time
-from dotenv import load_dotenv
 from file_handler.csv_file_handler import CSVFileHandler
 from utils.app_logger import Logger  # ログクラスをインポート
 from batch_framework.base_batch import BaseBatchProcessor

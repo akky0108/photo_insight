@@ -2,7 +2,7 @@ import os
 import time
 from abc import ABC, abstractmethod
 from dotenv import load_dotenv
-from typing import Optional, Callable, List, Dict, Tuple
+from typing import Optional, Callable, List, Dict
 from watchdog.events import FileSystemEventHandler
 
 from batch_framework.core.hook_manager import HookManager, HookType

@@ -5,6 +5,7 @@ from unittest import mock
 from photo_eval_env_manager import merge_envs as target_module
 from photo_eval_env_manager.merge_envs import run_cli
 from utils.app_logger import AppLogger
+import photo_eval_env_manager.merge_envs as main_module
 
 
 def test_main_logs_exception_and_exits(monkeypatch):
@@ -161,9 +162,6 @@ def test_run_cli_broken_yaml(tmp_path, logger):
 
     with pytest.raises(yaml.YAMLError):
         run_cli(args, logger)
-
-
-import photo_eval_env_manager.merge_envs as main_module
 
 
 def test_run_cli_unhandled_exception(monkeypatch, tmp_path, logger):
