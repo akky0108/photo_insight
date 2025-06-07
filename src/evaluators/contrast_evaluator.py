@@ -1,4 +1,3 @@
-import cv2
 import numpy as np
 from utils.image_utils import ImageUtils
 

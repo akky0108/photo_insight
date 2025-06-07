@@ -1,7 +1,6 @@
 import numpy as np
 from typing import List, Optional, Tuple, Dict
 
-from evaluators.rule_based_composition_evaluator import RuleBasedCompositionEvaluator
 from evaluators.base_composition_evaluator import BaseCompositionEvaluator
 from utils.app_logger import Logger
 

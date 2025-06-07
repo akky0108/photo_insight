@@ -1,5 +1,5 @@
 import numpy as np
-from typing import List, Optional, Dict, Any
+from typing import Optional, Dict, Any
 
 from evaluators.face_evaluator import FaceEvaluator
 from utils.app_logger import Logger

@@ -1,4 +1,3 @@
-import pytest
 from batch_framework.core.hook_manager import HookManager, HookType
 
 

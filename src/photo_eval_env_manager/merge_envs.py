@@ -4,7 +4,6 @@ import yaml
 import sys
 import logging
 import re
-import json
 
 from pathlib import Path
 from photo_eval_env_manager.envmerge.env_utils import (

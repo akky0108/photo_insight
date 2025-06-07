@@ -1,4 +1,3 @@
-import cv2
 import numpy as np
 import pywt
 from utils.image_utils import ImageUtils

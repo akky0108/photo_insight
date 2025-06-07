@@ -2,7 +2,6 @@ import numpy as np
 import os
 import traceback
 import gc
-import cv2
 
 from typing import Optional, Tuple, Dict, Any
 

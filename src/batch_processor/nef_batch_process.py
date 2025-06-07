@@ -1,5 +1,4 @@
 import csv
-import traceback
 from datetime import datetime
 from typing import List, Dict
 from pathlib import Path

@@ -1,12 +1,10 @@
 import os
 import yaml
 import time
-import signal
 from typing import Callable, Optional
 from dotenv import load_dotenv
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from utils.app_logger import Logger
 
 
 class ConfigChangeHandler(FileSystemEventHandler):

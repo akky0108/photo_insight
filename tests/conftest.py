@@ -1,13 +1,12 @@
 import sys
 import os
 import pytest
-import yaml
 from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
 from batch_framework.base_batch import BaseBatchProcessor
-from batch_framework.core.hook_manager import HookManager, HookType
+from batch_framework.core.hook_manager import HookType
 
 
 # === fixtures ===

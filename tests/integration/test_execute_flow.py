@@ -1,6 +1,4 @@
-import time
 from conftest import DummyBatchProcessor
-from batch_framework.base_batch import HookType
 
 
 def test_execute_runs_all_phases():

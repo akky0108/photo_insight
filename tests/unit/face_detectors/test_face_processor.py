@@ -1,4 +1,3 @@
-import pytest
 import numpy as np
 from face_detectors.face_processor import FaceProcessor
 

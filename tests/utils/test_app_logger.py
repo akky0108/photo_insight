@@ -1,9 +1,6 @@
 # tests/utils/test_app_logger.py
 
 import os
-import tempfile
-import pytest
-import logging
 from utils.app_logger import AppLogger
 
 

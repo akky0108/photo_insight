@@ -1,13 +1,8 @@
 import os
-import yaml
-import signal
 import time
 from abc import ABC, abstractmethod
 from dotenv import load_dotenv
 from typing import Optional, Callable, List, Dict, Tuple
-from concurrent.futures import ThreadPoolExecutor
-from enum import Enum
-from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 from batch_framework.core.hook_manager import HookManager, HookType

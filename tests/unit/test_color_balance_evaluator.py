@@ -1,6 +1,5 @@
 import numpy as np
 import pytest
-import cv2
 
 from evaluators.color_balance_evaluator import ColorBalanceEvaluator
 

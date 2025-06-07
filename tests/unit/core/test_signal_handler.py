@@ -1,7 +1,5 @@
 import signal
-import builtins
 from unittest.mock import MagicMock
-import pytest
 import batch_framework.core.signal_handler as signal_handler_module
 from batch_framework.core.signal_handler import SignalHandler
 

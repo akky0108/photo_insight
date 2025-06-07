@@ -1,11 +1,9 @@
 # tests/integration/test_base_batch_processor.py
 
-import pytest
 import logging
 import signal
 import json
-from unittest.mock import Mock, call, MagicMock
-from batch_framework.core.hook_manager import HookType
+from unittest.mock import Mock, MagicMock
 from batch_framework.core.signal_handler import SignalHandler
 from batch_framework.core.config_manager import ConfigManager
 from tests.integration.dummy_batch_processor import DummyBatchProcessor
