@@ -33,7 +33,8 @@ def test_get_target_subdirectories(tmp_path, dummy_processor):
     new_file.write_text("dummy")  # ダミーファイルを作る
 
     # old_dirと中のファイルのタイムスタンプを1年前にする
-    import os, time
+    import os
+    import time
 
     old_timestamp = time.time() - (60 * 60 * 24 * 365)  # 1年前
     os.utime(old_dir, (old_timestamp, old_timestamp))

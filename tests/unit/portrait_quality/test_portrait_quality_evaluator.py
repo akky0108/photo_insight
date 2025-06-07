@@ -17,7 +17,6 @@ ASSETS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../asse
         ("noface_sample.png", False),
     ],
 )
-
 def create_dummy_face_image(width=512, height=512):
     """顔らしき特徴を持つシンプルな画像を作成"""
     img = np.ones((height, width, 3), dtype=np.uint8) * 255

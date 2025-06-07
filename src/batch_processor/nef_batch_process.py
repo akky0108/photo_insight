@@ -154,6 +154,7 @@ class NEFFileBatchProcess(BaseBatchProcessor):
             self.logger.info(f"バッチ処理対象: {dir_path}")
             self.process_directory(dir_path)
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NEFファイルバッチ処理ツール")
     parser.add_argument(
