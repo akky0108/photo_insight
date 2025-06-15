@@ -30,7 +30,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         """
         super().__init__(config_path=config_path, max_workers=max_workers)
 
-        self.logger = logger or self._get_default_logger()
+        self.logger = logger or self.config_manager.get_logger("PortraitQualityBatchProcessor")
         self.memory_monitor = MemoryMonitor(self.logger)
         self.date = date
         self.image_data: List[Dict[str, str]] = []
@@ -374,6 +374,8 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
         self.cleanup()
 
+    def get_data(self):
+        return super().get_data()
 
 if __name__ == "__main__":
     import argparse
