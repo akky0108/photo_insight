@@ -1,6 +1,8 @@
 import yaml
 import json
 import re
+import warnings
+from typing import Optional
 from pathlib import Path
 from utils.app_logger import AppLogger
 from photo_eval_env_manager.envmerge.exceptions import VersionMismatchError
@@ -57,6 +59,7 @@ class EnvMerger:
             self.load_pip_file(pip_file)
 
         self.pip_deps = list(dict.fromkeys(self.pip_deps))  # 重複除去
+
         self.normalize()
         self.replace_gpu_packages(cpu_only)
 
@@ -90,13 +93,25 @@ class EnvMerger:
                 pip_version = pip_versions[name]
                 if self.strict and version and pip_version and version != pip_version:
                     raise VersionMismatchError(f"{name}: conda={version}, pip={pip_version}")
+                # ★ 警告: condaにバージョンなし、pipにあり
+                if not version and pip_version:
+                    warnings.warn(
+                        f"[警告] {name} に pip 側でのみバージョン指定 ({pip_version}) が見つかりましたが、conda 側にバージョン指定がありません。",
+                        stacklevel=2
+                    )
+
+        self._deduplicate_pip_deps()
+        self._normalize_conda_versions()    
+
+        # 依存関係を安定化させるためにソート
+        self.conda_deps = sorted(self.conda_deps, key=str)
+        self.pip_deps = sorted(self.pip_deps)
 
     def normalize(self) -> None:
         """
         Python バージョンの正規化と依存関係の検証・統合。
         """
-        self._normalize_python_version()
-        self.conda_deps = self._deduplicate_python()
+        self._normalize_and_deduplicate_python()
         self._validate_dependencies()
 
         if self.pip_deps:
@@ -116,7 +131,6 @@ class EnvMerger:
         with path.open("r") as f:
             data = yaml.safe_load(f)
         self.conda_deps, self.pip_deps = self._parse_conda_yaml(data)
-        self.pip_deps = list(dict.fromkeys(self.pip_deps))  # 重複除去
 
     def load_pip_file(self, path: Path) -> None:
         """
@@ -133,14 +147,17 @@ class EnvMerger:
     # 出力系
     # ------------------------
 
-    def export(self, final_yml: Path, requirements_txt: Path) -> None:
+    def export(self, final_yml: Optional[Path], requirements_txt: Optional[Path]) -> None:
         """
         現在の依存関係を YAML と requirements.txt に書き出す。
         """
-        with final_yml.open("w") as f:
-            yaml.dump(self.build_env_dict(), f, sort_keys=False)
-        with requirements_txt.open("w") as f:
-            f.write("\n".join(self.pip_deps))
+        if final_yml is not None:
+            with final_yml.open("w") as f:
+                yaml.dump(self.build_env_dict(), f, sort_keys=False)
+
+        if requirements_txt is not None:
+            with requirements_txt.open("w") as f:
+                f.write("\n".join(sorted(self.pip_deps)))
 
     def write_yaml(self, path: Path) -> None:
         """
@@ -159,9 +176,11 @@ class EnvMerger:
     def save_ci_yaml(self, path: Path, exclude: list[str]) -> None:
         """
         除外リストを考慮して CI 用 YAML を書き出す。
+        CI 環境名は 'ci-env' に強制変更される。
         """
         filtered = self.filter_for_ci(exclude)
         env_dict = self.build_env_dict(pip_overrides=filtered)
+        env_dict["name"] = "ci-env"  # 強制的に上書き
         with path.open("w") as f:
             yaml.dump(env_dict, f, sort_keys=False)
 
@@ -183,13 +202,30 @@ class EnvMerger:
         env = {"name": self.env_name, "channels": self.channels, "dependencies": deps}
         pip_section = pip_overrides if pip_overrides is not None else self.pip_deps
         if pip_section:
-            env["dependencies"].append({"pip": pip_section})
+            env["dependencies"].append({"pip": sorted(pip_section)})
         return env
 
     # ------------------------
     # 内部処理（private methods）
     # ------------------------
 
+    def _deduplicate_pip_deps(self) -> None:
+        """
+        pip_depsの重複を排除する。
+        strict=Trueの場合はバージョン矛盾があればVersionMismatchErrorを投げる。
+        strict=Falseの場合は最初の出現バージョンを優先する。
+        """
+        unique = {}
+        for dep in self.pip_deps:
+            pkg_name, sep, ver = dep.partition("==")
+            if pkg_name in unique:
+                if self.strict and unique[pkg_name] != dep:
+                    raise VersionMismatchError(f"Conflicting versions for {pkg_name}: {unique[pkg_name]} vs {dep}")
+            else:
+                unique[pkg_name] = dep
+
+        self.pip_deps = list(unique.values())
+        
     def _parse_conda_yaml(self, data: dict) -> tuple[list[str | dict], list[str]]:
         deps = data.get("dependencies", [])
         conda, pip = [], []
@@ -225,30 +261,39 @@ class EnvMerger:
             return name.strip(), "=".join(ver).strip()
         return dep.strip(), None
 
-    def _normalize_python_version(self) -> None:
-        for i, dep in enumerate(self.conda_deps):
-            if isinstance(dep, str) and dep.lower().startswith("python"):
-                ver = dep.split("=")[-1] if "=" in dep else ""
-                if "," in ver or not re.fullmatch(r"3\.10(\.\*)?", ver):
-                    self.logger.warning(f"Replacing python spec: {dep} → python=3.10")
-                    self.conda_deps[i] = "python=3.10"
-                return
-        self.logger.info("Adding python=3.10 to dependencies")
-        self.conda_deps.insert(0, "python=3.10")
+    def _normalize_and_deduplicate_python(self) -> None:
+        python_indices = [i for i, dep in enumerate(self.conda_deps) if isinstance(dep, str) and dep.lower().startswith("python")]
 
-    def _deduplicate_python(self) -> list[str | dict]:
-        seen = False
-        result = []
-        for dep in self.conda_deps:
-            if isinstance(dep, str) and dep.lower().startswith("python"):
-                if seen:
-                    self.logger.warning(f"Duplicate python removed: {dep}")
-                else:
-                    result.append(dep)
-                    seen = True
+        if not python_indices:
+            self.logger.info("Adding python=3.10 to dependencies")
+            self.conda_deps.insert(0, "python=3.10")
+            return
+
+        first_idx = python_indices[0]
+        first_dep = self.conda_deps[first_idx]
+        ver = first_dep.split("=")[-1] if "=" in first_dep else ""
+
+        if "," in ver or not re.fullmatch(r"3\.10(\.\*)?", ver):
+            self.logger.warning(f"Replacing python spec: {first_dep} → python=3.10")
+            self.conda_deps[first_idx] = "python=3.10"
+
+        for idx in reversed(python_indices[1:]):
+            self.logger.warning(f"Duplicate python removed: {self.conda_deps[idx]}")
+            del self.conda_deps[idx]
+
+    def _normalize_conda_versions(self) -> None:
+        """
+        特定の conda パッケージのバージョンを正規化。
+        例: python=3.9 → python=3.10 に統一
+        """
+        normalized = []
+        for pkg in self.conda_deps:
+            name, version = self._split_conda_package(pkg)
+            if name == "python" and version == "3.9":
+                normalized.append("python=3.10")
             else:
-                result.append(dep)
-        return result
+                normalized.append(pkg)
+        self.conda_deps = normalized
 
     def _validate_dependencies(self) -> None:
         for dep in self.conda_deps:
