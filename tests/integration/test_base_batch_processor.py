@@ -3,7 +3,6 @@
 import logging
 import signal
 import json
-import pytest
 from unittest.mock import Mock, MagicMock
 from batch_framework.core.signal_handler import SignalHandler
 from batch_framework.core.config_manager import ConfigManager

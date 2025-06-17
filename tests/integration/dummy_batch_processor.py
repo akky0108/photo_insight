@@ -1,7 +1,6 @@
 # tests/integration/dummy_batch_processor.py
 
 from batch_framework.base_batch import BaseBatchProcessor
-from batch_framework.core.hook_manager import HookManager
 
 
 class DummyBatchProcessor(BaseBatchProcessor):
