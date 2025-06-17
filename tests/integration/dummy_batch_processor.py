@@ -44,7 +44,7 @@ class DummyBatchProcessorWithFailingBatch(BaseBatchProcessor):
         return [{"id": i} for i in range(6)]
 
     def _process_batch(self, batch):
-        print(f"DEBUG: _process_batch called with batch: {[item['id'] for item in batch]}")
+        self.logger.debug(f"DEBUG: _process_batch called with batch: {[item['id'] for item in batch]}")
         start_id = batch[0]["id"]
         if start_id == 2:  # 2番目のバッチ（id:2,3）は失敗させる
             raise ValueError("Simulated batch failure")
