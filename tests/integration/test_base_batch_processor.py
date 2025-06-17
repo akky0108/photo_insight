@@ -78,3 +78,72 @@ def test_signal_handler_triggers_cleanup():
     # ログが出ているか
     expected_msg = f"Received shutdown signal {signal.Signals(signal.SIGINT).name}. Executing cleanup..."
     mock_logger.info.assert_any_call(expected_msg)
+
+def test_process_handles_batch_failures_gracefully(tmp_path, caplog):
+    from tests.integration.dummy_batch_processor import DummyBatchProcessorWithFailingBatch
+
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"batch_size": 2}))
+
+    config_manager = ConfigManager(config_path=str(config_path))
+
+    processor = DummyBatchProcessorWithFailingBatch(
+        hook_manager=MagicMock(),
+        config_manager=config_manager
+    )
+
+    with caplog.at_level("ERROR"):
+        try:
+            processor.process()
+        except Exception:
+            assert False, "例外がバッチ単位でハンドルされていません"
+
+    # 成功したバッチのIDのみ残っていることを確認（id:0,1とid:4,5）
+    assert processor.processed_batches == [0, 1, 4, 5]
+
+    # 実際に出力されたエラーログに該当文字列が含まれているかチェック
+    assert any(
+        "[Batch 2] Failed to process batch: Simulated batch failure" in message
+        for message in caplog.messages
+    ), "Expected error log not found"
+
+def test_process_handles_batch_failures_gracefully_with_detailed_log(tmp_path, caplog):
+    from tests.integration.dummy_batch_processor import DummyBatchProcessorWithFailingBatch
+
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"batch_size": 2}))
+
+    config_manager = ConfigManager(config_path=str(config_path))
+
+    processor = DummyBatchProcessorWithFailingBatch(
+        hook_manager=MagicMock(),
+        config_manager=config_manager
+    )
+
+    # DEBUG レベルも拾うために設定
+    with caplog.at_level(logging.DEBUG):
+        try:
+            processor.process()
+        except Exception:
+            assert False, "例外がバッチ単位でハンドルされていません"
+
+    # 成功したバッチのIDのみ残っていることを確認
+    assert processor.processed_batches == [0, 1, 4, 5]
+
+    # エラーログに失敗バッチのメッセージが含まれているか
+    assert any(
+        "[Batch 2] Failed to process batch: Simulated batch failure" in message
+        for message in caplog.messages
+    ), "Expected error log not found"
+
+    # DEBUGログに失敗バッチのトランケートされたデータが含まれているか
+    assert any(
+        "[Batch 2] Failed batch data (truncated):" in message
+        for message in caplog.messages
+    ), "Expected debug log with batch data preview not found"
+
+    # ERRORログにスタックトレース情報が含まれているか検証
+    error_records = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert any(
+        r.exc_info is not None for r in error_records
+    ), "Expected exc_info (stack trace) in error logs"

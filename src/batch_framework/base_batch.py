@@ -215,15 +215,34 @@ class BaseBatchProcessor(ABC):
     def process(self) -> None:
         """
         メイン処理フェーズ。データ取得とバッチ単位での処理を行う。
+        各バッチ処理で例外が発生しても、他のバッチ処理には影響を与えず継続する。
         """
-        self.logger.info(
-            "Executing common batch processing tasks in BaseBatchProcessor."
-        )
+        self.logger.info("Executing common batch processing tasks in BaseBatchProcessor.")
         data = self.get_data()
         batches = self._generate_batches(data)
+        failed_batches = []
+
         for i, batch in enumerate(batches):
-            self.logger.info(f"Processing batch {i + 1}...")
-            self._process_batch(batch)
+            try:
+                self.logger.info(f"Processing batch {i + 1}/{len(batches)} (size={len(batch)})")
+                self.logger.debug(f"[Batch {i + 1}] Contents: {str(batch)[:300]}")
+                self._process_batch(batch)
+                self.logger.debug(f"[Batch {i + 1}] Successfully processed.")
+            except Exception as e:
+                self.logger.error(f"[Batch {i + 1}] Failed to process batch: {e}", exc_info=True)
+                batch_preview = str(batch)[:300].replace('\n', '').replace('\r', '')
+                self.logger.debug(f"[Batch {i + 1}] Failed batch data (truncated): {batch_preview}")
+                failed_batches.append(i + 1)
+                continue
+
+        if failed_batches:
+            self.logger.warning(f"Batch processing completed with failures in batches: {failed_batches}")
+        else:
+            self.logger.info("All batches processed successfully.")
+
+        self.logger.info(
+            f"Batch processing summary: {len(batches)} total, {len(failed_batches)} failed, {len(batches) - len(failed_batches)} succeeded."
+        )
 
     def cleanup(self) -> None:
         """
