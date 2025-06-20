@@ -4,6 +4,9 @@ import argparse
 from datetime import datetime
 from typing import List, Dict
 from pathlib import Path
+from threading import Lock
+from collections import defaultdict
+from typing import Optional
 from file_handler.exif_file_handler import ExifFileHandler
 from batch_framework.base_batch import BaseBatchProcessor
 
@@ -40,6 +43,13 @@ class NEFFileBatchProcess(BaseBatchProcessor):
         self.target_date = datetime.strptime(
             self.config.get("target_date", "2024-05-01"), "%Y-%m-%d"
         )
+        self._csv_locks: Dict[str, Lock] = defaultdict(Lock)  # ← これを追加
+
+    def _get_lock_for_file(self, file_path: Path) -> Lock:
+        key = str(file_path.resolve())
+        if key not in self._csv_locks:
+            self._csv_locks[key] = Lock()
+        return self._csv_locks[key]
 
     def setup(self) -> None:
         """バッチ初期化処理（出力ディレクトリ作成など）"""
@@ -127,25 +137,25 @@ class NEFFileBatchProcess(BaseBatchProcessor):
         return exif_data_list
 
     def write_csv(self, file_path: Path, data: List[ExifData]) -> None:
-        """フィルタしたデータをCSV書き出し (リトライ付き)"""
+        """フィルタしたデータをCSV書き出し (リトライ + 排他制御付き)"""
         write_mode = "a" if self.append_mode else "w"
+        lock = self._get_lock_for_file(file_path)
+
         for attempt in range(3):
             try:
-                with file_path.open(
-                    write_mode, newline="", encoding="utf-8"
-                ) as csvfile:
-                    writer = csv.DictWriter(csvfile, fieldnames=self.exif_fields)
-                    if write_mode == "w":
-                        writer.writeheader()
-                    writer.writerows(data)
+                is_new_file = not file_path.exists()
+                with lock:
+                    with file_path.open(write_mode, newline="", encoding="utf-8") as csvfile:
+                        writer = csv.DictWriter(csvfile, fieldnames=self.exif_fields)
+                        if write_mode == "w" or is_new_file:
+                            writer.writeheader()
+                        writer.writerows(data)
                 self.logger.info(f"CSV出力成功: {file_path}")
                 break
             except Exception as e:
                 self.logger.error(f"CSV書き込み失敗 ({attempt+1}回目): {e}")
                 if attempt == 2:
-                    self.handle_error(
-                        f"CSVファイル書き込みエラー: {e}", raise_exception=True
-                    )
+                    self.handle_error(f"CSVファイル書き込みエラー: {e}", raise_exception=True)
                 time.sleep(1)
 
     def _process_batch(self, batch: List[Path]) -> None:

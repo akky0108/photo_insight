@@ -70,8 +70,7 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
     ):
         super().__init__(
             config_path=config_path,
-            max_workers=max_workers,
-            max_process_count=max_process_count,
+            max_workers=max_workers
         )
         self.date = self._parse_date(date)
         self.weights = {}
@@ -244,6 +243,9 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
 
     def _process_batch(self, batch=None):
         self.process()
+
+    def get_data(self):
+        return super().get_data()
 
     def output_results(
         self, sorted_data: List[Dict[str, str]], output_file_path: str
