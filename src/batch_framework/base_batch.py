@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 from dotenv import load_dotenv
 from typing import Optional, Callable, List, Dict
 from watchdog.events import FileSystemEventHandler
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 
 from batch_framework.core.hook_manager import HookManager, HookType
 from batch_framework.core.config_manager import ConfigManager
@@ -213,36 +215,33 @@ class BaseBatchProcessor(ABC):
         self.logger.info("Executing common setup tasks in BaseBatchProcessor.")
 
     def process(self) -> None:
-        """
-        メイン処理フェーズ。データ取得とバッチ単位での処理を行う。
-        各バッチ処理で例外が発生しても、他のバッチ処理には影響を与えず継続する。
-        """
         self.logger.info("Executing common batch processing tasks in BaseBatchProcessor.")
         data = self.get_data()
         batches = self._generate_batches(data)
         failed_batches = []
 
-        for i, batch in enumerate(batches):
-            try:
-                self.logger.info(f"Processing batch {i + 1}/{len(batches)} (size={len(batch)})")
-                self.logger.debug(f"[Batch {i + 1}] Contents: {str(batch)[:300]}")
-                self._process_batch(batch)
-                self.logger.debug(f"[Batch {i + 1}] Successfully processed.")
-            except Exception as e:
-                self.logger.error(f"[Batch {i + 1}] Failed to process batch: {e}", exc_info=True)
-                batch_preview = str(batch)[:300].replace('\n', '').replace('\r', '')
-                self.logger.debug(f"[Batch {i + 1}] Failed batch data (truncated): {batch_preview}")
-                failed_batches.append(i + 1)
-                continue
+        lock = Lock()
+
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = {executor.submit(self._safe_process_batch, batch, lock): i for i, batch in enumerate(batches)}
+            for future in as_completed(futures):
+                i = futures[future]
+                try:
+                    future.result()
+                except Exception as e:
+                    self.logger.error(f"[Batch {i + 1}] Failed in thread: {e}", exc_info=True)
+                    failed_batches.append(i + 1)
 
         if failed_batches:
-            self.logger.warning(f"Batch processing completed with failures in batches: {failed_batches}")
+            self.logger.warning(f"Processing completed with failures in batches: {failed_batches}")
         else:
             self.logger.info("All batches processed successfully.")
 
-        self.logger.info(
-            f"Batch processing summary: {len(batches)} total, {len(failed_batches)} failed, {len(batches) - len(failed_batches)} succeeded."
-        )
+    def _safe_process_batch(self, batch: List[Dict], lock: Lock) -> None:
+        """
+        スレッドセーフなバッチ処理。必要ならファイル書き込み時にlock使用。
+        """
+        self._process_batch(batch)  # _process_batch内でCSV出力などを行う
 
     def cleanup(self) -> None:
         """
