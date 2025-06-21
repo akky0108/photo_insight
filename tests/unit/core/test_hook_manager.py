@@ -1,3 +1,5 @@
+import time
+
 from batch_framework.core.hook_manager import HookManager, HookType
 
 
@@ -47,3 +49,62 @@ def test_execute_hooks_with_exception_collects_errors():
     assert len(errors) == 1
     assert isinstance(errors[0], RuntimeError)
     assert "Test hook error" in str(errors[0])
+
+def test_serial_hooks_run_in_order():
+    results = []
+
+    def hook1():
+        results.append("1")
+
+    def hook2():
+        results.append("2")
+
+    def hook3():
+        results.append("3")
+
+    manager = HookManager()
+    manager.add_hook(HookType.POST_SETUP, hook3, priority=1, parallel=False)
+    manager.add_hook(HookType.POST_SETUP, hook1, priority=3, parallel=False)
+    manager.add_hook(HookType.POST_SETUP, hook2, priority=2, parallel=False)
+
+    manager.execute_hooks(HookType.POST_SETUP)
+
+    # priority順に直列で実行されているか確認
+    assert results == ["1", "2", "3"]
+
+def test_parallel_hooks_all_execute():
+    results = []
+
+    def make_hook(name):
+        def hook():
+            time.sleep(0.05)  # 並列確認用に少し待つ
+            results.append(name)
+        return hook
+
+    manager = HookManager(max_workers=3)
+    manager.add_hook(HookType.POST_CLEANUP, make_hook("A"), parallel=True)
+    manager.add_hook(HookType.POST_CLEANUP, make_hook("B"), parallel=True)
+    manager.add_hook(HookType.POST_CLEANUP, make_hook("C"), parallel=True)
+
+    manager.execute_hooks(HookType.POST_CLEANUP)
+
+    # 実行順は問わないがすべて呼ばれている
+    assert sorted(results) == ["A", "B", "C"]
+
+def test_mixed_parallel_and_serial_hooks():
+    results = []
+
+    def serial_hook():
+        results.append("serial")
+
+    def parallel_hook():
+        results.append("parallel")
+
+    manager = HookManager(max_workers=1)
+    manager.add_hook(HookType.POST_SETUP, serial_hook, priority=1, parallel=False)
+    manager.add_hook(HookType.POST_SETUP, parallel_hook, priority=1, parallel=True)
+
+    manager.execute_hooks(HookType.POST_SETUP)
+
+    assert "serial" in results
+    assert "parallel" in results
