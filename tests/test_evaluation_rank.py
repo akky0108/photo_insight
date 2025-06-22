@@ -88,3 +88,59 @@ def test_flag_logic(dummy_config):
     }
     processor.assign_acceptance_flag(entry)
     assert entry["accepted_flag"] == 1
+
+def test_sorted_output_order(tmp_path, dummy_config):
+    # 2件の評価データ（高スコア・低スコア）を作成
+    csv_path = tmp_path / "evaluation_results_2025-06-22.csv"
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=[
+            "file_name", "face_detected", "face_sharpness_score", "face_contrast_score",
+            "face_noise_score", "face_local_sharpness_score", "face_local_contrast_score",
+            "composition_rule_based_score", "face_position_score",
+            "framing_score", "face_direction_score", "group_id"
+        ])
+        writer.writeheader()
+        writer.writerow({  # entry A（スコア高）
+            "file_name": "high.jpg",
+            "face_detected": "TRUE",
+            "face_sharpness_score": "90",
+            "face_contrast_score": "35",
+            "face_noise_score": "2",
+            "face_local_sharpness_score": "60",
+            "face_local_contrast_score": "35",
+            "composition_rule_based_score": "10",
+            "face_position_score": "5",
+            "framing_score": "5",
+            "face_direction_score": "5",
+            "group_id": "A"
+        })
+        writer.writerow({  # entry B（スコア低）
+            "file_name": "low.jpg",
+            "face_detected": "TRUE",
+            "face_sharpness_score": "50",
+            "face_contrast_score": "20",
+            "face_noise_score": "10",
+            "face_local_sharpness_score": "30",
+            "face_local_contrast_score": "20",
+            "composition_rule_based_score": "5",
+            "face_position_score": "3",
+            "framing_score": "3",
+            "face_direction_score": "3",
+            "group_id": "A"
+        })
+
+    # 実行
+    processor = EvaluationRankBatchProcessor(
+        config_path=dummy_config,
+        date="2025-06-22"
+    )
+    processor.execute()
+
+    # 結果確認
+    merged_path = os.path.join(tmp_path, "evaluation_ranking_2025-06-22.csv")
+    with open(merged_path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+        assert len(rows) == 2
+        scores = [float(row["overall_evaluation"]) for row in rows]
+        assert scores == sorted(scores, reverse=True), "Rows are not sorted by overall_evaluation descending."
