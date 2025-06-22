@@ -280,6 +280,27 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
 
         self.logger.info(f"Merged output written to {merged_path}.")
 
+        # 追加：マージ済みファイルのソート処理
+        self._sort_merged_output(merged_path, fieldnames)
+
+    def _sort_merged_output(self, merged_path: str, fieldnames: List[str]) -> None:
+        """マージ済みCSVファイルを overall_evaluation 降順でソートして上書き保存"""
+        self.logger.info("Sorting merged output by overall_evaluation descending...")
+
+        with open(merged_path, "r", encoding="utf-8") as infile:
+            reader = list(csv.DictReader(infile))
+            sorted_rows = sorted(
+                reader,
+                key=lambda x: -float(x.get("overall_evaluation", 0.0))
+            )
+
+        with open(merged_path, "w", encoding="utf-8", newline="") as outfile:
+            writer = csv.DictWriter(outfile, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(sorted_rows)
+
+        self.logger.info("Final output sorted and saved.")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ポートレート評価バッチ処理")
