@@ -112,12 +112,6 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
         """BaseBatchProcessor に準拠して評価データを取得"""
         return self.load_evaluation_data(self.evaluation_csv_path)
 
-    def process(self) -> None:
-        """BaseBatchProcessor に処理フェーズを委譲"""
-        self.logger.info("Processing started.")
-        super().process()
-        self.logger.info("Processing completed.")
-
     def _process_batch(self, batch: List[Dict[str, str]]) -> None:
         """1バッチ分の処理（評価、フラグ、ランク付け、出力）を行う"""
         self.evaluate_batch_entries(batch)
