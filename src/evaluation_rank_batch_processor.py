@@ -59,8 +59,6 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
         self.date = self._parse_date(date)
         self.weights: Dict[str, Dict[str, float]] = {}
         self.paths: Dict[str, str] = {}
-        self.temp_output_paths: List[str] = []
-        self._csv_lock = Lock()
 
     def _parse_date(self, date_str: Optional[str]) -> str:
         """文字列から日付をパース。無効なら今日の日付を返す"""
@@ -77,6 +75,9 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
         super().setup()
         self.logger.info("Setting up EvaluationRankBatchProcessor.")
         self.load_config(self.config_path)
+
+        self.output_data = []  # 評価データのメモリ保持
+        self._data_lock = Lock()  # 排他制御
 
         self.evaluation_csv_path = os.path.join(
             self.paths.get("evaluation_data_dir", "./temp"),
@@ -111,26 +112,14 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
         """BaseBatchProcessor に準拠して評価データを取得"""
         return self.load_evaluation_data(self.evaluation_csv_path)
 
-    def process(self) -> None:
-        """BaseBatchProcessor に処理フェーズを委譲"""
-        self.logger.info("Processing started.")
-        super().process()
-        self.logger.info("Processing completed.")
-
     def _process_batch(self, batch: List[Dict[str, str]]) -> None:
         """1バッチ分の処理（評価、フラグ、ランク付け、出力）を行う"""
         self.evaluate_batch_entries(batch)
         self.assign_flags_to_entries(batch)
         self.rank_and_flag_top_entries(batch)
 
-        output_file_path = os.path.join(
-            self.paths.get("output_data_dir", "./temp"),
-            f"evaluation_ranking_{self.date}_batch_{uuid.uuid4().hex}.csv",
-        )
-
-        with self._csv_lock:
-            self.output_results(batch, output_file_path)
-            self.temp_output_paths.append(output_file_path)
+        with self._data_lock:
+            self.output_data.extend(batch)
 
     def evaluate_batch_entries(self, batch: List[Dict[str, str]]) -> None:
         """各エントリのスコアを集計して overall_evaluation を付与"""
@@ -228,12 +217,29 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
             for i, entry in enumerate(group_entries):
                 entry["flag"] = 1 if i < threshold else 0
 
-    def output_results(self, sorted_data: List[Dict[str, str]], output_file_path: str) -> None:
-        """CSVとしてスコアを出力"""
-        self.logger.info(f"Outputting results to {output_file_path}.")
-        with open(output_file_path, "w", encoding="utf-8", newline="") as csvfile:
-            fieldnames = ["file_name", "face_detected", "overall_evaluation", "flag", "accepted_flag"] + SCORE_TYPES
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+    def cleanup(self) -> None:
+        """一時ファイルをマージし、最終出力ファイルを生成"""
+        super().cleanup()
+        self.logger.info("Final output to be written from collected memory data...")
+
+        merged_path = os.path.join(
+            self.paths.get("output_data_dir", "./temp"),
+            f"evaluation_ranking_{self.date}.csv"
+        )
+
+        if not self.output_data:  # ← 修正：temp_output_paths ではなく output_data
+            self.logger.warning("No output data collected.")
+            return
+
+        fieldnames = ["file_name", "face_detected", "overall_evaluation", "flag", "accepted_flag"] + SCORE_TYPES
+
+        sorted_data = sorted(
+            self.output_data,  # ← 修正：self.output_data を使用
+            key=lambda x: -float(x.get("overall_evaluation", 0.0))
+        )
+
+        with open(merged_path, "w", encoding="utf-8", newline="") as outfile:
+            writer = csv.DictWriter(outfile, fieldnames=fieldnames)
             writer.writeheader()
             for entry in sorted_data:
                 writer.writerow({
@@ -244,62 +250,8 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                     "accepted_flag": entry.get("accepted_flag", 0),
                     **{score: round(float(entry.get(score, 0.0) or 0.0), 2) for score in SCORE_TYPES},
                 })
-        self.logger.info("Results output completed.")
 
-    def cleanup(self) -> None:
-        """一時ファイルをマージし、最終出力ファイルを生成"""
-        super().cleanup()
-        self.logger.info("Merging temporary batch outputs...")
-
-        merged_path = os.path.join(
-            self.paths.get("output_data_dir", "./temp"),
-            f"evaluation_ranking_{self.date}.csv"
-        )
-
-        if not self.temp_output_paths:
-            self.logger.warning("No temporary outputs to merge.")
-            return
-
-        fieldnames = ["file_name", "face_detected", "overall_evaluation", "flag", "accepted_flag"] + SCORE_TYPES
-
-        with open(merged_path, "w", encoding="utf-8", newline="") as outfile:
-            writer = csv.DictWriter(outfile, fieldnames=fieldnames)
-            writer.writeheader()
-            for path in sorted(self.temp_output_paths):
-                with open(path, "r", encoding="utf-8") as infile:
-                    reader = csv.DictReader(infile)
-                    for row in reader:
-                        writer.writerow(row)
-
-        # 一時ファイル削除（任意）
-        for path in self.temp_output_paths:
-            try:
-                os.remove(path)
-            except Exception as e:
-                self.logger.warning(f"Failed to delete temp file {path}: {e}")
-
-        self.logger.info(f"Merged output written to {merged_path}.")
-
-        # 追加：マージ済みファイルのソート処理
-        self._sort_merged_output(merged_path, fieldnames)
-
-    def _sort_merged_output(self, merged_path: str, fieldnames: List[str]) -> None:
-        """マージ済みCSVファイルを overall_evaluation 降順でソートして上書き保存"""
-        self.logger.info("Sorting merged output by overall_evaluation descending...")
-
-        with open(merged_path, "r", encoding="utf-8") as infile:
-            reader = list(csv.DictReader(infile))
-            sorted_rows = sorted(
-                reader,
-                key=lambda x: -float(x.get("overall_evaluation", 0.0))
-            )
-
-        with open(merged_path, "w", encoding="utf-8", newline="") as outfile:
-            writer = csv.DictWriter(outfile, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(sorted_rows)
-
-        self.logger.info("Final output sorted and saved.")
+        self.logger.info(f"Final merged output written to {merged_path}.")
 
 
 if __name__ == "__main__":
