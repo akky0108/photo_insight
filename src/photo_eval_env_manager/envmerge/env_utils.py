@@ -178,30 +178,3 @@ def parse_pip_requirements(content: str) -> list[str]:
 
     lines = content.strip().splitlines()
     return [line.strip() for line in lines if line.strip() and not line.startswith("#")]
-
-
-def build_merged_env_dict(conda_deps: list[str | dict], pip_deps: list[str]) -> dict:
-    """
-    conda と pip の依存関係をまとめて、環境ファイル用の dict を構築する。
-
-    - conda 側の dependencies から "pip" セクションは除外しておく。
-    - pip の依存があれば、最後に {"pip": [...]} を追加する。
-
-    :param conda_deps: conda パッケージの依存関係リスト
-    :param pip_deps: pip パッケージの依存関係リスト
-    :return: conda 環境ファイルに対応した dict（name / channels / dependencies を含む）
-    """
-    filtered_deps = [
-        dep for dep in conda_deps if not (isinstance(dep, dict) and "pip" in dep)
-    ]
-
-    env = {
-        "name": ENV_NAME,
-        "channels": ["defaults", "conda-forge"],
-        "dependencies": filtered_deps,
-    }
-
-    if pip_deps:
-        env["dependencies"].append({"pip": pip_deps})
-
-    return env
