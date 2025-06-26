@@ -5,7 +5,6 @@ from pathlib import Path
 from photo_eval_env_manager.envmerge.env_merger import EnvMerger
 from photo_eval_env_manager.envmerge.exceptions import VersionMismatchError, DuplicatePackageError
 
-
 # === 基本マージ処理のテスト ===
 
 def test_merge_from_sources_basic(tmp_path):
@@ -37,10 +36,11 @@ requests==2.31.0
     assert "flask==2.1.0" in merger.pip_deps
     assert merger.pip_deps.count("requests==2.31.0") == 1  # 重複は除去されている
 
-
-def test_python_version_normalization(tmp_path):
-    """古いPythonバージョンが補正されるか検証（例：3.9 → 3.10）"""
+def test_python_version_upgraded_from_3_9_to_3_10(tmp_path):
+    """python=3.9 が python=3.10 に正規化されるか検証"""
     env_yml = tmp_path / "environment.yml"
+    req_txt = tmp_path / "requirements.txt"
+
     env_yml.write_text("""
 name: test-env
 dependencies:
@@ -48,9 +48,11 @@ dependencies:
   - numpy
   - pip
 """)
+    req_txt.write_text("")
 
-    merger = EnvMerger()
-    merger.merge_from_sources(conda_file=env_yml)
+    merger = EnvMerger(base_yml=env_yml, pip_json=req_txt)
+    merger.load()
+    merger.resolve()
 
     assert "python=3.10" in merger.conda_deps
     assert "python=3.9" not in merger.conda_deps
@@ -124,7 +126,7 @@ def test_deduplicate_pip_deps_non_strict():
     merger.pip_deps = [
         "requests==2.30.0",
         "flask==2.1.0",
-        "requests==2.30.0",  # 同一バージョンの重複 → 除去対象
+        "requests==2.30.0",
     ]
 
     merger._deduplicate_pip_deps()
@@ -137,7 +139,7 @@ def test_deduplicate_pip_deps_strict_conflict():
     merger = EnvMerger(strict=True)
     merger.pip_deps = [
         "requests==2.30.0",
-        "requests==2.31.0",  # バージョン矛盾
+        "requests==2.31.0",
     ]
 
     with pytest.raises(VersionMismatchError) as e:
@@ -153,7 +155,7 @@ def test_resolve_warns_on_missing_conda_version(tmp_path):
     env_yml.write_text("""
 name: test-env
 dependencies:
-  - requests  # バージョンなし
+  - requests
   - pip
 """)
     req_txt.write_text("requests==2.31.0")
@@ -167,28 +169,6 @@ dependencies:
         warning_msgs = [str(warning.message) for warning in w]
 
     assert any("requests に pip 側でのみバージョン指定" in msg for msg in warning_msgs)
-
-def test_python_version_normalization(tmp_path):
-    """python=3.9 が python=3.10 に正規化されるか検証"""
-    env_yml = tmp_path / "environment.yml"
-    req_txt = tmp_path / "requirements.txt"
-
-    env_yml.write_text("""
-name: test-env
-dependencies:
-  - python=3.9
-  - numpy
-  - pip
-""")
-
-    req_txt.write_text("")
-
-    merger = EnvMerger(base_yml=env_yml, pip_json=req_txt)
-    merger.load()
-    merger.resolve()
-
-    assert "python=3.10" in merger.conda_deps
-    assert "python=3.9" not in merger.conda_deps
 
 def test_save_ci_yaml_excludes_and_sorts(tmp_path):
     """save_ci_yaml() が除外リストを反映し、pip セクションをソートして出力するかを確認"""
@@ -206,7 +186,6 @@ dependencies:
       - flask==2.2.0
       - requests==2.31.0
       - numpy==1.23.0
-      - flask==2.2.0
 """)
 
     merger = EnvMerger(base_yml=env_yml)
@@ -219,7 +198,6 @@ dependencies:
     assert "requests==2.31.0" in content
     assert "numpy==1.23.0" in content
 
-    # pip セクションがソート済みであることを確認
     ci_dict = yaml.safe_load(content)
     pip_deps = next(d["pip"] for d in ci_dict["dependencies"] if isinstance(d, dict) and "pip" in d)
     assert pip_deps == sorted(pip_deps)
@@ -282,3 +260,21 @@ def test_filter_for_ci_with_various_versions():
     assert "PyTest~=7.2" not in filtered
     assert "requests>=2.30.0" in filtered
     assert "numpy!=1.24.0" in filtered
+
+def test_replace_gpu_packages_cpu_only():
+    """GPU パッケージが CPU 対応に置換されるか確認"""
+    merger = EnvMerger(cpu_only=True)
+    merger.conda_deps = ["pytorch"]
+    merger.pip_deps = ["torch==2.1.0+cu118"]
+    merger.replace_gpu_packages(cpu_only=True)
+
+    assert merger.conda_deps == ["pytorch-cpu"]
+    assert merger.pip_deps == ["torch-cpu==2.1.0"]
+
+def test_filter_for_ci_case_insensitive():
+    """除外リストが大文字小文字を区別せず適用されることを確認"""
+    merger = EnvMerger()
+    merger.pip_deps = ["Flask==2.1.0", "pytest==7.2.0"]
+    filtered = merger.filter_for_ci(exclude=["FLASK", "PyTest"])
+
+    assert filtered == []

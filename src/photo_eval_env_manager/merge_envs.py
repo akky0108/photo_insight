@@ -10,16 +10,14 @@ from photo_eval_env_manager.envmerge.env_utils import (
     load_yaml_file,
     parse_conda_yaml,
     parse_pip_requirements,
-    build_merged_env_dict,
 )
 from photo_eval_env_manager.envmerge.exceptions import (
     VersionMismatchError,
     DuplicatePackageError,
 )
+from photo_eval_env_manager.envmerge.env_merger import EnvMerger
 from collections import defaultdict
 from utils.app_logger import AppLogger
-
-PYTHON_VERSION = "3.10"
 
 
 def parse_args():
@@ -100,78 +98,6 @@ def normalize_pkg_name(pkg):
     return ""
 
 
-def resolve_conflicts(conda_deps, pip_deps, strict):
-    """
-    condaとpipの依存関係の重複・バージョン違いを検出し、必要に応じて例外を投げる。
-
-    Args:
-        conda_deps (list[str]): conda依存リスト
-        pip_deps (list[str]): pip依存リスト
-        strict (bool): 厳密なバージョン一致を求めるか
-
-    Raises:
-        VersionMismatchError: 厳密チェック時に重複パッケージが存在する場合
-        DuplicatePackageError: 同一パッケージ名でバージョンが異なる場合
-    """
-    conda_pkgs = {normalize_pkg_name(pkg): pkg for pkg in conda_deps}
-    pip_pkgs = {normalize_pkg_name(pkg): pkg for pkg in pip_deps}
-    overlap = set(conda_pkgs) & set(pip_pkgs)
-
-    versions_by_name = defaultdict(set)
-
-    if overlap:
-        if strict:
-            raise VersionMismatchError(
-                f"Version mismatch for packages present in both conda and pip: {', '.join(overlap)}"
-            )
-        else:
-            print(
-                f"[warn] Overlapping packages between conda and pip: {', '.join(overlap)}"
-            )
-
-        for name in overlap:
-            versions_by_name[name].add(conda_pkgs[name])
-            versions_by_name[name].add(pip_pkgs[name])
-
-    for name, versions in versions_by_name.items():
-        if len(versions) > 1:
-            raise DuplicatePackageError(package=name, versions=list(versions))
-
-
-def apply_cpu_patch(pip_deps, conda_deps, cpu_only):
-    """
-    CPU専用環境に変換するため、GPU依存のパッケージ表記を修正する。
-
-    Args:
-        pip_deps (list[str]): pip依存リスト
-        conda_deps (list[str]): conda依存リスト
-        cpu_only (bool): CPU専用モードが有効かどうか
-    """
-    if not cpu_only:
-        return
-
-    for i, pkg in enumerate(pip_deps):
-        if re.match(r"^torch(\W|$)", pkg):
-            pip_deps[i] = re.sub(r"\+cu.*", "", pkg)
-
-    for i, dep in enumerate(conda_deps):
-        if isinstance(dep, str) and dep.startswith("pytorch"):
-            conda_deps[i] = dep.replace("pytorch", "pytorch-cpu", 1)
-
-
-def ensure_python_version(conda_deps):
-    """
-    conda依存に明示的なPythonバージョンが含まれていない場合、デフォルトを追加する。
-
-    Args:
-        conda_deps (list[str]): conda依存リスト（変更可能）
-    """
-    if not any(
-        isinstance(pkg, str) and pkg.startswith("python=") for pkg in conda_deps
-    ):
-        conda_deps.insert(0, f"python={PYTHON_VERSION}")
-
-
 def write_merged_env_file(env_dict: dict, output_path: Path):
     """
     環境辞書をYAML形式でファイルに書き出す。
@@ -234,21 +160,26 @@ def merge_envs(
         pip_deps = load_pip_reqs(pip_json)
         pip_deps.extend(pip_from_conda)
 
-        if logger:
-            logger.debug("Resolving dependency conflicts")
-        resolve_conflicts(conda_deps, pip_deps, strict)
+        merger = EnvMerger(cpu_only=cpu_only, strict=strict)
+        merger.conda_deps = conda_deps
+        merger.pip_deps = pip_deps
 
-        if logger:
-            logger.debug(
-                "Applying CPU-only patch" if cpu_only else "Skipping CPU-only patch"
-            )
-        apply_cpu_patch(pip_deps, conda_deps, cpu_only)
+        # conflictチェック（今回）
+        merger.resolve()
 
-        if logger:
-            logger.debug(f"Writing merged conda environment to {final_yml}")
-        write_merged_env_file(
-            build_merged_env_dict(conda_deps=conda_deps, pip_deps=pip_deps), final_yml
-        )
+        # GPU → CPU置換（前回）
+        merger.replace_gpu_packages(cpu_only=cpu_only)
+
+        # ★ ここで normalize を呼び、python=3.10 を自動追加
+        merger.normalize()
+
+        # 書き戻し
+        conda_deps = merger.conda_deps
+        pip_deps = merger.pip_deps
+
+        # conda 環境定義（dict）を構築。
+        env_dict = merger.build_env_dict()
+        write_merged_env_file(env_dict=env_dict, output_path=final_yml)
 
         if logger:
             logger.debug(f"Writing pip requirements to {requirements_txt}")
@@ -257,23 +188,10 @@ def merge_envs(
                 f.write(pkg + "\n")
 
         if ci_yml and exclude_for_ci:
-            if logger:
-                logger.debug(f"Excluding packages for CI: {exclude_for_ci}")
-            exclude_set = {name.lower() for name in exclude_for_ci}
+            logger.debug(f"Excluding packages for CI: {exclude_for_ci}")
+            ci_env_dict = merger.build_env_dict_for_ci(exclude_for_ci)
+            write_merged_env_file(env_dict=ci_env_dict, output_path=ci_yml)
 
-            def get_pkg_name(dep):
-                return dep.split("==")[0].lower()
-
-            ci_pip_deps = [
-                pkg for pkg in pip_deps if get_pkg_name(pkg) not in exclude_set
-            ]
-
-            if logger:
-                logger.debug(f"Writing CI-specific conda environment to {ci_yml}")
-            write_merged_env_file(
-                build_merged_env_dict(conda_deps=conda_deps, pip_deps=ci_pip_deps),
-                ci_yml,
-            )
     except Exception:
         if logger:
             logger.exception("An error occurred during merge_envs execution.")

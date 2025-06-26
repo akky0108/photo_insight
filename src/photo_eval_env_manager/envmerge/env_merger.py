@@ -6,7 +6,11 @@ from typing import Optional
 from pathlib import Path
 from utils.app_logger import AppLogger
 from photo_eval_env_manager.envmerge.exceptions import VersionMismatchError
-
+from constants.env_constants import (
+    DEFAULT_PYTHON_VERSION,
+    GPU_PACKAGE_REPLACEMENTS,
+    is_gpu_package
+)
 
 class EnvMerger:
     """
@@ -205,6 +209,23 @@ class EnvMerger:
             env["dependencies"].append({"pip": sorted(pip_section)})
         return env
 
+    def build_env_dict_for_ci(self, exclude_pip_names: list[str]) -> dict:
+        """
+        CI用の conda 環境定義（dict）を構築。指定された pip パッケージ名を除外。
+
+        Args:
+            exclude_pip_names (list[str]): 除外対象のパッケージ名（小文字）
+        Returns:
+            dict: 除外後の conda 環境定義
+        """
+        exclude_set = set(exclude_pip_names)
+
+        def get_pkg_name(pkg: str) -> str:
+            return re.split(r"[=<>!~]+", pkg, 1)[0].lower()
+
+        filtered_pip = [pkg for pkg in self.pip_deps if get_pkg_name(pkg) not in exclude_set]
+        return self.build_env_dict(pip_overrides=filtered_pip)
+
     # ------------------------
     # 内部処理（private methods）
     # ------------------------
@@ -266,7 +287,7 @@ class EnvMerger:
 
         if not python_indices:
             self.logger.info("Adding python=3.10 to dependencies")
-            self.conda_deps.insert(0, "python=3.10")
+            self.conda_deps.insert(0, f"python={DEFAULT_PYTHON_VERSION}")
             return
 
         first_idx = python_indices[0]
@@ -275,7 +296,7 @@ class EnvMerger:
 
         if "," in ver or not re.fullmatch(r"3\.10(\.\*)?", ver):
             self.logger.warning(f"Replacing python spec: {first_dep} → python=3.10")
-            self.conda_deps[first_idx] = "python=3.10"
+            self.conda_deps[first_idx] = f"python={DEFAULT_PYTHON_VERSION}"
 
         for idx in reversed(python_indices[1:]):
             self.logger.warning(f"Duplicate python removed: {self.conda_deps[idx]}")
@@ -290,7 +311,7 @@ class EnvMerger:
         for pkg in self.conda_deps:
             name, version = self._split_conda_package(pkg)
             if name == "python" and version == "3.9":
-                normalized.append("python=3.10")
+                normalized.append(f"python={DEFAULT_PYTHON_VERSION}")
             else:
                 normalized.append(pkg)
         self.conda_deps = normalized
@@ -317,33 +338,22 @@ class EnvMerger:
         if not cpu_only:
             return
 
-        replacements = {
-            "torch": "torch-cpu",
-            "tensorflow": "tensorflow-cpu",
-            "pytorch": "pytorch-cpu",
-            "cudatoolkit": None,
-            "pytorch-cuda": None,
-        }
-
-        def replace_name(pkg: str, new: str) -> str:
-            match = re.match(r"^([\w\-]+)(==([\w\.]+)(\+[\w]+)?)?$", pkg)
-            if not match:
-                return new
-            _, _, ver, _ = match.groups()
-            return f"{new}=={ver}" if ver else new
+        def get_replacement(pkg_name: str) -> str | None:
+            return GPU_PACKAGE_REPLACEMENTS.get(pkg_name)
 
         # pip 置換
         new_pip = []
         for pkg in self.pip_deps:
             name = re.split(r"[=<>!~]+", pkg, 1)[0].lower()
-            repl = replacements.get(name)
-            if repl is None:
-                self.logger.info(f"Removing GPU-only pip package: {pkg}")
-            elif repl != name:
+            if is_gpu_package(name):
+                repl = get_replacement(name)
+                if repl is None:
+                    self.logger.info(f"Removing GPU-only pip package: {pkg}")
+                    continue
                 version = re.sub(r"\+cu\d+", "", pkg[len(name):])
                 new_pkg = f"{repl}{version}"
-                new_pip.append(new_pkg)
                 self.logger.info(f"Replacing {pkg} → {new_pkg}")
+                new_pip.append(new_pkg)
             else:
                 new_pip.append(pkg)
         self.pip_deps = new_pip
@@ -353,11 +363,11 @@ class EnvMerger:
         for dep in self.conda_deps:
             if isinstance(dep, str):
                 name = dep.split("=")[0].lower()
-                repl = replacements.get(name)
-                if repl is None and name in replacements:
-                    self.logger.info(f"Removing GPU-only conda package: {dep}")
-                    continue
-                elif repl and name != repl:
+                if is_gpu_package(name):
+                    repl = get_replacement(name)
+                    if repl is None:
+                        self.logger.info(f"Removing GPU-only conda package: {dep}")
+                        continue
                     self.logger.info(f"Replacing {dep} → {repl}")
                     new_conda.append(repl)
                 else:
