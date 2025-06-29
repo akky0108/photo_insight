@@ -63,19 +63,6 @@ class NEFFileBatchProcess(BaseBatchProcessor):
 
         self.logger.info(f"初期設定完了: 画像ディレクトリ {self.base_directory_path}")
 
-    def process(self) -> None:
-        """RAWファイルをスキャンしてEXIFデータをCSV出力"""
-        try:
-            self.logger.info("RAWファイル処理開始")
-            subdirs = self.get_target_subdirectories(self.base_directory_path)
-            for subdir in subdirs:
-                self.logger.info(f"処理対象ディレクトリ: {subdir}")
-                self.process_directory(subdir)
-        except Exception as e:
-            self.handle_error(
-                f"予期しないエラーが発生しました: {e}", raise_exception=True
-            )
-
     def cleanup(self) -> None:
         """リソースの解放など後処理"""
         super().cleanup()
@@ -104,21 +91,21 @@ class NEFFileBatchProcess(BaseBatchProcessor):
                     target_subdirs.append(subdir)
         return target_subdirs
 
-    def process_directory(self, dir_path: Path) -> None:
-        """ディレクトリ内のRAWファイルをEXIF抽出してCSV出力"""
-        raw_extensions = self.exif_handler.raw_extensions
-        raw_files = self.exif_handler.read_files(
-            str(dir_path), file_extensions=raw_extensions
-        )
+    # def process_directory(self, dir_path: Path) -> None:
+    #     """ディレクトリ内のRAWファイルをEXIF抽出してCSV出力"""
+    #     raw_extensions = self.exif_handler.raw_extensions
+    #     raw_files = self.exif_handler.read_files(
+    #         str(dir_path), file_extensions=raw_extensions
+    #     )
 
-        if not raw_files:
-            self.logger.warning(f"RAWファイルなし: {dir_path}")
-            return
+    #     if not raw_files:
+    #         self.logger.warning(f"RAWファイルなし: {dir_path}")
+    #         return
 
-        exif_data_list = self.filter_exif_data(raw_files)
-        if exif_data_list:
-            output_file_path = self.temp_dir / f"{dir_path.name}_raw_exif_data.csv"
-            self.write_csv(output_file_path, exif_data_list)
+    #     exif_data_list = self.filter_exif_data(raw_files)
+    #     if exif_data_list:
+    #         output_file_path = self.temp_dir / f"{dir_path.name}_raw_exif_data.csv"
+    #         self.write_csv(output_file_path, exif_data_list)
 
     def filter_exif_data(self, raw_files: List[ExifData]) -> List[ExifData]:
         """EXIFフィールドを抽出・フィルタリング"""
@@ -158,11 +145,53 @@ class NEFFileBatchProcess(BaseBatchProcessor):
                     self.handle_error(f"CSVファイル書き込みエラー: {e}", raise_exception=True)
                 time.sleep(1)
 
-    def _process_batch(self, batch: List[Path]) -> None:
-        """バッチ単位でディレクトリを処理"""
-        for dir_path in batch:
-            self.logger.info(f"バッチ処理対象: {dir_path}")
-            self.process_directory(dir_path)
+    def get_data(self) -> List[Dict]:
+        """
+        対象ディレクトリ以下の NEF ファイルをスキャンし、EXIF 抽出前のデータを Dict で返却
+
+        Returns:
+            List[Dict]: 処理対象の NEF ファイル情報リスト
+        """
+        raw_extensions = self.exif_handler.raw_extensions
+        subdirs = self.get_target_subdirectories(self.base_directory_path)
+
+        results: List[Dict] = []
+
+        for subdir in subdirs:
+            raw_files = self.exif_handler.read_files(
+                str(subdir), file_extensions=raw_extensions
+            )
+
+            for file_data in raw_files:
+                file_path = file_data.get("SourceFile")
+                if not file_path:
+                    continue  # 異常データをスキップ
+
+                result = {
+                    "path": file_path,
+                    "directory": str(subdir),
+                    "filename": Path(file_path).name,
+                    "subdir_name": subdir.name,
+                    "exif_raw": file_data,
+                }
+                results.append(result)
+
+        self.logger.info(f"スキャン完了: 対象ファイル数={len(results)}")
+        return results
+
+    def _process_batch(self, batch: List[Dict]) -> None:
+        """バッチ単位で NEF ファイルを処理"""
+        grouped = defaultdict(list)
+        for item in batch:
+            subdir_name = item.get("subdir_name", "unknown")
+            exif_raw = item.get("exif_raw", {})
+            grouped[subdir_name].append(exif_raw)
+
+        for subdir_name, raw_list in grouped.items():
+            self.logger.info(f"[バッチ] CSV書き出し: {subdir_name} ({len(raw_list)}件)")
+            exif_data_list = self.filter_exif_data(raw_list)
+            output_file_path = self.temp_dir / f"{subdir_name}_raw_exif_data.csv"
+            self.write_csv(output_file_path, exif_data_list)
 
 
 if __name__ == "__main__":

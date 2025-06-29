@@ -7,22 +7,17 @@ from concurrent.futures import ThreadPoolExecutor
 
 from batch_processor.nef_batch_process import NEFFileBatchProcess
 
+
 # --- テスト専用のダミークラス定義（抽象メソッドを埋める） ---
-class DummyNEFFileBatchProcess(NEFFileBatchProcess):
-    def get_data(self) -> list[dict]:
-        return [
-            {"FileName": "dummy1.NEF", "Model": "TestModel"},
-            {"FileName": "dummy2.NEF", "Model": "TestModel"},
-        ]
-
-    def _process_batch(self, batch: list[dict]) -> None:
-        pass  # 今は使わない（将来のテスト拡張用）
-
+# class DummyNEFFileBatchProcess(NEFFileBatchProcess):
+#     def _process_batch(self, batch: list[dict]) -> None:
+#         # 親クラスの処理を呼び出す
+#         super()._process_batch(batch)
 
 # --- 共通フィクスチャ ---
 @pytest.fixture
 def dummy_processor(tmp_path):
-    processor = DummyNEFFileBatchProcess(config_path=None)
+    processor = NEFFileBatchProcess(config_path=None)
     processor.project_root = tmp_path
     processor.temp_dir = tmp_path / "temp"
     processor.temp_dir.mkdir()
@@ -84,7 +79,7 @@ def test_write_csv_creates_file(tmp_path, dummy_processor):
         assert len(reader) == 2
         assert reader[0]["Model"] == "Nikon"
 
-
+@pytest.mark.skip(reason="process_directory() は現在未実装")
 def test_process_directory_no_raw_files(dummy_processor, mocker):
     mocker.patch.object(dummy_processor.exif_handler, "raw_extensions", [".NEF"])
     mocker.patch.object(dummy_processor.exif_handler, "read_files", return_value=[])
@@ -123,3 +118,47 @@ def test_write_csv_thread_safe(dummy_processor):
         filenames = [row["FileName"] for row in reader]
         assert len(set(filenames)) == len(filenames)  # 重複なし
 
+def test_get_data_returns_expected(monkeypatch, dummy_processor):
+    # モック用のraw_filesデータ
+    sample_raw_files = [
+        {"SourceFile": "/path/to/file1.NEF", "Field1": "Value1"},
+        {"SourceFile": "/path/to/file2.NEF", "Field1": "Value2"},
+    ]
+
+    # exif_handler.read_files をモックして上記リストを返すようにする
+    monkeypatch.setattr(dummy_processor.exif_handler, "read_files", lambda path, **kwargs: sample_raw_files)
+    # get_target_subdirectories もモックして一つのディレクトリだけ返す
+    monkeypatch.setattr(dummy_processor, "get_target_subdirectories", lambda base_path: [Path("/path/to")])
+
+    results = dummy_processor.get_data()
+
+    assert len(results) == 2
+    assert results[0]["path"] == "/path/to/file1.NEF"
+    assert results[0]["directory"] == "/path/to"
+    assert results[1]["exif_raw"]["Field1"] == "Value2"
+
+
+def test_process_batch_calls_write_csv(monkeypatch, dummy_processor, tmp_path):
+    called = []
+
+    def mock_write_csv(self, file_path, data):
+        print(f"[MOCK] write_csv called: {file_path}")
+        print(f"[MOCK] data: {data}")
+        called.append((file_path, data))
+
+    dummy_processor.temp_dir = tmp_path
+    dummy_processor.exif_fields = ["FileName", "Model"]  # Model も追加して完全性を保証
+
+    monkeypatch.setattr(NEFFileBatchProcess, "write_csv", mock_write_csv)
+
+    batch = [
+        {"subdir_name": "sub1", "exif_raw": {"FileName": "a.NEF", "Model": "X1"}},
+        {"subdir_name": "sub1", "exif_raw": {"FileName": "b.NEF", "Model": "X2"}},
+        {"subdir_name": "sub2", "exif_raw": {"FileName": "c.NEF", "Model": "X3"}},
+    ]
+
+    dummy_processor._process_batch(batch)
+
+    print(f"[DEBUG] called: {called}")
+    assert len(called) == 2  # sub1, sub2
+    assert all(len(data) > 0 for _, data in called)
