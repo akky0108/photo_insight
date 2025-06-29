@@ -91,21 +91,27 @@ class NEFFileBatchProcess(BaseBatchProcessor):
                     target_subdirs.append(subdir)
         return target_subdirs
 
-    # def process_directory(self, dir_path: Path) -> None:
-    #     """ディレクトリ内のRAWファイルをEXIF抽出してCSV出力"""
-    #     raw_extensions = self.exif_handler.raw_extensions
-    #     raw_files = self.exif_handler.read_files(
-    #         str(dir_path), file_extensions=raw_extensions
-    #     )
+    def process_directory(self, subdir_name: str, raw_files: List[Dict]) -> None:
+        """
+        単一ディレクトリのNEFファイル群を処理してCSVに出力する
 
-    #     if not raw_files:
-    #         self.logger.warning(f"RAWファイルなし: {dir_path}")
-    #         return
+        Args:
+            subdir_name (str): サブディレクトリ名（出力ファイル名の一部に使用）
+            raw_files (List[Dict]): そのディレクトリのNEFファイルに関するEXIF辞書群
+        """
+        if not raw_files:
+            self.logger.warning(f"[単体処理] 対象ファイルなし: {subdir_name}")
+            return
 
-    #     exif_data_list = self.filter_exif_data(raw_files)
-    #     if exif_data_list:
-    #         output_file_path = self.temp_dir / f"{dir_path.name}_raw_exif_data.csv"
-    #         self.write_csv(output_file_path, exif_data_list)
+        self.logger.info(f"[{subdir_name}] EXIF抽出開始: {len(raw_files)}件")
+        exif_data_list = self.filter_exif_data(raw_files)
+
+        if not exif_data_list:
+            self.logger.warning(f"[{subdir_name}] EXIF抽出結果なし")
+            return
+
+        output_file_path = self.temp_dir / f"{subdir_name}_raw_exif_data.csv"
+        self.write_csv(output_file_path, exif_data_list)
 
     def filter_exif_data(self, raw_files: List[ExifData]) -> List[ExifData]:
         """EXIFフィールドを抽出・フィルタリング"""
@@ -202,10 +208,28 @@ if __name__ == "__main__":
         help="設定ファイルパス (デフォルト: './config/config.yaml')",
     )
     parser.add_argument("--max_workers", type=int, default=4, help="最大ワーカ数")
+    parser.add_argument("--dir", type=str, help="単一ディレクトリ処理（デバッグ・再実行用）")
     args = parser.parse_args()
 
     processor = NEFFileBatchProcess(
         config_path=args.config_path or "./config/config.yaml",
         max_workers=args.max_workers,
     )
-    processor.execute()
+
+    if args.dir:
+        from file_handler.exif_file_handler import ExifFileHandler  # 念のため再import安全
+
+        target_dir = Path(args.dir)
+        if not target_dir.exists() or not target_dir.is_dir():
+            processor.handle_error(f"指定ディレクトリが存在しません: {target_dir}", raise_exception=True)
+
+        raw_extensions = processor.exif_handler.raw_extensions
+        raw_files = processor.exif_handler.read_files(
+            str(target_dir), file_extensions=raw_extensions
+        )
+        processor.setup()  # 初期化（temp_dir 等）
+        processor.process_directory(target_dir.name, raw_files)
+        processor.cleanup()
+    else:
+        processor.execute()
+

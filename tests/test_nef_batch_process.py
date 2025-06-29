@@ -8,19 +8,13 @@ from concurrent.futures import ThreadPoolExecutor
 from batch_processor.nef_batch_process import NEFFileBatchProcess
 
 
-# --- テスト専用のダミークラス定義（抽象メソッドを埋める） ---
-# class DummyNEFFileBatchProcess(NEFFileBatchProcess):
-#     def _process_batch(self, batch: list[dict]) -> None:
-#         # 親クラスの処理を呼び出す
-#         super()._process_batch(batch)
-
 # --- 共通フィクスチャ ---
 @pytest.fixture
 def dummy_processor(tmp_path):
     processor = NEFFileBatchProcess(config_path=None)
     processor.project_root = tmp_path
     processor.temp_dir = tmp_path / "temp"
-    processor.temp_dir.mkdir()
+    processor.temp_dir.mkdir(parents=True, exist_ok=True)
     processor.logger = MagicMock()
     return processor
 
@@ -49,7 +43,6 @@ def test_get_target_subdirectories(tmp_path, dummy_processor):
     assert new_dir in subdirs
     assert old_dir not in subdirs
 
-
 def test_filter_exif_data(dummy_processor):
     raw_files = [
         {"FileName": "test.NEF", "Model": "Nikon D850"},
@@ -61,7 +54,6 @@ def test_filter_exif_data(dummy_processor):
 
     assert filtered[0]["Model"] == "Nikon D850"
     assert filtered[1]["Model"] == "N/A"
-
 
 def test_write_csv_creates_file(tmp_path, dummy_processor):
     data = [
@@ -79,15 +71,16 @@ def test_write_csv_creates_file(tmp_path, dummy_processor):
         assert len(reader) == 2
         assert reader[0]["Model"] == "Nikon"
 
-@pytest.mark.skip(reason="process_directory() は現在未実装")
-def test_process_directory_no_raw_files(dummy_processor, mocker):
+def test_process_directory_no_raw_files(dummy_processor, mocker, tmp_path):
     mocker.patch.object(dummy_processor.exif_handler, "raw_extensions", [".NEF"])
     mocker.patch.object(dummy_processor.exif_handler, "read_files", return_value=[])
 
-    dummy_processor.process_directory(Path("/dummy/path"))
+    dummy_processor.temp_dir = tmp_path / "temp"
+    dummy_processor.temp_dir.mkdir(parents=True, exist_ok=True)
 
-    dummy_processor.logger.warning.assert_called_once()
+    dummy_processor.process_directory("sample_dir", [])
 
+    dummy_processor.logger.warning.assert_any_call("[単体処理] 対象ファイルなし: sample_dir")
 
 def test_write_csv_thread_safe(dummy_processor):
     file_path = dummy_processor.temp_dir / "thread_safe_test.csv"
@@ -136,7 +129,6 @@ def test_get_data_returns_expected(monkeypatch, dummy_processor):
     assert results[0]["path"] == "/path/to/file1.NEF"
     assert results[0]["directory"] == "/path/to"
     assert results[1]["exif_raw"]["Field1"] == "Value2"
-
 
 def test_process_batch_calls_write_csv(monkeypatch, dummy_processor, tmp_path):
     called = []
