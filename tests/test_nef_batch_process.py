@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 from concurrent.futures import ThreadPoolExecutor
 
 from batch_processor.nef_batch_process import NEFFileBatchProcess
-
+import batch_framework.utils.io_utils as io_utils
 
 # --- 共通フィクスチャ ---
 @pytest.fixture
@@ -17,7 +17,6 @@ def dummy_processor(tmp_path):
     processor.temp_dir.mkdir(parents=True, exist_ok=True)
     processor.logger = MagicMock()
     return processor
-
 
 # --- テスト本体 ---
 def test_get_target_subdirectories(tmp_path, dummy_processor):
@@ -96,31 +95,59 @@ def test_write_csv_thread_safe(dummy_processor):
         ]
         dummy_processor.write_csv(file_path, data)
 
-    from concurrent.futures import ThreadPoolExecutor
-
     with ThreadPoolExecutor(max_workers=num_threads) as executor:
         futures = [executor.submit(write_task, i * rows_per_thread) for i in range(num_threads)]
         for future in futures:
             future.result()
 
-    # 検証
+    # 検証：重複しないファイル名と行数を確認（ヘッダ重複を除外）
     assert file_path.exists()
     with file_path.open(newline="", encoding="utf-8") as f:
         reader = list(csv.DictReader(f))
-        assert len(reader) == num_threads * rows_per_thread
-        filenames = [row["FileName"] for row in reader]
+        rows = [row for row in reader if row["FileName"] != "FileName"]  # ヘッダ行が混入していた場合除外
+        assert len(rows) == num_threads * rows_per_thread
+        filenames = [row["FileName"] for row in rows]
         assert len(set(filenames)) == len(filenames)  # 重複なし
 
+def test_get_data_with_target_dir(monkeypatch, dummy_processor):
+    sample_path = Path("/mock/target_dir")
+    sample_raw_files = [
+        {"SourceFile": "/mock/target_dir/file1.NEF", "Model": "Z9"},
+        {"SourceFile": "/mock/target_dir/file2.NEF", "Model": "Z8"},
+    ]
+    monkeypatch.setattr(dummy_processor.exif_handler, "read_files", lambda p, **kwargs: sample_raw_files)
+    results = dummy_processor.get_data(target_dir=sample_path)
+
+    assert len(results) == 2
+    assert all(result["subdir_name"] == sample_path.name for result in results)
+    assert results[0]["filename"] == "file1.NEF"
+
+def test_get_data_default_scans_all(monkeypatch, dummy_processor):
+    dir1 = Path("/mock/dir1")
+    dir2 = Path("/mock/dir2")
+    monkeypatch.setattr(dummy_processor, "get_target_subdirectories", lambda base_path: [dir1, dir2])
+
+    def mock_read_files(path, **kwargs):
+        if path == str(dir1):
+            return [{"SourceFile": "/mock/dir1/a.NEF", "ISO": "100"}]
+        if path == str(dir2):
+            return [{"SourceFile": "/mock/dir2/b.NEF", "ISO": "200"}]
+        return []
+
+    monkeypatch.setattr(dummy_processor.exif_handler, "read_files", mock_read_files)
+
+    results = dummy_processor.get_data()
+
+    assert len(results) == 2
+    subdirs = [r["subdir_name"] for r in results]
+    assert "dir1" in subdirs and "dir2" in subdirs
+
 def test_get_data_returns_expected(monkeypatch, dummy_processor):
-    # モック用のraw_filesデータ
     sample_raw_files = [
         {"SourceFile": "/path/to/file1.NEF", "Field1": "Value1"},
         {"SourceFile": "/path/to/file2.NEF", "Field1": "Value2"},
     ]
-
-    # exif_handler.read_files をモックして上記リストを返すようにする
     monkeypatch.setattr(dummy_processor.exif_handler, "read_files", lambda path, **kwargs: sample_raw_files)
-    # get_target_subdirectories もモックして一つのディレクトリだけ返す
     monkeypatch.setattr(dummy_processor, "get_target_subdirectories", lambda base_path: [Path("/path/to")])
 
     results = dummy_processor.get_data()
@@ -133,15 +160,12 @@ def test_get_data_returns_expected(monkeypatch, dummy_processor):
 def test_process_batch_calls_write_csv(monkeypatch, dummy_processor, tmp_path):
     called = []
 
-    def mock_write_csv(self, file_path, data):
-        print(f"[MOCK] write_csv called: {file_path}")
-        print(f"[MOCK] data: {data}")
-        called.append((file_path, data))
+    def mock_write_csv_with_lock(file_path, data, fieldnames, lock, append, logger):
+        called.append((str(file_path), data))
 
     dummy_processor.temp_dir = tmp_path
-    dummy_processor.exif_fields = ["FileName", "Model"]  # Model も追加して完全性を保証
-
-    monkeypatch.setattr(NEFFileBatchProcess, "write_csv", mock_write_csv)
+    dummy_processor.exif_fields = ["FileName", "Model"]
+    monkeypatch.setattr("batch_processor.nef_batch_process.write_csv_with_lock", mock_write_csv_with_lock)
 
     batch = [
         {"subdir_name": "sub1", "exif_raw": {"FileName": "a.NEF", "Model": "X1"}},
@@ -151,6 +175,30 @@ def test_process_batch_calls_write_csv(monkeypatch, dummy_processor, tmp_path):
 
     dummy_processor._process_batch(batch)
 
-    print(f"[DEBUG] called: {called}")
-    assert len(called) == 2  # sub1, sub2
+    assert len(called) == 2
+    called_files = [Path(fp).name for fp, _ in called]
+    assert "sub1_raw_exif_data.csv" in called_files
+    assert "sub2_raw_exif_data.csv" in called_files
     assert all(len(data) > 0 for _, data in called)
+
+def test_execute_with_target_dir(monkeypatch, dummy_processor, tmp_path):
+    # 対象ディレクトリ（仮）
+    target_dir = tmp_path / "target"
+    target_dir.mkdir()
+
+    # get_data → バッチ処理対象の mock データを返す
+    monkeypatch.setattr(dummy_processor, "get_data", lambda target_dir=None: [
+        {"subdir_name": "target", "exif_raw": {"FileName": "a.NEF", "Model": "X1"}}
+    ])
+
+    # process の呼び出し確認用
+    called = {}
+    monkeypatch.setattr(dummy_processor, "process", lambda data: called.update({"called": data}))
+
+    # 実行
+    dummy_processor.execute(target_dir=target_dir)
+
+    # 検証
+    assert "called" in called
+    assert len(called["called"]) == 1
+    assert called["called"][0]["subdir_name"] == "target"
