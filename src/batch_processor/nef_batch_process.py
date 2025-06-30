@@ -91,6 +91,13 @@ class NEFFileBatchProcess(BaseBatchProcessor):
         super().cleanup()
         self.logger.info("クリーンアップ完了")
 
+    def _generate_batches(self, data: List[Dict]) -> List[List[Dict]]:
+        """
+        NEF処理用のバッチ分割：サブディレクトリ単位でグルーピングされたバッチを生成。
+        """
+        grouped = group_by_key(data, "subdir_name")
+        return list(grouped.values())
+
     def get_target_subdirectories(self, base_path: Path, depth: int = 1) -> List[Path]:
         """
         ターゲット日付以降に作成されたサブディレクトリを取得
