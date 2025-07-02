@@ -344,38 +344,8 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             )
             os.remove(self.processed_images_file)
 
-    def execute(self):
-        """
-        バッチ処理の実行エントリーポイント。
-        セットアップ→バッチ処理→クリーンアップの順に処理する。
-        """
-        self.setup()
-        self.logger.info("Starting image processing...")
-        self.logger.info(f"Total images to process: {len(self.data)}")
-
-        for i in range(0, len(self.data), self.batch_size):
-            if self.memory_threshold_exceeded:
-                self.logger.warning(
-                    "Memory threshold exceeded. Halting further batch processing."
-                )
-                break
-
-            batch = self.data[i : i + self.batch_size]
-            self.logger.info(
-                f"Processing batch {i // self.batch_size + 1} ({i}-{i + len(batch) - 1})"
-            )
-            self._process_batch(batch)
-
-        if len(self.processed_images) >= len(self.data):
-            self.logger.info("All images processed successfully.")
-            self.completed_all_batches = True
-        else:
-            self.logger.info("Some images remain unprocessed.")
-
-        self.cleanup()
-
-    def get_data(self):
-        return super().get_data()
+    def get_data(self) -> List[Dict[str, str]]:
+        return self.data
 
 if __name__ == "__main__":
     import argparse

@@ -9,6 +9,14 @@ def processor(tmp_path):
         with patch("portrait_quality_batch_processor.MemoryMonitor"):
 
             class TestablePortraitQualityBatchProcessor(PortraitQualityBatchProcessor):
+                def __init__(self, *args, **kwargs):
+                    super().__init__(*args, **kwargs)
+                    # ✅ config_manager を初期化直後にモックに差し替え
+                    self.config_manager = MagicMock()
+                    self.config_manager.get.side_effect = lambda k, default=None: {
+                        "batch_size": 2
+                    }.get(k, default)
+
                 def get_data(self):
                     return []
 
@@ -83,23 +91,23 @@ def test_process_batch_processes_one(processor, tmp_path):
 
 def test_execute_full_flow(processor):
     processor.setup = MagicMock()
+    processor.process = MagicMock()  # ← これが必要！
     processor.cleanup = MagicMock()
     processor.logger = MagicMock()
-    processor.data = [
-        {"file_name": f"img{i}.jpg", "orientation": "1", "bit_depth": "8"}
-        for i in range(4)
-    ]
-    processor.processed_images = set()
-    processor.memory_threshold_exceeded = False
-    processor._process_batch = MagicMock()
+
+    # execute() 内で設定取得される可能性を考慮して安全のため
+    processor.config_manager = MagicMock()
+    processor.config_manager.get.side_effect = lambda k, default=None: {
+        "batch_size": 2,
+        "base_directory": "/tmp/images",
+        "output_directory": "/tmp/output",
+    }.get(k, default)
 
     processor.execute()
 
-    assert processor._process_batch.call_count == 2
+    processor.setup.assert_called_once()
+    processor.process.assert_called_once()
     processor.cleanup.assert_called_once()
-
-
-# --- 以下追加分 ---
 
 
 def test_process_single_image_marks_and_returns_result(processor):
