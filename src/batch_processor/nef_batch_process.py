@@ -262,15 +262,11 @@ if __name__ == "__main__":
         max_workers=args.max_workers,
     )
 
+    # execute に統一して委譲
     if args.dir:
         target_dir = Path(args.dir)
         if not target_dir.exists() or not target_dir.is_dir():
             processor.handle_error(f"指定ディレクトリが存在しません: {target_dir}", raise_exception=True)
-
-        processor.setup()
-        data = processor.get_data(target_dir)  # ← ここが統一ポイント
-        processor.process(data)
-        processor.cleanup()
+        processor.execute(target_dir=target_dir)
     else:
         processor.execute()
-

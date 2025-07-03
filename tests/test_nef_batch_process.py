@@ -100,14 +100,13 @@ def test_write_csv_thread_safe(dummy_processor):
         for future in futures:
             future.result()
 
-    # 検証：重複しないファイル名と行数を確認（ヘッダ重複を除外）
     assert file_path.exists()
     with file_path.open(newline="", encoding="utf-8") as f:
         reader = list(csv.DictReader(f))
-        rows = [row for row in reader if row["FileName"] != "FileName"]  # ヘッダ行が混入していた場合除外
+        rows = [row for row in reader if row["FileName"] != "FileName"]
         assert len(rows) == num_threads * rows_per_thread
         filenames = [row["FileName"] for row in rows]
-        assert len(set(filenames)) == len(filenames)  # 重複なし
+        assert len(set(filenames)) == len(filenames)
 
 def test_get_data_with_target_dir(monkeypatch, dummy_processor):
     sample_path = Path("/mock/target_dir")
@@ -182,23 +181,58 @@ def test_process_batch_calls_write_csv(monkeypatch, dummy_processor, tmp_path):
     assert all(len(data) > 0 for _, data in called)
 
 def test_execute_with_target_dir(monkeypatch, dummy_processor, tmp_path):
-    # 対象ディレクトリ（仮）
     target_dir = tmp_path / "target"
     target_dir.mkdir()
 
-    # get_data → バッチ処理対象の mock データを返す
     monkeypatch.setattr(dummy_processor, "get_data", lambda target_dir=None: [
         {"subdir_name": "target", "exif_raw": {"FileName": "a.NEF", "Model": "X1"}}
     ])
-
-    # process の呼び出し確認用
     called = {}
     monkeypatch.setattr(dummy_processor, "process", lambda data: called.update({"called": data}))
-
-    # 実行
     dummy_processor.execute(target_dir=target_dir)
 
-    # 検証
     assert "called" in called
     assert len(called["called"]) == 1
     assert called["called"][0]["subdir_name"] == "target"
+
+# --- 追加テスト ①: 空バッチでも例外が出ない ---
+def test_process_batch_empty_batch(dummy_processor):
+    try:
+        dummy_processor._process_batch([])
+    except Exception:
+        pytest.fail("空バッチで例外が発生してはいけません")
+
+# --- 追加テスト ②: write_csv() が失敗時にリトライされる ---
+def test_write_csv_retry_on_failure(monkeypatch, dummy_processor, tmp_path):
+    dummy_processor.exif_fields = ["FileName"]
+    dummy_processor.append_mode = False
+    dummy_processor.logger = MagicMock()
+
+    call_counter = {"count": 0}
+
+    real_open = Path.open
+
+    def flaky_open(self, *args, **kwargs):
+        call_counter["count"] += 1
+        if call_counter["count"] < 3:
+            raise IOError("mocked write error")
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", flaky_open)
+
+    file_path = tmp_path / "retry_test.csv"
+    dummy_processor.write_csv(file_path, [{"FileName": "IMG_001.NEF"}])
+
+    assert call_counter["count"] == 3
+    dummy_processor.logger.error.assert_any_call("CSV書き込み失敗 (1回目): mocked write error")
+
+# --- 追加テスト ③: SourceFile 欠損データは get_data() で除外される ---
+def test_get_data_skips_invalid_items(monkeypatch, dummy_processor):
+    monkeypatch.setattr(dummy_processor, "get_target_subdirectories", lambda base_path: [Path("/mock")])
+    monkeypatch.setattr(dummy_processor.exif_handler, "read_files", lambda path, **kwargs: [
+        {"Invalid": "No SourceFile"},
+        {"SourceFile": "/mock/file1.NEF"},
+    ])
+    results = dummy_processor.get_data()
+    assert len(results) == 1
+    assert results[0]["path"] == "/mock/file1.NEF"
