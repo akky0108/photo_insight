@@ -78,7 +78,7 @@ class BaseBatchProcessor(ABC):
             if config_manager is not None
             else ConfigManager(config_path=self.config_path)
         )
-        self.logger = self.config_manager.get_logger("BaseBatchProcessor")
+        self.logger = self.config_manager.get_logger(self.__class__.__name__)
 
         self.hook_manager = (
             hook_manager
@@ -94,8 +94,9 @@ class BaseBatchProcessor(ABC):
 
         self.processed_count = 0
         self.config = self.config_manager.config
+        self._lock = Lock()
 
-    def execute(self) -> None:
+    def execute(self, *args, **kwargs) -> None:
         """
         バッチ処理のメイン実行メソッド。
         setup→process→cleanup の各フェーズのフックと処理を順次実行し、
@@ -105,7 +106,7 @@ class BaseBatchProcessor(ABC):
             RuntimeError: フェーズ中にエラーが起きた場合に送出される
         """
         self.start_time = time.time()
-        self.logger.info("Batch process started.")
+        self.logger.info(f"[{self.__class__.__name__}] Batch process started.")
         errors = []
 
         try:
@@ -113,14 +114,14 @@ class BaseBatchProcessor(ABC):
                 HookType.PRE_SETUP, HookType.POST_SETUP, self.setup, errors
             )
             self._execute_phase(
-                HookType.PRE_PROCESS, HookType.POST_PROCESS, self.process, errors
+                HookType.PRE_PROCESS, HookType.POST_PROCESS, lambda: self.process(*args, **kwargs), errors
             )
         finally:
             self._execute_phase(
                 HookType.PRE_CLEANUP, HookType.POST_CLEANUP, self.cleanup, errors
             )
             duration = time.time() - self.start_time
-            self.logger.info(f"Batch process completed in {duration:.2f} seconds.")
+            self.logger.info(f"[{self.__class__.__name__}] Batch process completed in {duration:.2f} seconds.")
 
             if errors:
                 self.handle_error(
@@ -159,7 +160,7 @@ class BaseBatchProcessor(ABC):
         try:
             self.hook_manager.execute_hooks(hook_type)
         except Exception as e:
-            self.logger.error(f"Error in {hook_type.name} hooks: {e}")
+            self.logger.error(f"[{self.__class__.__name__}] Error in {hook_type.name} hooks: {e}")
             errors.append(e)
 
     def _run_phase_function(
@@ -175,14 +176,14 @@ class BaseBatchProcessor(ABC):
         """
         try:
             start_time = time.time()
-            self.logger.info(f"Executing {name} phase.")
+            self.logger.info(f"[{self.__class__.__name__}] Executing {name} phase.")
             func()
             duration = time.time() - start_time
             self.logger.info(
-                f"{name.capitalize()} phase completed in {duration:.2f} seconds."
-            )
+                f"[{self.__class__.__name__}] {name.capitalize()} phase completed in {duration:.2f} seconds."
+                )
         except Exception as e:
-            self.logger.error(f"Error during {name} phase: {e}")
+            self.logger.error(f"[{self.__class__.__name__}] Error during {name} phase: {e}")
             errors.append(e)
 
     def add_hook(
@@ -212,30 +213,34 @@ class BaseBatchProcessor(ABC):
         """
         セットアップフェーズの共通処理。必要に応じてサブクラスでオーバーライド可能。
         """
-        self.logger.info("Executing common setup tasks in BaseBatchProcessor.")
+        self.logger.info(f"[{self.__class__.__name__}] Executing common setup tasks.")
 
-    def process(self) -> None:
-        self.logger.info("Executing common batch processing tasks in BaseBatchProcessor.")
-        data = self.get_data()
+    def process(self, data: Optional[List[Dict]] = None) -> None:
+        self.logger.info(f"[{self.__class__.__name__}] Executing common batch processing tasks.")
+        if data is None:
+            data = self.get_data()
+
         batches = self._generate_batches(data)
         failed_batches = []
 
-        lock = Lock()
+        if not batches:
+            self.logger.info("No data to process. Skipping batch execution.")
+            return
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = {executor.submit(self._safe_process_batch, batch, lock): i for i, batch in enumerate(batches)}
+            futures = {executor.submit(self._safe_process_batch, batch, self.get_lock()): i for i, batch in enumerate(batches)}
             for future in as_completed(futures):
                 i = futures[future]
                 try:
                     future.result()
                 except Exception as e:
-                    self.logger.error(f"[Batch {i + 1}] Failed in thread: {e}", exc_info=True)
+                    self.logger.error(f"[{self.__class__.__name__}] [Batch {i + 1}] Failed in thread: {e}", exc_info=True)
                     failed_batches.append(i + 1)
 
         if failed_batches:
-            self.logger.warning(f"Processing completed with failures in batches: {failed_batches}")
+            self.logger.warning(f"[{self.__class__.__name__}] Processing completed with failures in batches: {failed_batches}")
         else:
-            self.logger.info("All batches processed successfully.")
+            self.logger.info(f"[{self.__class__.__name__}] All batches processed successfully.")
 
     def _safe_process_batch(self, batch: List[Dict], lock: Lock) -> None:
         """
@@ -247,23 +252,40 @@ class BaseBatchProcessor(ABC):
         """
         クリーンアップフェーズの共通処理。必要に応じてサブクラスでオーバーライド可能。
         """
-        self.logger.info("Executing common cleanup tasks in BaseBatchProcessor.")
+        self.logger.info(f"[{self.__class__.__name__}] Executing common cleanup tasks.")
 
-    def _generate_batches(self, data: List[Dict]) -> List[List[Dict]]:
+    def _generate_batches(self, data: List[Dict], batch_size: Optional[int] = None) -> List[List[Dict]]:
         """
-        データを設定されたサイズで分割し、バッチ一覧を生成する。
+        データを指定サイズのバッチに分割する汎用メソッド。
 
         Args:
-            data (List[Dict]): 元データ
+            data (List[Dict]): 分割対象データ（各要素は辞書）
+            batch_size (Optional[int]): 明示的なバッチサイズを指定する場合に使用。
+                                        指定がない場合は max_workers をもとに自動計算。
 
         Returns:
-            List[List[Dict]]: 分割されたバッチリスト
+            List[List[Dict]]: 分割されたバッチのリスト（各バッチは List[Dict]）
+
+        Note:
+            サブクラスでバッチの意味論（例：ディレクトリ単位、グループ単位）を持つ場合は
+            本メソッドをオーバーライドしてカスタマイズすること。
         """
-        batch_size = self.config.get("batch_size", 100)
-        return [data[i : i + batch_size] for i in range(0, len(data), batch_size)]
+        if not data:
+            return []
+
+        # バッチサイズが未指定の場合、自動的にスレッド数に応じて割り当て
+        if batch_size is None:
+            batch_size = max(1, len(data) // self.max_workers)
+
+        # 指定されたバッチサイズでスライス分割
+        return [data[i:i + batch_size] for i in range(0, len(data), batch_size)]
+
+    def get_lock(self) -> Lock:
+        """スレッドセーフな処理に使うロックを提供する。"""
+        return self._lock
 
     @abstractmethod
-    def get_data(self) -> List[Dict]:
+    def get_data(self, *args, **kwargs) -> List[Dict]:
         """
         データ取得メソッド。具体的な実装はサブクラスで行う必要がある。
 

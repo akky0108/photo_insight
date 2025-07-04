@@ -2,13 +2,14 @@ import csv
 import time
 import argparse
 from datetime import datetime
-from typing import List, Dict
+from typing import List, Dict, Optional
 from pathlib import Path
 from threading import Lock
 from collections import defaultdict
 from typing import Optional
 from file_handler.exif_file_handler import ExifFileHandler
 from batch_framework.base_batch import BaseBatchProcessor
+from batch_framework.utils.io_utils import group_by_key, write_csv_with_lock
 
 ExifData = Dict[str, str]
 
@@ -45,6 +46,11 @@ class NEFFileBatchProcess(BaseBatchProcessor):
         )
         self._csv_locks: Dict[str, Lock] = defaultdict(Lock)  # ← これを追加
 
+        # 共有変数の初期化（スレッド間で使用）
+        self.output_data: List[Dict] = []
+        self.success_count: int = 0
+        self.failure_count: int = 0
+
     def _get_lock_for_file(self, file_path: Path) -> Lock:
         key = str(file_path.resolve())
         if key not in self._csv_locks:
@@ -54,6 +60,12 @@ class NEFFileBatchProcess(BaseBatchProcessor):
     def setup(self) -> None:
         """バッチ初期化処理（出力ディレクトリ作成など）"""
         super().setup()
+
+        # 共有変数の初期化（念のため毎回クリア）
+        self.output_data.clear()
+        self.success_count = 0
+        self.failure_count = 0
+
         self.temp_dir = Path(self.project_root) / self.output_directory
         self.temp_dir.mkdir(parents=True, exist_ok=True)
 
@@ -63,23 +75,39 @@ class NEFFileBatchProcess(BaseBatchProcessor):
 
         self.logger.info(f"初期設定完了: 画像ディレクトリ {self.base_directory_path}")
 
-    def process(self) -> None:
-        """RAWファイルをスキャンしてEXIFデータをCSV出力"""
+    def execute(self, target_dir: Optional[Path] = None) -> None:
+        """
+        バッチ処理の実行エントリポイント。
+        通常は設定ファイルに基づく一括処理だが、target_dir を指定することで単一ディレクトリ処理も可能。
+
+        Args:
+            target_dir (Optional[Path]): 特定ディレクトリのみを対象にする場合に指定。
+        """
         try:
-            self.logger.info("RAWファイル処理開始")
-            subdirs = self.get_target_subdirectories(self.base_directory_path)
-            for subdir in subdirs:
-                self.logger.info(f"処理対象ディレクトリ: {subdir}")
-                self.process_directory(subdir)
+            self.setup()
+
+            # 変更点: get_data に引数を渡すことで柔軟な対象指定が可能
+            data = self.get_data(target_dir=target_dir)
+
+            self.process(data)
+
         except Exception as e:
-            self.handle_error(
-                f"予期しないエラーが発生しました: {e}", raise_exception=True
-            )
+            self.handle_error(str(e), raise_exception=False)
+
+        finally:
+            self.cleanup()
 
     def cleanup(self) -> None:
         """リソースの解放など後処理"""
         super().cleanup()
         self.logger.info("クリーンアップ完了")
+
+    def _generate_batches(self, data: List[Dict]) -> List[List[Dict]]:
+        """
+        NEF処理用のバッチ分割：サブディレクトリ単位でグルーピングされたバッチを生成。
+        """
+        grouped = group_by_key(data, "subdir_name")
+        return list(grouped.values())
 
     def get_target_subdirectories(self, base_path: Path, depth: int = 1) -> List[Path]:
         """
@@ -104,21 +132,27 @@ class NEFFileBatchProcess(BaseBatchProcessor):
                     target_subdirs.append(subdir)
         return target_subdirs
 
-    def process_directory(self, dir_path: Path) -> None:
-        """ディレクトリ内のRAWファイルをEXIF抽出してCSV出力"""
-        raw_extensions = self.exif_handler.raw_extensions
-        raw_files = self.exif_handler.read_files(
-            str(dir_path), file_extensions=raw_extensions
-        )
+    def process_directory(self, subdir_name: str, raw_files: List[Dict]) -> None:
+        """
+        単一ディレクトリのNEFファイル群を処理してCSVに出力する
 
+        Args:
+            subdir_name (str): サブディレクトリ名（出力ファイル名の一部に使用）
+            raw_files (List[Dict]): そのディレクトリのNEFファイルに関するEXIF辞書群
+        """
         if not raw_files:
-            self.logger.warning(f"RAWファイルなし: {dir_path}")
+            self.logger.warning(f"[単体処理] 対象ファイルなし: {subdir_name}")
             return
 
+        self.logger.info(f"[{subdir_name}] EXIF抽出開始: {len(raw_files)}件")
         exif_data_list = self.filter_exif_data(raw_files)
-        if exif_data_list:
-            output_file_path = self.temp_dir / f"{dir_path.name}_raw_exif_data.csv"
-            self.write_csv(output_file_path, exif_data_list)
+
+        if not exif_data_list:
+            self.logger.warning(f"[{subdir_name}] EXIF抽出結果なし")
+            return
+
+        output_file_path = self.temp_dir / f"{subdir_name}_raw_exif_data.csv"
+        self.write_csv(output_file_path, exif_data_list)
 
     def filter_exif_data(self, raw_files: List[ExifData]) -> List[ExifData]:
         """EXIFフィールドを抽出・フィルタリング"""
@@ -158,12 +192,81 @@ class NEFFileBatchProcess(BaseBatchProcessor):
                     self.handle_error(f"CSVファイル書き込みエラー: {e}", raise_exception=True)
                 time.sleep(1)
 
-    def _process_batch(self, batch: List[Path]) -> None:
-        """バッチ単位でディレクトリを処理"""
-        for dir_path in batch:
-            self.logger.info(f"バッチ処理対象: {dir_path}")
-            self.process_directory(dir_path)
+    def get_data(self, target_dir: Optional[Path] = None) -> List[Dict]:
+        """
+        NEFファイルのスキャンと情報収集を行う。
 
+        Args:
+            target_dir (Optional[Path]): 特定ディレクトリのみ処理する場合に指定（Noneなら全体スキャン）
+
+        Returns:
+            List[Dict]: 処理対象の NEF ファイル情報リスト（exif_raw を含む）
+        """
+        raw_extensions = self.exif_handler.raw_extensions
+
+        # 処理対象ディレクトリ群を決定
+        if target_dir:
+            subdirs = [target_dir]  # 単一ディレクトリ指定
+            self.logger.info(f"指定ディレクトリのみ処理: {target_dir}")
+        else:
+            subdirs = self.get_target_subdirectories(self.base_directory_path)
+            self.logger.info(f"全ディレクトリを対象に処理: {len(subdirs)}件")
+
+        results: List[Dict] = []
+
+        # 各サブディレクトリごとに NEF ファイルを収集
+        for subdir in subdirs:
+            raw_files = self.exif_handler.read_files(
+                str(subdir), file_extensions=raw_extensions
+            )
+
+            for file_data in raw_files:
+                file_path = file_data.get("SourceFile")
+                if not file_path:
+                    continue  # 異常データはスキップ
+
+                results.append({
+                    "path": file_path,
+                    "directory": str(subdir),
+                    "filename": Path(file_path).name,
+                    "subdir_name": subdir.name,
+                    "exif_raw": file_data,
+                })
+
+        self.logger.info(f"スキャン完了: 対象ファイル数 = {len(results)}")
+        return results
+
+    def _process_batch(self, batch: List[Dict]) -> None:
+        """バッチ単位で NEF ファイルを処理"""
+        if not batch:
+            self.logger.info("空バッチのため処理をスキップします。")
+            return
+
+        grouped = group_by_key(batch, "subdir_name")
+        all_exif_data = []
+
+        for subdir_name, items in grouped.items():
+            exif_raw_list = [item.get("exif_raw", {}) for item in items]
+            self.logger.info(f"[バッチ] CSV書き出し: {subdir_name} ({len(exif_raw_list)}件)")
+
+            exif_data_list = self.filter_exif_data(exif_raw_list)
+            output_file_path = self.temp_dir / f"{subdir_name}_raw_exif_data.csv"
+
+            write_csv_with_lock(
+                file_path=output_file_path,
+                data=exif_data_list,
+                fieldnames=self.exif_fields,
+                lock=self._get_lock_for_file(output_file_path),
+                append=self.append_mode,
+                logger=self.logger,
+            )
+ 
+            all_exif_data.extend(exif_data_list)
+
+        with self.get_lock():
+            self.output_data.extend(all_exif_data)
+            self.success_count += len(all_exif_data)
+            self.logger.info(f"成功件数を更新しました: {self.success_count}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NEFファイルバッチ処理ツール")
@@ -173,10 +276,19 @@ if __name__ == "__main__":
         help="設定ファイルパス (デフォルト: './config/config.yaml')",
     )
     parser.add_argument("--max_workers", type=int, default=4, help="最大ワーカ数")
+    parser.add_argument("--dir", type=str, help="単一ディレクトリ処理（デバッグ・再実行用）")
     args = parser.parse_args()
 
     processor = NEFFileBatchProcess(
         config_path=args.config_path or "./config/config.yaml",
         max_workers=args.max_workers,
     )
-    processor.execute()
+
+    # execute に統一して委譲
+    if args.dir:
+        target_dir = Path(args.dir)
+        if not target_dir.exists() or not target_dir.is_dir():
+            processor.handle_error(f"指定ディレクトリが存在しません: {target_dir}", raise_exception=True)
+        processor.execute(target_dir=target_dir)
+    else:
+        processor.execute()
