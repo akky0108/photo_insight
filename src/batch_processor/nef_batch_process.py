@@ -46,6 +46,11 @@ class NEFFileBatchProcess(BaseBatchProcessor):
         )
         self._csv_locks: Dict[str, Lock] = defaultdict(Lock)  # ← これを追加
 
+        # 共有変数の初期化（スレッド間で使用）
+        self.output_data: List[Dict] = []
+        self.success_count: int = 0
+        self.failure_count: int = 0
+
     def _get_lock_for_file(self, file_path: Path) -> Lock:
         key = str(file_path.resolve())
         if key not in self._csv_locks:
@@ -55,6 +60,12 @@ class NEFFileBatchProcess(BaseBatchProcessor):
     def setup(self) -> None:
         """バッチ初期化処理（出力ディレクトリ作成など）"""
         super().setup()
+
+        # 共有変数の初期化（念のため毎回クリア）
+        self.output_data.clear()
+        self.success_count = 0
+        self.failure_count = 0
+
         self.temp_dir = Path(self.project_root) / self.output_directory
         self.temp_dir.mkdir(parents=True, exist_ok=True)
 
@@ -227,7 +238,12 @@ class NEFFileBatchProcess(BaseBatchProcessor):
 
     def _process_batch(self, batch: List[Dict]) -> None:
         """バッチ単位で NEF ファイルを処理"""
+        if not batch:
+            self.logger.info("空バッチのため処理をスキップします。")
+            return
+
         grouped = group_by_key(batch, "subdir_name")
+        all_exif_data = []
 
         for subdir_name, items in grouped.items():
             exif_raw_list = [item.get("exif_raw", {}) for item in items]
@@ -244,7 +260,13 @@ class NEFFileBatchProcess(BaseBatchProcessor):
                 append=self.append_mode,
                 logger=self.logger,
             )
+ 
+            all_exif_data.extend(exif_data_list)
 
+        with self.get_lock():
+            self.output_data.extend(all_exif_data)
+            self.success_count += len(all_exif_data)
+            self.logger.info(f"成功件数を更新しました: {self.success_count}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NEFファイルバッチ処理ツール")

@@ -94,6 +94,7 @@ class BaseBatchProcessor(ABC):
 
         self.processed_count = 0
         self.config = self.config_manager.config
+        self._lock = Lock()
 
     def execute(self, *args, **kwargs) -> None:
         """
@@ -222,10 +223,12 @@ class BaseBatchProcessor(ABC):
         batches = self._generate_batches(data)
         failed_batches = []
 
-        lock = Lock()
+        if not batches:
+            self.logger.info("No data to process. Skipping batch execution.")
+            return
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = {executor.submit(self._safe_process_batch, batch, lock): i for i, batch in enumerate(batches)}
+            futures = {executor.submit(self._safe_process_batch, batch, self.get_lock()): i for i, batch in enumerate(batches)}
             for future in as_completed(futures):
                 i = futures[future]
                 try:
@@ -276,6 +279,10 @@ class BaseBatchProcessor(ABC):
 
         # 指定されたバッチサイズでスライス分割
         return [data[i:i + batch_size] for i in range(0, len(data), batch_size)]
+
+    def get_lock(self) -> Lock:
+        """スレッドセーフな処理に使うロックを提供する。"""
+        return self._lock
 
     @abstractmethod
     def get_data(self, *args, **kwargs) -> List[Dict]:

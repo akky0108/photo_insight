@@ -236,3 +236,19 @@ def test_get_data_skips_invalid_items(monkeypatch, dummy_processor):
     results = dummy_processor.get_data()
     assert len(results) == 1
     assert results[0]["path"] == "/mock/file1.NEF"
+
+def test_thread_safe_output_data():
+    processor = NEFFileBatchProcess()
+    processor.output_data = []
+
+    def add_data():
+        for _ in range(100):
+            with processor.get_lock():
+                processor.output_data.append({"value": 1})
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(add_data) for _ in range(10)]
+        for future in futures:
+            future.result()  # 例外チェック用に必須
+
+    assert len(processor.output_data) == 1000
