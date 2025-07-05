@@ -344,8 +344,14 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             )
             os.remove(self.processed_images_file)
 
-    def get_data(self) -> List[Dict[str, str]]:
-        return self.data
+    def get_data(self, *args, **kwargs) -> List[Dict[str, str]]:
+        """
+        処理対象の画像データのうち、未処理のものだけを返す。
+
+        Returns:
+            List[Dict[str, str]]: 未処理画像のメタデータ一覧
+        """
+        return [d for d in self.data if d["file_name"] not in self.processed_images]
 
 if __name__ == "__main__":
     import argparse

@@ -182,3 +182,26 @@ def test_process_batch_parallel_invokes_save_results(processor, tmp_path):
     processor.save_results.assert_called_once_with(
         [{"file_name": "img1.jpg", "sharpness_score": 0.9}], processor.result_csv_file
     )
+
+
+def test_get_data_filters_processed_images(tmp_path):
+    # ダミーインスタンスを作成
+    processor = PortraitQualityBatchProcessor()
+    
+    # 画像データをセット
+    processor.data = [
+        {"file_name": "a.NEF", "orientation": "Horizontal", "bit_depth": "14"},
+        {"file_name": "b.NEF", "orientation": "Vertical", "bit_depth": "14"},
+        {"file_name": "c.NEF", "orientation": "Horizontal", "bit_depth": "12"},
+    ]
+    
+    # 処理済みリストに "b.NEF" を含める
+    processor.processed_images = {"b.NEF"}
+
+    result = processor.get_data()
+
+    # b.NEF は含まれないこと
+    file_names = [d["file_name"] for d in result]
+    assert "b.NEF" not in file_names
+    assert len(result) == 2
+    assert set(file_names) == {"a.NEF", "c.NEF"}
