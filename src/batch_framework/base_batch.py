@@ -214,6 +214,7 @@ class BaseBatchProcessor(ABC):
         セットアップフェーズの共通処理。必要に応じてサブクラスでオーバーライド可能。
         """
         self.logger.info(f"[{self.__class__.__name__}] Executing common setup tasks.")
+        self.data = self.get_data()
 
     def process(self, data: Optional[List[Dict]] = None) -> None:
         self.logger.info(f"[{self.__class__.__name__}] Executing common batch processing tasks.")

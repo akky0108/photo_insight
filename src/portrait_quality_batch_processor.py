@@ -33,7 +33,6 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         self.logger = logger or self.config_manager.get_logger("PortraitQualityBatchProcessor")
         self.memory_monitor = MemoryMonitor(self.logger)
         self.date = date
-        self.image_data: List[Dict[str, str]] = []
         self.processed_images = set()
         self.image_loader = ImageLoader(logger=self.logger)
         self.base_directory = None
@@ -62,8 +61,6 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         self._set_directories_and_files()
 
         self._load_processed_images()
-        self.image_data = self.load_image_data()
-        self.data = self.image_data
 
         if self.processed_images:
             self.logger.info(
@@ -349,7 +346,8 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         Returns:
             List[Dict[str, str]]: 未処理画像のメタデータ一覧
         """
-        return [d for d in self.data if d["file_name"] not in self.processed_images]
+        raw_data = self.load_image_data()
+        return [d for d in raw_data if d["file_name"] not in self.processed_images]
 
 if __name__ == "__main__":
     import argparse
