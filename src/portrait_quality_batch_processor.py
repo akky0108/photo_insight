@@ -39,8 +39,6 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         self.base_directory = None
 
         self.batch_size = batch_size or self.config.get("batch_size", 10)
-        self.memory_threshold_exceeded = False
-        self.completed_all_batches = False
 
     def on_config_change(self, new_config: dict) -> None:
         """
