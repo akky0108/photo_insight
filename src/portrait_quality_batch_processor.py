@@ -69,6 +69,8 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         else:
             self.logger.info("No previously processed images found. Starting fresh.")
 
+        self.data = self.get_data()
+
         self.memory_threshold_exceeded = False
         self.completed_all_batches = False
 
