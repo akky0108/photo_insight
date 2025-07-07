@@ -72,10 +72,11 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
 
     def setup(self) -> None:
         """設定ファイルの読み込みと評価CSVファイルのパス構築"""
-        super().setup()
         self.logger.info("Setting up EvaluationRankBatchProcessor.")
+        # 設定ファイル読み込み
         self.load_config(self.config_path)
 
+        # output_data 初期化
         self.output_data = []  # 評価データのメモリ保持
         self._data_lock = Lock()  # 排他制御
 
@@ -86,6 +87,8 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
 
         if not os.path.exists(self.evaluation_csv_path):
             raise FileNotFoundError(f"Evaluation data file not found: {self.evaluation_csv_path}")
+
+        super().setup()
 
     def load_config(self, config_path: str) -> None:
         """YAML設定ファイルからパスと重みを読み込む"""
@@ -234,8 +237,8 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
         fieldnames = ["file_name", "face_detected", "overall_evaluation", "flag", "accepted_flag"] + SCORE_TYPES
 
         sorted_data = sorted(
-            self.output_data,  # ← 修正：self.output_data を使用
-            key=lambda x: -float(x.get("overall_evaluation", 0.0))
+            self.output_data,
+            key=lambda x: x.get("file_name", "")
         )
 
         with open(merged_path, "w", encoding="utf-8", newline="") as outfile:

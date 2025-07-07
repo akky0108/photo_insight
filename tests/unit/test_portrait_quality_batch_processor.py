@@ -11,14 +11,18 @@ def processor(tmp_path):
             class TestablePortraitQualityBatchProcessor(PortraitQualityBatchProcessor):
                 def __init__(self, *args, **kwargs):
                     super().__init__(*args, **kwargs)
-                    # ✅ config_manager を初期化直後にモックに差し替え
                     self.config_manager = MagicMock()
                     self.config_manager.get.side_effect = lambda k, default=None: {
                         "batch_size": 2
                     }.get(k, default)
+                    self.image_data = []
+
+                def load_image_data(self):
+                    return [{"file_name": "img1.jpg", "orientation": "1", "bit_depth": "8"}]
 
                 def get_data(self):
-                    return []
+                    self.image_data = self.load_image_data()
+                    return self.image_data
 
             proc = TestablePortraitQualityBatchProcessor(
                 config_path=None, logger=MagicMock(), date="2025-01-01", batch_size=2
@@ -32,19 +36,12 @@ def processor(tmp_path):
 
 
 def test_setup_loads_data(processor):
-    with patch(
-        "portrait_quality_batch_processor.os.path.exists", return_value=False
-    ), patch("builtins.open", create=True), patch.object(
-        processor,
-        "load_image_data",
-        return_value=[{"file_name": "img1.jpg", "orientation": "1", "bit_depth": "8"}],
-    ):
+    processor._set_directories_and_files()
+    processor.setup()
 
-        processor.setup()
-        assert processor.data == [
-            {"file_name": "img1.jpg", "orientation": "1", "bit_depth": "8"}
-        ]
-        assert processor.image_data == processor.data
+    expected = [{"file_name": "img1.jpg", "orientation": "1", "bit_depth": "8"}]
+    assert processor.image_data == expected
+    assert processor.data == expected
 
 
 def test_process_batch_skips_all(processor):
@@ -185,23 +182,32 @@ def test_process_batch_parallel_invokes_save_results(processor, tmp_path):
 
 
 def test_get_data_filters_processed_images(tmp_path):
-    # ダミーインスタンスを作成
-    processor = PortraitQualityBatchProcessor()
-    
-    # 画像データをセット
-    processor.data = [
-        {"file_name": "a.NEF", "orientation": "Horizontal", "bit_depth": "14"},
-        {"file_name": "b.NEF", "orientation": "Vertical", "bit_depth": "14"},
-        {"file_name": "c.NEF", "orientation": "Horizontal", "bit_depth": "12"},
-    ]
-    
-    # 処理済みリストに "b.NEF" を含める
+    class DummyProcessor(PortraitQualityBatchProcessor):
+        def load_image_data(self):
+            return [
+                {"file_name": "a.NEF", "orientation": "Horizontal", "bit_depth": "14"},
+                {"file_name": "b.NEF", "orientation": "Vertical", "bit_depth": "14"},
+                {"file_name": "c.NEF", "orientation": "Horizontal", "bit_depth": "12"},
+            ]
+
+    processor = DummyProcessor(
+        config_path=None,
+        logger=MagicMock(),
+        date="2025-01-01",
+        batch_size=2,
+    )
+    processor.config = {
+        "batch_size": 2,
+        "output_directory": str(tmp_path / "output"),
+        "base_directory_root": str(tmp_path / "base"),
+    }
+    processor._set_directories_and_files()
+    processor.setup()  # ✅ これで data に load_image_data の結果が入る
     processor.processed_images = {"b.NEF"}
 
     result = processor.get_data()
-
-    # b.NEF は含まれないこと
     file_names = [d["file_name"] for d in result]
+
     assert "b.NEF" not in file_names
     assert len(result) == 2
     assert set(file_names) == {"a.NEF", "c.NEF"}

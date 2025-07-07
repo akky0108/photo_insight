@@ -214,6 +214,7 @@ class BaseBatchProcessor(ABC):
         セットアップフェーズの共通処理。必要に応じてサブクラスでオーバーライド可能。
         """
         self.logger.info(f"[{self.__class__.__name__}] Executing common setup tasks.")
+        self.data = self.get_data()
 
     def process(self, data: Optional[List[Dict]] = None) -> None:
         self.logger.info(f"[{self.__class__.__name__}] Executing common batch processing tasks.")
@@ -228,19 +229,31 @@ class BaseBatchProcessor(ABC):
             return
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = {executor.submit(self._safe_process_batch, batch, self.get_lock()): i for i, batch in enumerate(batches)}
-            for future in as_completed(futures):
-                i = futures[future]
+            for i, batch in enumerate(batches):
+                if self._should_stop_processing():
+                    self.logger.warning(
+                        f"[{self.__class__.__name__}] Stopping before batch {i + 1} due to interrupt condition."
+                    )
+                    break
+
+                future = executor.submit(self._safe_process_batch, batch, self.get_lock())
                 try:
                     future.result()
                 except Exception as e:
-                    self.logger.error(f"[{self.__class__.__name__}] [Batch {i + 1}] Failed in thread: {e}", exc_info=True)
+                    self.logger.error(
+                        f"[{self.__class__.__name__}] [Batch {i + 1}] Failed in thread: {e}",
+                        exc_info=True,
+                    )
                     failed_batches.append(i + 1)
 
         if failed_batches:
-            self.logger.warning(f"[{self.__class__.__name__}] Processing completed with failures in batches: {failed_batches}")
+            self.logger.warning(
+                f"[{self.__class__.__name__}] Processing completed with failures in batches: {failed_batches}"
+            )
         else:
             self.logger.info(f"[{self.__class__.__name__}] All batches processed successfully.")
+            if hasattr(self, "completed_all_batches"):
+                self.completed_all_batches = True
 
     def _safe_process_batch(self, batch: List[Dict], lock: Lock) -> None:
         """
@@ -273,12 +286,28 @@ class BaseBatchProcessor(ABC):
         if not data:
             return []
 
+        # 引数 > self.batch_size > 自動スレッド分割
+        batch_size = (
+            batch_size
+            or getattr(self, "batch_size", None)
+            or max(1, len(data) // self.max_workers)
+        )
+
         # バッチサイズが未指定の場合、自動的にスレッド数に応じて割り当て
         if batch_size is None:
             batch_size = max(1, len(data) // self.max_workers)
 
         # 指定されたバッチサイズでスライス分割
         return [data[i:i + batch_size] for i in range(0, len(data), batch_size)]
+
+    def _should_stop_processing(self) -> bool:
+        """
+        サブクラスが定義した中断条件があれば中断する。
+
+        例: memory_threshold_exceeded など。
+        デフォルトでは存在チェックだけで動作。
+        """
+        return getattr(self, "memory_threshold_exceeded", False)
 
     def get_lock(self) -> Lock:
         """スレッドセーフな処理に使うロックを提供する。"""
