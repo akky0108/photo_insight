@@ -4,11 +4,12 @@ from batch_framework.base_batch import BaseBatchProcessor
 
 
 class DummyBatchProcessor(BaseBatchProcessor):
-    def __init__(self, hook_manager, config_manager, signal_handler=None, logger=None):
+    def __init__(self, hook_manager, config_manager, signal_handler=None, logger=None, **kwargs):
         super().__init__(
             hook_manager=hook_manager,
             config_manager=config_manager,
             signal_handler=signal_handler,
+            **kwargs,  # ← 追加で渡す
         )
         if logger:
             self.logger = logger

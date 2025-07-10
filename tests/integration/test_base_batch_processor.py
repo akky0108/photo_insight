@@ -150,5 +150,23 @@ def test_process_handles_batch_failures_gracefully_with_detailed_log(tmp_path, c
 
 @pytest.mark.parametrize("invalid_value", [None, 0])
 def test_max_workers_invalid_values_are_corrected(invalid_value):
-    processor = DummyBatchProcessor(max_workers=invalid_value)
+    # モックを用意
+    dummy_hook_manager = MagicMock()
+    dummy_config_manager = MagicMock()
+    dummy_config_manager.get_logger.return_value = MagicMock()
+    dummy_config_manager.config = {}
+
+    # max_workers=None → max(1, None or default=2) → 1
+    processor = DummyBatchProcessor(
+        hook_manager=dummy_hook_manager,
+        config_manager=dummy_config_manager,
+        max_workers=invalid_value
+    )
+    assert processor.max_workers == 1
+
+    processor = DummyBatchProcessor(
+        hook_manager=dummy_hook_manager,
+        config_manager=dummy_config_manager,
+        max_workers=0
+    )
     assert processor.max_workers == 1
