@@ -62,7 +62,7 @@ class BaseBatchProcessor(ABC):
         self.project_root = os.getenv("PROJECT_ROOT") or os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..", "..")
         )
-        self.max_workers = max_workers
+        self.max_workers = max(1, max_workers or 0)
 
         # 明示的にconfig_pathを解決
         resolved_config_path = (
@@ -228,6 +228,7 @@ class BaseBatchProcessor(ABC):
             self.logger.info("No data to process. Skipping batch execution.")
             return
 
+        futures = {}
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             for i, batch in enumerate(batches):
                 if self._should_stop_processing():
@@ -237,14 +238,23 @@ class BaseBatchProcessor(ABC):
                     break
 
                 future = executor.submit(self._safe_process_batch, batch, self.get_lock())
+                futures[future] = (i + 1, batch)
+
+            for future in as_completed(futures):
+                batch_idx, batch_data = futures[future]
                 try:
                     future.result()
                 except Exception as e:
                     self.logger.error(
-                        f"[{self.__class__.__name__}] [Batch {i + 1}] Failed in thread: {e}",
+                        f"[{self.__class__.__name__}] [Batch {batch_idx}] Failed in thread: {e}",
                         exc_info=True,
                     )
-                    failed_batches.append(i + 1)
+                    # 失敗バッチのトランケートされた内容をDEBUGログで出力
+                    truncated = str(batch_data)[:100]  # 100文字まで表示（必要に応じて変更）
+                    self.logger.debug(
+                        f"[{self.__class__.__name__}] [Batch {batch_idx}] Failed batch data (truncated): {truncated}"
+                    )
+                    failed_batches.append(batch_idx)
 
         if failed_batches:
             self.logger.warning(
