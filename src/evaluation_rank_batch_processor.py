@@ -90,6 +90,8 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
 
         super().setup()
 
+        self.data = self.get_data() 
+
     def load_config(self, config_path: str) -> None:
         """YAML設定ファイルからパスと重みを読み込む"""
         try:

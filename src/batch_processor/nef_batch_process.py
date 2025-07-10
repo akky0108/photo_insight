@@ -75,6 +75,8 @@ class NEFFileBatchProcess(BaseBatchProcessor):
 
         self.logger.info(f"初期設定完了: 画像ディレクトリ {self.base_directory_path}")
 
+        self.data = self.get_data()
+
     def execute(self, target_dir: Optional[Path] = None) -> None:
         """
         バッチ処理の実行エントリポイント。
