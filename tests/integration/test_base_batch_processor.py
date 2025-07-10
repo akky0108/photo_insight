@@ -1,5 +1,5 @@
 # tests/integration/test_base_batch_processor.py
-
+import pytest
 import logging
 import signal
 import json
@@ -15,7 +15,6 @@ def test_execute_runs_all_hooks_and_methods(tmp_path):
 
     config_manager = ConfigManager(config_path=str(config_path))
 
-    # execute_hooks に差し替え
     mock_hook_manager = Mock()
     mock_hook_manager.execute_hooks = Mock()
 
@@ -30,7 +29,7 @@ def test_execute_runs_all_hooks_and_methods(tmp_path):
     )
     processor.execute()
 
-    # execute_hooks が6回呼ばれたか？
+    # フック呼び出し回数チェック
     assert mock_hook_manager.execute_hooks.call_count == 6
 
     actual_calls = [
@@ -46,9 +45,10 @@ def test_execute_runs_all_hooks_and_methods(tmp_path):
     ]
     assert actual_calls == expected_calls
 
-    # ログの確認
-    mock_logger.info.assert_any_call("Batch process started.")
-    mock_logger.info.assert_any_call("Batch process completed in 0.00 seconds.")
+    # ログ呼び出し検証（部分一致で）
+    logged_messages = [args[0] for args, _ in mock_logger.info.call_args_list]
+    assert any("Batch process started." in msg for msg in logged_messages)
+    assert any("Batch process completed" in msg for msg in logged_messages)
 
 
 def test_signal_handler_triggers_cleanup():
@@ -103,7 +103,7 @@ def test_process_handles_batch_failures_gracefully(tmp_path, caplog):
 
     # 実際に出力されたエラーログに該当文字列が含まれているかチェック
     assert any(
-        "[Batch 2] Failed to process batch: Simulated batch failure" in message
+        "[Batch 2] Failed in thread: Simulated batch failure" in message
         for message in caplog.messages
     ), "Expected error log not found"
 
@@ -132,7 +132,7 @@ def test_process_handles_batch_failures_gracefully_with_detailed_log(tmp_path, c
 
     # エラーログに失敗バッチのメッセージが含まれているか
     assert any(
-        "[Batch 2] Failed to process batch: Simulated batch failure" in message
+        "[Batch 2] Failed in thread: Simulated batch failure" in message
         for message in caplog.messages
     ), "Expected error log not found"
 
@@ -147,3 +147,8 @@ def test_process_handles_batch_failures_gracefully_with_detailed_log(tmp_path, c
     assert any(
         r.exc_info is not None for r in error_records
     ), "Expected exc_info (stack trace) in error logs"
+
+@pytest.mark.parametrize("invalid_value", [None, 0])
+def test_max_workers_invalid_values_are_corrected(invalid_value):
+    processor = DummyBatchProcessor(max_workers=invalid_value)
+    assert processor.max_workers == 1

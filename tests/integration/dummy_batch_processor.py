@@ -37,14 +37,18 @@ class DummyBatchProcessorWithFailingBatch(BaseBatchProcessor):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.processed_batches = []
+        self.batch_size = 2
 
     def get_data(self):
         # 6アイテム → 3バッチ（2件ずつ）
         return [{"id": i} for i in range(6)]
 
     def _process_batch(self, batch):
-        self.logger.debug(f"DEBUG: _process_batch called with batch: {[item['id'] for item in batch]}")
+        ids = [item["id"] for item in batch]
+        self.logger.debug(f"Processing batch with IDs: {ids}")
         start_id = batch[0]["id"]
-        if start_id == 2:  # 2番目のバッチ（id:2,3）は失敗させる
+        if start_id == 2:
+            self.logger.debug("Simulating batch failure.")
             raise ValueError("Simulated batch failure")
-        self.processed_batches.extend([item["id"] for item in batch])
+        self.logger.debug("Batch succeeded.")
+        self.processed_batches.extend(ids)
