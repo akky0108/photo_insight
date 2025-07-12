@@ -1,5 +1,6 @@
 import os
 import time
+import logging
 from abc import ABC, abstractmethod
 from dotenv import load_dotenv
 from typing import Optional, Callable, List, Dict
@@ -49,6 +50,7 @@ class BaseBatchProcessor(ABC):
         hook_manager: Optional[HookManager] = None,
         config_manager: Optional[ConfigManager] = None,
         signal_handler: Optional[SignalHandler] = None,
+        logger: Optional[logging.Logger] = None,
     ):
         """
         バッチ処理の基底クラスコンストラクタ。
@@ -70,27 +72,35 @@ class BaseBatchProcessor(ABC):
             if config_path is not None
             else os.path.join(self.project_root, "config", "config.yaml")
         )
-
-        # 明示的に依存性注入する
         self.config_path = resolved_config_path
-        self.config_manager = (
-            config_manager
-            if config_manager is not None
-            else ConfigManager(config_path=self.config_path)
-        )
-        self.logger = self.config_manager.get_logger(self.__class__.__name__)
 
-        self.hook_manager = (
-            hook_manager
-            if hook_manager is not None
-            else HookManager(max_workers=self.max_workers)
-        )
-        self.hook_manager.logger = self.logger
+        # 1) loggerが外部から渡されていればそれを使い、なければConfigManagerで取得する
+        if logger is None:
+            # config_managerが渡されている場合はそれを使う
+            if config_manager is None:
+                config_manager = ConfigManager(config_path=self.config_path)
+            logger = config_manager.get_logger(self.__class__.__name__)
+        else:
+            # loggerが渡されたならconfig_managerはなければ生成（logger渡しなし）
+            if config_manager is None:
+                config_manager = ConfigManager(config_path=self.config_path)
 
-        self.signal_handler = (
-            signal_handler if signal_handler is not None else SignalHandler(self)
-        )
-        self.signal_handler.logger = self.logger
+        self.logger = logger
+        self.config_manager = config_manager
+
+        # HookManagerはloggerを明示的に渡すよう変更
+        if hook_manager is None:
+            hook_manager = HookManager(max_workers=self.max_workers, logger=self.logger)
+        else:
+            hook_manager.logger = self.logger
+
+        self.hook_manager = hook_manager
+
+        # SignalHandlerもloggerを渡す（signal_handler生成時にlogger渡しが無ければ明示的に設定）
+        if signal_handler is None:
+            signal_handler = SignalHandler(self)
+        signal_handler.logger = self.logger
+        self.signal_handler = signal_handler
 
         self.processed_count = 0
         self.config = self.config_manager.config
