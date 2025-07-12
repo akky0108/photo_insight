@@ -128,3 +128,27 @@ class ConfigManager:
         return Logger(
             project_root=self.project_root, logger_name=logger_name
         ).get_logger()
+
+    def get_memory_threshold(self, default: int = 90) -> int:
+        """
+        メモリ使用率のしきい値（%）を設定ファイルから取得する。
+        値が 1～100 の範囲外であれば default を返す。
+
+        Args:
+            default (int): デフォルト値（通常は90）
+
+        Returns:
+            int: 使用するしきい値（1～100）
+        """
+        value = self.config.get("batch", {}).get("memory_threshold", default)
+        try:
+            value = int(value)
+            if 1 <= value <= 100:
+                return value
+            else:
+                if self.logger:
+                    self.logger.warning(f"Invalid memory_threshold: {value}. Using default: {default}")
+        except (ValueError, TypeError):
+            if self.logger:
+                self.logger.warning(f"Invalid memory_threshold format: {value}. Using default: {default}")
+        return default

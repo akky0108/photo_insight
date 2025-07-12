@@ -74,6 +74,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         self.memory_threshold_exceeded = False
         self.completed_all_batches = False
 
+        self.memory_threshold = self.config_manager.get_memory_threshold(default=90)
+        self.logger.info(f"Memory usage threshold set to {self.memory_threshold}% from config.")
+
     def _set_directories_and_files(self) -> None:
         """
         ディレクトリとファイルパスを設定するヘルパー。
@@ -188,9 +191,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         gc.collect()
         self.memory_monitor.log_usage(prefix="Post batch GC")
 
-        if self.memory_monitor.get_memory_usage() > 90:
+        if self.memory_monitor.get_memory_usage() > self.memory_threshold:
             self.logger.warning(
-                "Memory usage exceeded threshold. Will stop after this batch."
+                f"Memory usage exceeded threshold ({self.memory_threshold}%). Will stop after this batch."
             )
             self.memory_threshold_exceeded = True
 
