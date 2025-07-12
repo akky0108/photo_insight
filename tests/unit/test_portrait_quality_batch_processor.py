@@ -16,6 +16,7 @@ def processor(tmp_path):
                         "batch_size": 2
                     }.get(k, default)
                     self.image_data = []
+                    self.memory_threshold = 90
 
                 def load_image_data(self):
                     return [{"file_name": "img1.jpg", "orientation": "1", "bit_depth": "8"}]
@@ -44,10 +45,34 @@ def test_setup_loads_data(processor):
     assert processor.data == expected
 
 
+def test_setup_sets_memory_threshold(processor):
+    # Arrange
+    processor.config_manager.get_memory_threshold.return_value = 85
+
+    # Act
+    processor.setup()
+
+    # Assert
+    assert processor.memory_threshold == 85
+    processor.logger.info.assert_any_call("Memory usage threshold set to 85% from config.")
+
+
+def test_setup_uses_default_memory_threshold_when_not_configured(processor):
+    # Arrange
+    processor.config_manager.get_memory_threshold.return_value = 90  # 明示的にデフォルト返す
+
+    # Act
+    processor.setup()
+
+    # Assert
+    assert processor.memory_threshold == 90
+
+
 def test_process_batch_skips_all(processor):
     processor.processed_images = {"img1.jpg", "img2.jpg"}
     processor.logger = MagicMock()
     processor.memory_monitor.get_memory_usage.return_value = 50
+    processor.memory_threshold = 90
 
     processor._process_batch(
         [
@@ -68,6 +93,7 @@ def test_process_batch_processes_one(processor, tmp_path):
     )
     processor.processed_images = set()
     processor.memory_monitor.get_memory_usage.return_value = 50
+    processor.memory_threshold = 90
 
     mock_result = {"file_name": "img1.jpg", "sharpness_score": 0.8}
     processor.process_image = MagicMock(return_value=mock_result)

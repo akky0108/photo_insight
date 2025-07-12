@@ -2,8 +2,41 @@ import os
 import time
 import tempfile
 import yaml
+import logging
+import pytest
 from unittest.mock import MagicMock
 from batch_framework.core.config_manager import ConfigManager
+
+
+@pytest.mark.parametrize(
+    "config_value,expected,log_message",
+    [
+        (95, 95, None),
+        ("85", 85, None),
+        (0, 90, "Invalid memory_threshold: 0"),
+        (101, 90, "Invalid memory_threshold: 101"),
+        ("invalid", 90, "Invalid memory_threshold format: invalid"),
+        (None, 90, None),
+    ],
+)
+def test_get_memory_threshold_behavior(config_value, expected, log_message, caplog):
+    config = {"batch": {"memory_threshold": config_value}} if config_value is not None else {}
+
+    logger_name = "test_logger"
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(logging.DEBUG)
+    logger.propagate = True
+
+    manager = ConfigManager(config_path=None)
+    manager.config = config
+    manager.logger = logger  # 正しい logger を設定
+
+    with caplog.at_level(logging.WARNING, logger=logger_name):
+        result = manager.get_memory_threshold(default=90)
+
+    assert result == expected
+    if log_message:
+        assert any(log_message in message for message in caplog.messages), caplog.messages
 
 
 def test_load_config_from_file():
@@ -46,6 +79,9 @@ def test_logger_called_on_load():
 
     mock_logger = MagicMock()
 
+    manager = ConfigManager(config_path=tmp_path, logger=mock_logger)
+
+    # logger.infoが期待通りの引数で呼ばれているかチェック
     mock_logger.info.assert_any_call(f"Loading configuration from {tmp_path}")
 
     os.remove(tmp_path)
@@ -90,3 +126,5 @@ def test_stop_watching_does_not_raise():
     cm.stop_watching()
 
     os.remove(tmp_path)
+
+
