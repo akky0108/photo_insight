@@ -80,17 +80,10 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
         self.output_data = []  # 評価データのメモリ保持
         self._data_lock = Lock()  # 排他制御
 
-        self.evaluation_csv_path = os.path.join(
-            self.paths.get("evaluation_data_dir", "./temp"),
-            f"evaluation_results_{self.date}.csv",
-        )
-
-        if not os.path.exists(self.evaluation_csv_path):
-            raise FileNotFoundError(f"Evaluation data file not found: {self.evaluation_csv_path}")
+        self.evaluation_data_dir = self.paths.get("evaluation_data_dir", "./temp")
+        os.makedirs(self.evaluation_data_dir, exist_ok=True)
 
         super().setup()
-
-        self.data = self.get_data() 
 
     def load_config(self, config_path: str) -> None:
         """YAML設定ファイルからパスと重みを読み込む"""
@@ -113,9 +106,21 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                 for row in csv.DictReader(csvfile)
             ]
 
-    def get_data(self) -> List[Dict[str, str]]:
-        """BaseBatchProcessor に準拠して評価データを取得"""
-        return self.load_evaluation_data(self.evaluation_csv_path)
+    def get_data(self, target_dir: Optional[str] = None) -> List[Dict[str, str]]:
+        """
+        BaseBatchProcessor に準拠して評価データを取得
+        target_dir が指定された場合はそちらから評価CSVを読み込む
+        """
+        if target_dir:
+            file_path = os.path.join(target_dir, f"evaluation_results_{self.date}.csv")
+            self.logger.info(f"Loading from target_dir={target_dir}")
+        else:
+            file_path = os.path.join(self.evaluation_data_dir, f"evaluation_results_{self.date}.csv")
+
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Evaluation data file not found: {file_path}")
+
+        return self.load_evaluation_data(file_path)
 
     def _process_batch(self, batch: List[Dict[str, str]]) -> None:
         """1バッチ分の処理（評価、フラグ、ランク付け、出力）を行う"""
