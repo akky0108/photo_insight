@@ -1,6 +1,7 @@
 import os
 import csv
 import gc
+from pathlib import Path
 from typing import Any, List, Dict, Optional, Union
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -30,17 +31,22 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         """
         super().__init__(config_path=config_path, max_workers=max_workers)
 
+        self.config = self.config_manager.get_config()
         self.logger = logger or self.config_manager.get_logger("PortraitQualityBatchProcessor")
         self.memory_monitor = MemoryMonitor(self.logger)
         self.date = date
-        self.image_data: List[Dict[str, str]] = []
         self.processed_images = set()
         self.image_loader = ImageLoader(logger=self.logger)
+ 
+        self.image_csv_file = None
+        self.result_csv_file = None
+        self.processed_images_file = None
+        self.output_directory = None
         self.base_directory = None
+        self.completed_all_batches = False
+        self.memory_threshold_exceeded = False
 
         self.batch_size = batch_size or self.config.get("batch_size", 10)
-        self.memory_threshold_exceeded = False
-        self.completed_all_batches = False
 
     def on_config_change(self, new_config: dict) -> None:
         """
@@ -59,13 +65,11 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         バッチ処理の事前準備。
         ディレクトリやファイルパスの設定、既処理データの読み込みなどを行う。
         """
-        super().setup()
         self.logger.info("Setting up PortraitQualityBatchProcessor...")
         self._set_directories_and_files()
+        super().setup()
 
         self._load_processed_images()
-        self.image_data = self.load_image_data()
-        self.data = self.image_data
 
         if self.processed_images:
             self.logger.info(
@@ -76,6 +80,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
         self.memory_threshold_exceeded = False
         self.completed_all_batches = False
+
+        self.memory_threshold = self.config_manager.get_memory_threshold(default=90)
+        self.logger.info(f"Memory usage threshold set to {self.memory_threshold}% from config.")
 
     def _set_directories_and_files(self) -> None:
         """
@@ -168,6 +175,20 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             self.logger.error(f"CSV parsing error in {self.image_csv_file}: {e}")
         return image_data
 
+    def execute(self, target_dir: Optional[Path] = None) -> None:
+        """
+        バッチ処理の実行エントリポイント。
+        """
+        try:
+            self.setup()
+            data = self.get_data(target_dir=target_dir)
+            self.process(data)
+            self.completed_all_batches = True
+        except Exception as e:
+            self.handle_error(str(e), raise_exception=False)
+        finally:
+            self.cleanup()
+
     def _process_batch(self, batch: List[Dict[str, str]]) -> None:
         """
         指定された画像バッチを処理する。
@@ -191,9 +212,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         gc.collect()
         self.memory_monitor.log_usage(prefix="Post batch GC")
 
-        if self.memory_monitor.get_memory_usage() > 90:
+        if self.memory_monitor.get_memory_usage() > self.memory_threshold:
             self.logger.warning(
-                "Memory usage exceeded threshold. Will stop after this batch."
+                f"Memory usage exceeded threshold ({self.memory_threshold}%). Will stop after this batch."
             )
             self.memory_threshold_exceeded = True
 
@@ -338,44 +359,25 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         self.logger.info(
             "Cleaning up PortraitQualityBatchProcessor-specific resources."
         )
-        if self.completed_all_batches and os.path.exists(self.processed_images_file):
-            self.logger.info(
-                f"Removing processed images file: {self.processed_images_file}"
-            )
-            os.remove(self.processed_images_file)
+        processed_file = getattr(self, "processed_images_file", None)
+        if getattr(self, "completed_all_batches", False) and processed_file and os.path.exists(processed_file):
+            self.logger.info(f"Removing processed images file: {processed_file}")
+            os.remove(processed_file)
 
-    def execute(self):
+    def get_data(self, target_dir: Optional[Path] = None) -> List[Dict[str, str]]:
         """
-        バッチ処理の実行エントリーポイント。
-        セットアップ→バッチ処理→クリーンアップの順に処理する。
+        処理対象の画像データのうち、未処理のものだけを返す。
+
+        Returns:
+            List[Dict[str, str]]: 未処理画像のメタデータ一覧
         """
-        self.setup()
-        self.logger.info("Starting image processing...")
-        self.logger.info(f"Total images to process: {len(self.data)}")
-
-        for i in range(0, len(self.data), self.batch_size):
-            if self.memory_threshold_exceeded:
-                self.logger.warning(
-                    "Memory threshold exceeded. Halting further batch processing."
-                )
-                break
-
-            batch = self.data[i : i + self.batch_size]
-            self.logger.info(
-                f"Processing batch {i // self.batch_size + 1} ({i}-{i + len(batch) - 1})"
+        if target_dir:
+            self.logger.warning(
+                f"[get_data] target_dir={target_dir} は未対応のため無視されます。"
             )
-            self._process_batch(batch)
 
-        if len(self.processed_images) >= len(self.data):
-            self.logger.info("All images processed successfully.")
-            self.completed_all_batches = True
-        else:
-            self.logger.info("Some images remain unprocessed.")
-
-        self.cleanup()
-
-    def get_data(self):
-        return super().get_data()
+        raw_data = self.load_image_data()
+        return [d for d in raw_data if d["file_name"] not in self.processed_images]
 
 if __name__ == "__main__":
     import argparse
@@ -395,6 +397,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_workers", type=int, help="Number of worker threads")
     parser.add_argument("--batch_size", type=int, help="Override batch size")
     args = parser.parse_args()
+    print("[DEBUG] args:", args) 
 
     processor = PortraitQualityBatchProcessor(
         config_path=args.config_path,

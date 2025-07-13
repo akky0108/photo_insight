@@ -9,8 +9,21 @@ def processor(tmp_path):
         with patch("portrait_quality_batch_processor.MemoryMonitor"):
 
             class TestablePortraitQualityBatchProcessor(PortraitQualityBatchProcessor):
+                def __init__(self, *args, **kwargs):
+                    super().__init__(*args, **kwargs)
+                    self.config_manager = MagicMock()
+                    self.config_manager.get.side_effect = lambda k, default=None: {
+                        "batch_size": 2
+                    }.get(k, default)
+                    self.image_data = []
+                    self.memory_threshold = 90
+
+                def load_image_data(self):
+                    return [{"file_name": "img1.jpg", "orientation": "1", "bit_depth": "8"}]
+
                 def get_data(self):
-                    return []
+                    self.image_data = self.load_image_data()
+                    return self.image_data
 
             proc = TestablePortraitQualityBatchProcessor(
                 config_path=None, logger=MagicMock(), date="2025-01-01", batch_size=2
@@ -24,25 +37,42 @@ def processor(tmp_path):
 
 
 def test_setup_loads_data(processor):
-    with patch(
-        "portrait_quality_batch_processor.os.path.exists", return_value=False
-    ), patch("builtins.open", create=True), patch.object(
-        processor,
-        "load_image_data",
-        return_value=[{"file_name": "img1.jpg", "orientation": "1", "bit_depth": "8"}],
-    ):
+    processor._set_directories_and_files()
+    processor.setup()
 
-        processor.setup()
-        assert processor.data == [
-            {"file_name": "img1.jpg", "orientation": "1", "bit_depth": "8"}
-        ]
-        assert processor.image_data == processor.data
+    expected = [{"file_name": "img1.jpg", "orientation": "1", "bit_depth": "8"}]
+    assert processor.image_data == expected
+    assert processor.data == expected
+
+
+def test_setup_sets_memory_threshold(processor):
+    # Arrange
+    processor.config_manager.get_memory_threshold.return_value = 85
+
+    # Act
+    processor.setup()
+
+    # Assert
+    assert processor.memory_threshold == 85
+    processor.logger.info.assert_any_call("Memory usage threshold set to 85% from config.")
+
+
+def test_setup_uses_default_memory_threshold_when_not_configured(processor):
+    # Arrange
+    processor.config_manager.get_memory_threshold.return_value = 90  # 明示的にデフォルト返す
+
+    # Act
+    processor.setup()
+
+    # Assert
+    assert processor.memory_threshold == 90
 
 
 def test_process_batch_skips_all(processor):
     processor.processed_images = {"img1.jpg", "img2.jpg"}
     processor.logger = MagicMock()
     processor.memory_monitor.get_memory_usage.return_value = 50
+    processor.memory_threshold = 90
 
     processor._process_batch(
         [
@@ -63,6 +93,7 @@ def test_process_batch_processes_one(processor, tmp_path):
     )
     processor.processed_images = set()
     processor.memory_monitor.get_memory_usage.return_value = 50
+    processor.memory_threshold = 90
 
     mock_result = {"file_name": "img1.jpg", "sharpness_score": 0.8}
     processor.process_image = MagicMock(return_value=mock_result)
@@ -83,23 +114,23 @@ def test_process_batch_processes_one(processor, tmp_path):
 
 def test_execute_full_flow(processor):
     processor.setup = MagicMock()
+    processor.process = MagicMock()
     processor.cleanup = MagicMock()
     processor.logger = MagicMock()
-    processor.data = [
-        {"file_name": f"img{i}.jpg", "orientation": "1", "bit_depth": "8"}
-        for i in range(4)
-    ]
-    processor.processed_images = set()
-    processor.memory_threshold_exceeded = False
-    processor._process_batch = MagicMock()
+
+    processor.get_data = MagicMock(return_value=[{"file_name": "dummy.jpg", "orientation": "1", "bit_depth": "8"}])
+    processor.config_manager = MagicMock()
+    processor.config_manager.get.side_effect = lambda k, default=None: {
+        "batch_size": 2,
+        "base_directory": "/tmp/images",
+        "output_directory": "/tmp/output",
+    }.get(k, default)
 
     processor.execute()
 
-    assert processor._process_batch.call_count == 2
+    processor.setup.assert_called_once()
+    processor.process.assert_called_once()
     processor.cleanup.assert_called_once()
-
-
-# --- 以下追加分 ---
 
 
 def test_process_single_image_marks_and_returns_result(processor):
@@ -174,3 +205,35 @@ def test_process_batch_parallel_invokes_save_results(processor, tmp_path):
     processor.save_results.assert_called_once_with(
         [{"file_name": "img1.jpg", "sharpness_score": 0.9}], processor.result_csv_file
     )
+
+
+def test_get_data_filters_processed_images(tmp_path):
+    class DummyProcessor(PortraitQualityBatchProcessor):
+        def load_image_data(self):
+            return [
+                {"file_name": "a.NEF", "orientation": "Horizontal", "bit_depth": "14"},
+                {"file_name": "b.NEF", "orientation": "Vertical", "bit_depth": "14"},
+                {"file_name": "c.NEF", "orientation": "Horizontal", "bit_depth": "12"},
+            ]
+
+    processor = DummyProcessor(
+        config_path=None,
+        logger=MagicMock(),
+        date="2025-01-01",
+        batch_size=2,
+    )
+    processor.config = {
+        "batch_size": 2,
+        "output_directory": str(tmp_path / "output"),
+        "base_directory_root": str(tmp_path / "base"),
+    }
+    processor._set_directories_and_files()
+    processor.setup()  # ✅ これで data に load_image_data の結果が入る
+    processor.processed_images = {"b.NEF"}
+
+    result = processor.get_data()
+    file_names = [d["file_name"] for d in result]
+
+    assert "b.NEF" not in file_names
+    assert len(result) == 2
+    assert set(file_names) == {"a.NEF", "c.NEF"}

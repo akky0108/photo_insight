@@ -1,5 +1,6 @@
 import os
 import time
+import logging
 from abc import ABC, abstractmethod
 from dotenv import load_dotenv
 from typing import Optional, Callable, List, Dict
@@ -49,6 +50,7 @@ class BaseBatchProcessor(ABC):
         hook_manager: Optional[HookManager] = None,
         config_manager: Optional[ConfigManager] = None,
         signal_handler: Optional[SignalHandler] = None,
+        logger: Optional[logging.Logger] = None,
     ):
         """
         バッチ処理の基底クラスコンストラクタ。
@@ -62,7 +64,7 @@ class BaseBatchProcessor(ABC):
         self.project_root = os.getenv("PROJECT_ROOT") or os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..", "..")
         )
-        self.max_workers = max_workers
+        self.max_workers = max(1, max_workers or 0)
 
         # 明示的にconfig_pathを解決
         resolved_config_path = (
@@ -70,27 +72,35 @@ class BaseBatchProcessor(ABC):
             if config_path is not None
             else os.path.join(self.project_root, "config", "config.yaml")
         )
-
-        # 明示的に依存性注入する
         self.config_path = resolved_config_path
-        self.config_manager = (
-            config_manager
-            if config_manager is not None
-            else ConfigManager(config_path=self.config_path)
-        )
-        self.logger = self.config_manager.get_logger(self.__class__.__name__)
 
-        self.hook_manager = (
-            hook_manager
-            if hook_manager is not None
-            else HookManager(max_workers=self.max_workers)
-        )
-        self.hook_manager.logger = self.logger
+        # 1) loggerが外部から渡されていればそれを使い、なければConfigManagerで取得する
+        if logger is None:
+            # config_managerが渡されている場合はそれを使う
+            if config_manager is None:
+                config_manager = ConfigManager(config_path=self.config_path)
+            logger = config_manager.get_logger(self.__class__.__name__)
+        else:
+            # loggerが渡されたならconfig_managerはなければ生成（logger渡しなし）
+            if config_manager is None:
+                config_manager = ConfigManager(config_path=self.config_path)
 
-        self.signal_handler = (
-            signal_handler if signal_handler is not None else SignalHandler(self)
-        )
-        self.signal_handler.logger = self.logger
+        self.logger = logger
+        self.config_manager = config_manager
+
+        # HookManagerはloggerを明示的に渡すよう変更
+        if hook_manager is None:
+            hook_manager = HookManager(max_workers=self.max_workers, logger=self.logger)
+        else:
+            hook_manager.logger = self.logger
+
+        self.hook_manager = hook_manager
+
+        # SignalHandlerもloggerを渡す（signal_handler生成時にlogger渡しが無ければ明示的に設定）
+        if signal_handler is None:
+            signal_handler = SignalHandler(self)
+        signal_handler.logger = self.logger
+        self.signal_handler = signal_handler
 
         self.processed_count = 0
         self.config = self.config_manager.config
@@ -214,6 +224,7 @@ class BaseBatchProcessor(ABC):
         セットアップフェーズの共通処理。必要に応じてサブクラスでオーバーライド可能。
         """
         self.logger.info(f"[{self.__class__.__name__}] Executing common setup tasks.")
+        self.data = self.get_data()
 
     def process(self, data: Optional[List[Dict]] = None) -> None:
         self.logger.info(f"[{self.__class__.__name__}] Executing common batch processing tasks.")
@@ -227,20 +238,42 @@ class BaseBatchProcessor(ABC):
             self.logger.info("No data to process. Skipping batch execution.")
             return
 
+        futures = {}
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = {executor.submit(self._safe_process_batch, batch, self.get_lock()): i for i, batch in enumerate(batches)}
+            for i, batch in enumerate(batches):
+                if self._should_stop_processing():
+                    self.logger.warning(
+                        f"[{self.__class__.__name__}] Stopping before batch {i + 1} due to interrupt condition."
+                    )
+                    break
+
+                future = executor.submit(self._safe_process_batch, batch, self.get_lock())
+                futures[future] = (i + 1, batch)
+
             for future in as_completed(futures):
-                i = futures[future]
+                batch_idx, batch_data = futures[future]
                 try:
                     future.result()
                 except Exception as e:
-                    self.logger.error(f"[{self.__class__.__name__}] [Batch {i + 1}] Failed in thread: {e}", exc_info=True)
-                    failed_batches.append(i + 1)
+                    self.logger.error(
+                        f"[{self.__class__.__name__}] [Batch {batch_idx}] Failed in thread: {e}",
+                        exc_info=True,
+                    )
+                    # 失敗バッチのトランケートされた内容をDEBUGログで出力
+                    truncated = str(batch_data)[:100]  # 100文字まで表示（必要に応じて変更）
+                    self.logger.debug(
+                        f"[{self.__class__.__name__}] [Batch {batch_idx}] Failed batch data (truncated): {truncated}"
+                    )
+                    failed_batches.append(batch_idx)
 
         if failed_batches:
-            self.logger.warning(f"[{self.__class__.__name__}] Processing completed with failures in batches: {failed_batches}")
+            self.logger.warning(
+                f"[{self.__class__.__name__}] Processing completed with failures in batches: {failed_batches}"
+            )
         else:
             self.logger.info(f"[{self.__class__.__name__}] All batches processed successfully.")
+            if hasattr(self, "completed_all_batches"):
+                self.completed_all_batches = True
 
     def _safe_process_batch(self, batch: List[Dict], lock: Lock) -> None:
         """
@@ -273,12 +306,28 @@ class BaseBatchProcessor(ABC):
         if not data:
             return []
 
+        # 引数 > self.batch_size > 自動スレッド分割
+        batch_size = (
+            batch_size
+            or getattr(self, "batch_size", None)
+            or max(1, len(data) // self.max_workers)
+        )
+
         # バッチサイズが未指定の場合、自動的にスレッド数に応じて割り当て
         if batch_size is None:
             batch_size = max(1, len(data) // self.max_workers)
 
         # 指定されたバッチサイズでスライス分割
         return [data[i:i + batch_size] for i in range(0, len(data), batch_size)]
+
+    def _should_stop_processing(self) -> bool:
+        """
+        サブクラスが定義した中断条件があれば中断する。
+
+        例: memory_threshold_exceeded など。
+        デフォルトでは存在チェックだけで動作。
+        """
+        return getattr(self, "memory_threshold_exceeded", False)
 
     def get_lock(self) -> Lock:
         """スレッドセーフな処理に使うロックを提供する。"""

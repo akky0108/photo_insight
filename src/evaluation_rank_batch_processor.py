@@ -72,20 +72,18 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
 
     def setup(self) -> None:
         """設定ファイルの読み込みと評価CSVファイルのパス構築"""
-        super().setup()
         self.logger.info("Setting up EvaluationRankBatchProcessor.")
+        # 設定ファイル読み込み
         self.load_config(self.config_path)
 
+        # output_data 初期化
         self.output_data = []  # 評価データのメモリ保持
         self._data_lock = Lock()  # 排他制御
 
-        self.evaluation_csv_path = os.path.join(
-            self.paths.get("evaluation_data_dir", "./temp"),
-            f"evaluation_results_{self.date}.csv",
-        )
+        self.evaluation_data_dir = self.paths.get("evaluation_data_dir", "./temp")
+        os.makedirs(self.evaluation_data_dir, exist_ok=True)
 
-        if not os.path.exists(self.evaluation_csv_path):
-            raise FileNotFoundError(f"Evaluation data file not found: {self.evaluation_csv_path}")
+        super().setup()
 
     def load_config(self, config_path: str) -> None:
         """YAML設定ファイルからパスと重みを読み込む"""
@@ -108,9 +106,21 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                 for row in csv.DictReader(csvfile)
             ]
 
-    def get_data(self) -> List[Dict[str, str]]:
-        """BaseBatchProcessor に準拠して評価データを取得"""
-        return self.load_evaluation_data(self.evaluation_csv_path)
+    def get_data(self, target_dir: Optional[str] = None) -> List[Dict[str, str]]:
+        """
+        BaseBatchProcessor に準拠して評価データを取得
+        target_dir が指定された場合はそちらから評価CSVを読み込む
+        """
+        if target_dir:
+            file_path = os.path.join(target_dir, f"evaluation_results_{self.date}.csv")
+            self.logger.info(f"Loading from target_dir={target_dir}")
+        else:
+            file_path = os.path.join(self.evaluation_data_dir, f"evaluation_results_{self.date}.csv")
+
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Evaluation data file not found: {file_path}")
+
+        return self.load_evaluation_data(file_path)
 
     def _process_batch(self, batch: List[Dict[str, str]]) -> None:
         """1バッチ分の処理（評価、フラグ、ランク付け、出力）を行う"""
@@ -234,8 +244,8 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
         fieldnames = ["file_name", "face_detected", "overall_evaluation", "flag", "accepted_flag"] + SCORE_TYPES
 
         sorted_data = sorted(
-            self.output_data,  # ← 修正：self.output_data を使用
-            key=lambda x: -float(x.get("overall_evaluation", 0.0))
+            self.output_data,
+            key=lambda x: x.get("file_name", "")
         )
 
         with open(merged_path, "w", encoding="utf-8", newline="") as outfile:

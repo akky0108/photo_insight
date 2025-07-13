@@ -144,3 +144,43 @@ def test_sorted_output_order(tmp_path, dummy_config):
         assert len(rows) == 2
         scores = [float(row["overall_evaluation"]) for row in rows]
         assert scores == sorted(scores, reverse=True), "Rows are not sorted by overall_evaluation descending."
+
+
+def test_overall_evaluation_face_mode(dummy_config):
+    processor = EvaluationRankBatchProcessor(config_path=dummy_config)
+    entry = {
+        "face_detected": "TRUE",
+        "face_sharpness_score": "100",
+        "face_contrast_score": "50",
+        "face_noise_score": "0",
+        "face_local_sharpness_score": "80",
+        "face_local_contrast_score": "60",
+        "composition_rule_based_score": "10",
+        "face_position_score": "5",
+        "framing_score": "5",
+        "face_direction_score": "5",
+    }
+    processor.calculate_overall_evaluation(entry)
+    assert isinstance(entry["overall_evaluation"], float)
+    assert entry["overall_evaluation"] > 0
+
+
+def test_top_35_percent_flag(dummy_config):
+    processor = EvaluationRankBatchProcessor(config_path=dummy_config)
+    batch = []
+    for i in range(10):
+        batch.append({
+            "file_name": f"file_{i}.jpg",
+            "face_detected": "TRUE",
+            "overall_evaluation": str(100 - i),  # 100, 99, ..., 91
+            "group_id": "A"
+        })
+    processor.rank_and_flag_top_entries(batch)
+    flagged = [entry for entry in batch if entry["flag"] == 1]
+    assert len(flagged) == 3  # 10 * 0.35 = 3.5 → 切り捨て or max(1, int(n * 0.35))
+
+
+def test_load_evaluation_data_missing_file(dummy_config):
+    processor = EvaluationRankBatchProcessor(config_path=dummy_config)
+    with pytest.raises(FileNotFoundError):
+        processor.load_evaluation_data("non_existent.csv")
