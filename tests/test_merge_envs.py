@@ -8,6 +8,7 @@ from photo_eval_env_manager.merge_envs import (
 )
 from photo_eval_env_manager.envmerge.exceptions import (
     VersionMismatchError,
+    DuplicatePackageError,
 )
 from unittest.mock import Mock
 
@@ -58,7 +59,7 @@ def test_merge_envs_success():
 
 def test_duplicate_package_error():
     base_yml_with_dup = os.path.join(FIXTURES_DIR, "environment_base_with_dup.yml")
-    with pytest.raises(Exception):
+    with pytest.raises(DuplicatePackageError):
         merge_envs(
             base_yml=base_yml_with_dup,
             pip_json=PIP_JSON,
