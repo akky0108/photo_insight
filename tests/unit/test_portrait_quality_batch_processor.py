@@ -114,11 +114,11 @@ def test_process_batch_processes_one(processor, tmp_path):
 
 def test_execute_full_flow(processor):
     processor.setup = MagicMock()
-    processor.process = MagicMock()  # ← これが必要！
+    processor.process = MagicMock()
     processor.cleanup = MagicMock()
     processor.logger = MagicMock()
 
-    # execute() 内で設定取得される可能性を考慮して安全のため
+    processor.get_data = MagicMock(return_value=[{"file_name": "dummy.jpg", "orientation": "1", "bit_depth": "8"}])
     processor.config_manager = MagicMock()
     processor.config_manager.get.side_effect = lambda k, default=None: {
         "batch_size": 2,
