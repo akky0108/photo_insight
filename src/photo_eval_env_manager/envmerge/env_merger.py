@@ -5,12 +5,17 @@ import warnings
 from typing import Optional
 from pathlib import Path
 from utils.app_logger import AppLogger
-from photo_eval_env_manager.envmerge.exceptions import VersionMismatchError
+from photo_eval_env_manager.envmerge.exceptions import(
+    VersionMismatchError,
+    DuplicatePackageError
+)
 from constants.env_constants import (
     DEFAULT_PYTHON_VERSION,
     GPU_PACKAGE_REPLACEMENTS,
     is_gpu_package
 )
+from collections import Counter, defaultdict
+
 
 class EnvMerger:
     """
@@ -90,6 +95,10 @@ class EnvMerger:
         """
         conda/pip の同名パッケージ間のバージョン矛盾を検出（strict 時）。
         """
+        conda_strs = [d for d in self.conda_deps if isinstance(d, str)]
+        self._check_duplicate_packages(conda_strs, source="conda", allow_exact_duplicates=not self.strict)
+        self._check_duplicate_packages(self.pip_deps, source="pip", allow_exact_duplicates=not self.strict)
+
         pip_versions = self._parse_pip_versions()
         for conda_pkg in self.conda_deps:
             name, version = self._split_conda_package(conda_pkg)
@@ -136,16 +145,58 @@ class EnvMerger:
             data = yaml.safe_load(f)
         self.conda_deps, self.pip_deps = self._parse_conda_yaml(data)
 
-    def load_pip_file(self, path: Path) -> None:
+    def load_pip_file(self, path: Path, format: Optional[str] = None) -> None:
         """
         pip の JSON または requirements.txt ファイルを読み込む。
+
+        Args:
+            path (Path): ファイルパス
+            format (str, optional): 'json' または 'txt' を明示指定。None の場合は自動判別。
+
+        Raises:
+            FileNotFoundError: ファイルが存在しない
+            ValueError: パースに失敗した場合、または形式が不明な場合
         """
         if not path.exists():
             raise FileNotFoundError(f"[ERROR] pip file not found: {path}")
-        with path.open("r") as f:
-            content = f.read()
-        new_deps = self._parse_pip_requirements(content)
-        self.pip_deps.extend(new_deps)
+
+        content = path.read_text(encoding="utf-8")
+
+        try:
+            if format == "json":
+                self.logger.info(f"Loading pip dependencies as JSON: {path}")
+                deps = self._parse_pip_json(content)
+
+            elif format == "txt":
+                self.logger.info(f"Loading pip dependencies as plain text: {path}")
+                deps = self._parse_pip_txt(content)
+
+            elif format is None:
+                # 自動判別：まず JSON として読み込み、失敗したら TXT
+                self.logger.info(f"Auto-detecting format for pip file: {path}")
+                try:
+                    deps = self._parse_pip_json(content)
+                    self.logger.info(f"Auto-detected JSON format: {path}")
+                except json.JSONDecodeError as json_err:
+                    self.logger.warning(f"Failed to parse as JSON: {json_err}")
+                    try:
+                        deps = self._parse_pip_txt(content)
+                        self.logger.info(f"Falling back to TXT format: {path}")
+                    except Exception as txt_err:
+                        raise ValueError(
+                            f"[ERROR] Failed to parse pip file '{path}' as JSON or TXT.\n"
+                            f"- JSON error: {json_err}\n"
+                            f"- TXT error: {txt_err}\n"
+                            f"→ Please specify format explicitly using format='json' or 'txt'."
+                        )
+            else:
+                raise ValueError(f"[ERROR] Unknown format '{format}'. Use 'json', 'txt', or None for auto-detect.")
+
+        except Exception as e:
+            self.logger.exception(f"Failed to load pip file: {path}")
+            raise
+
+        self.pip_deps.extend(deps)
 
     # ------------------------
     # 出力系
@@ -276,6 +327,23 @@ class EnvMerger:
                 versions[dep.strip()] = None
         return versions
 
+    def _parse_pip_json(self, content: str) -> list[str]:
+        data = json.loads(content)
+        if not isinstance(data, list):
+            raise ValueError("JSON root must be a list of {name, version} objects")
+        return [
+            f"{pkg['name']}=={pkg['version']}"
+            for pkg in data
+            if isinstance(pkg, dict) and "name" in pkg and "version" in pkg
+        ]
+
+    def _parse_pip_txt(self, content: str) -> list[str]:
+        return [
+            line.strip()
+            for line in content.strip().splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+
     def _split_conda_package(self, dep: str) -> tuple[str, str | None]:
         if "=" in dep:
             name, *ver = dep.split("=")
@@ -350,7 +418,8 @@ class EnvMerger:
                 if repl is None:
                     self.logger.info(f"Removing GPU-only pip package: {pkg}")
                     continue
-                version = re.sub(r"\+cu\d+", "", pkg[len(name):])
+                version_match = re.search(r"(==|>=|<=|>|<|~=)[\w.\+]+", pkg)
+                version = version_match.group(0) if version_match else ""
                 new_pkg = f"{repl}{version}"
                 self.logger.info(f"Replacing {pkg} → {new_pkg}")
                 new_pip.append(new_pkg)
@@ -375,3 +444,26 @@ class EnvMerger:
             else:
                 new_conda.append(dep)
         self.conda_deps = new_conda
+
+    def _check_duplicate_packages(
+        self,
+        packages: list[str],
+        source: str,
+        allow_exact_duplicates: bool = False
+    ) -> None:
+        """
+        パッケージリスト内の重複パッケージ名（バージョン含む）を検出し、エラーを投げる。
+        """
+        from collections import defaultdict
+
+        seen = defaultdict(list)
+        for pkg in packages:
+            name = re.split(r"[=<>!~]+", pkg)[0].strip().lower()
+            seen[name].append(pkg.strip())
+
+        for name, versions in seen.items():
+            unique_lowered = set(v.lower() for v in versions)
+            if len(versions) > 1:
+                if allow_exact_duplicates and len(unique_lowered) == 1:
+                    continue  # 全て同一表記ならOK
+                raise DuplicatePackageError(name, versions)

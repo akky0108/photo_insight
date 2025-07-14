@@ -58,6 +58,11 @@ def parse_args():
         default="INFO",
         help="ログの詳細レベル（デフォルト: INFO）",
     )
+    parser.add_argument(
+        "--pip-format",
+        choices=["json", "txt"],
+        help="Format of the pip file: 'json' or 'txt'. If omitted, auto-detect.",
+    )
     return parser.parse_args()
 
 
@@ -121,6 +126,7 @@ def merge_envs(
     strict=False,
     cpu_only=False,
     logger=None,
+    pip_format=None,
 ):
     """
     condaとpipの依存ファイルをマージして、環境YAMLおよびrequirements.txtを生成する。
@@ -162,7 +168,9 @@ def merge_envs(
 
         merger = EnvMerger(cpu_only=cpu_only, strict=strict)
         merger.conda_deps = conda_deps
-        merger.pip_deps = pip_deps
+
+        merger.load_pip_file(pip_json, format=pip_format)
+        merger.pip_deps.extend(pip_from_conda)
 
         # conflictチェック（今回）
         merger.resolve()
@@ -223,6 +231,7 @@ def run_cli(args, logger):
         strict=args.strict,
         cpu_only=args.cpu_only,
         logger=logger,
+        
     )
 
 
