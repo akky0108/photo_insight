@@ -53,3 +53,16 @@ class DummyBatchProcessorWithFailingBatch(BaseBatchProcessor):
             raise ValueError("Simulated batch failure")
         self.logger.debug("Batch succeeded.")
         self.processed_batches.extend(ids)
+
+class DummyBatchProcessorWithResult(BaseBatchProcessor):
+    def get_data(self):
+        return [{"file_path": f"dummy_{i}.jpg"} for i in range(6)]
+
+    def _process_batch(self, batch):
+        results = []
+        for i, item in enumerate(batch):
+            if "3" in item["file_path"]:
+                results.append({"filename": item["file_path"], "status": "failure"})
+            else:
+                results.append({"filename": item["file_path"], "status": "success", "score": 80 + i})
+        return results

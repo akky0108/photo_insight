@@ -56,3 +56,6 @@ batch_size: 10
 
 batch:
   memory_threshold: 90  # デフォルト値。使用率が90%以上になったら停止
+
+debug:
+  log_summary_detail: true

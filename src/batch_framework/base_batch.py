@@ -3,7 +3,7 @@ import time
 import logging
 from abc import ABC, abstractmethod
 from dotenv import load_dotenv
-from typing import Optional, Callable, List, Dict
+from typing import Optional, Callable, List, Dict, Any
 from watchdog.events import FileSystemEventHandler
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
@@ -233,6 +233,7 @@ class BaseBatchProcessor(ABC):
 
         batches = self._generate_batches(data)
         failed_batches = []
+        all_results: List[Dict[str, Any]] = []
 
         if not batches:
             self.logger.info("No data to process. Skipping batch execution.")
@@ -253,7 +254,8 @@ class BaseBatchProcessor(ABC):
             for future in as_completed(futures):
                 batch_idx, batch_data = futures[future]
                 try:
-                    future.result()
+                    batch_results = future.result()
+                    all_results.extend(batch_results)
                 except Exception as e:
                     self.logger.error(
                         f"[{self.__class__.__name__}] [Batch {batch_idx}] Failed in thread: {e}",
@@ -266,6 +268,32 @@ class BaseBatchProcessor(ABC):
                     )
                     failed_batches.append(batch_idx)
 
+        # 処理統計（例：成功数、失敗数、平均スコアなど）
+        success = [r for r in all_results if r.get("status") == "success"]
+        failure = [r for r in all_results if r.get("status") != "success"]
+        avg_score = (
+            sum(r.get("score", 0) for r in success) / len(success)
+            if success else None
+        )
+
+        summary = {
+            "total": len(all_results),
+            "success": len(success),
+            "failure": len(failure),
+            "avg_score": round(avg_score, 2) if avg_score is not None else None
+        }
+        self.logger.info(f"[{self.__class__.__name__}] Batch Summary: {summary}")
+
+        if self._should_log_summary_detail():
+            self.logger.info(
+                f"Processed {summary['total']} items. "
+                f"Success: {summary['success']}, Failures: {summary['failure']}"
+            )
+            if summary["avg_score"] is not None:
+                self.logger.info(f"Average score: {summary['avg_score']}")
+
+        self.final_summary = summary
+
         if failed_batches:
             self.logger.warning(
                 f"[{self.__class__.__name__}] Processing completed with failures in batches: {failed_batches}"
@@ -275,11 +303,13 @@ class BaseBatchProcessor(ABC):
             if hasattr(self, "completed_all_batches"):
                 self.completed_all_batches = True
 
-    def _safe_process_batch(self, batch: List[Dict], lock: Lock) -> None:
+    def _safe_process_batch(self, batch: List[Dict], lock: Lock) -> List[Dict[str, Any]]:
         """
         スレッドセーフなバッチ処理。必要ならファイル書き込み時にlock使用。
+        Returns:
+            List[Dict[str, Any]]: 各ファイル/データに対する処理結果
         """
-        self._process_batch(batch)  # _process_batch内でCSV出力などを行う
+        return self._process_batch(batch)
 
     def cleanup(self) -> None:
         """
@@ -329,6 +359,18 @@ class BaseBatchProcessor(ABC):
         """
         return getattr(self, "memory_threshold_exceeded", False)
 
+    def _should_log_summary_detail(self) -> bool:
+        """
+        詳細なサマリーログ出力を行うかどうかを判定する。
+
+        ・環境変数 DEBUG_LOG_SUMMARY=1 が設定されていれば True
+        ・設定ファイル内 config["debug"]["log_summary_detail"] == True でも有効
+        """
+        return (
+            os.getenv("DEBUG_LOG_SUMMARY") == "1"
+            or self.config.get("debug", {}).get("log_summary_detail", False)
+        )
+
     def get_lock(self) -> Lock:
         """スレッドセーフな処理に使うロックを提供する。"""
         return self._lock
@@ -344,11 +386,14 @@ class BaseBatchProcessor(ABC):
         pass
 
     @abstractmethod
-    def _process_batch(self, batch: List[Dict]) -> None:
+    def _process_batch(self, batch: List[Dict]) -> List[Dict[str, Any]]:
         """
         バッチ単位の処理メソッド。サブクラスでの実装が必須。
 
         Args:
             batch (List[Dict]): 単一バッチのデータ
+
+        Returns:
+            List[Dict[str, Any]]: 各データごとの処理結果を返す（例：status/score/エラーなど）
         """
         pass
