@@ -189,7 +189,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         finally:
             self.cleanup()
 
-    def _process_batch(self, batch: List[Dict[str, str]]) -> None:
+    def _process_batch(self, batch: List[Dict[str, str]]) -> List[Dict[str, Any]]:
         """
         指定された画像バッチを処理する。
         処理済み画像はスキップし、結果を CSV に保存する。

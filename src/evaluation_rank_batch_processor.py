@@ -122,7 +122,7 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
 
         return self.load_evaluation_data(file_path)
 
-    def _process_batch(self, batch: List[Dict[str, str]]) -> None:
+    def _process_batch(self, batch: List[Dict[str, str]]) -> List[Dict[str, str]]:
         """1バッチ分の処理（評価、フラグ、ランク付け、出力）を行う"""
         self.evaluate_batch_entries(batch)
         self.assign_flags_to_entries(batch)

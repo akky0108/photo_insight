@@ -238,7 +238,7 @@ class NEFFileBatchProcess(BaseBatchProcessor):
         self.logger.info(f"スキャン完了: 対象ファイル数 = {len(results)}")
         return results
 
-    def _process_batch(self, batch: List[Dict]) -> None:
+    def _process_batch(self, batch: List[Dict])  -> List[Dict]:
         """バッチ単位で NEF ファイルを処理"""
         if not batch:
             self.logger.info("空バッチのため処理をスキップします。")
@@ -269,6 +269,8 @@ class NEFFileBatchProcess(BaseBatchProcessor):
             self.output_data.extend(all_exif_data)
             self.success_count += len(all_exif_data)
             self.logger.info(f"成功件数を更新しました: {self.success_count}")
+
+        return [{"status": "success", "score": 0} for _ in all_exif_data] 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NEFファイルバッチ処理ツール")
