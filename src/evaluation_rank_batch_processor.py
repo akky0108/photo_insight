@@ -131,6 +131,11 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
         with self._data_lock:
             self.output_data.extend(batch)
 
+        return [
+            {"status": "success", "score": float(entry.get("overall_evaluation", 0.0))}
+            for entry in batch
+        ]
+
     def evaluate_batch_entries(self, batch: List[Dict[str, str]]) -> None:
         """各エントリのスコアを集計して overall_evaluation を付与"""
         for entry in batch:

@@ -184,3 +184,23 @@ def test_load_evaluation_data_missing_file(dummy_config):
     processor = EvaluationRankBatchProcessor(config_path=dummy_config)
     with pytest.raises(FileNotFoundError):
         processor.load_evaluation_data("non_existent.csv")
+
+
+@pytest.mark.parametrize("face_detected, expected_flag", [
+    ("TRUE", 1),
+    ("FALSE", 1),
+])
+def test_assign_flag_for_face_and_non_face(face_detected, expected_flag, dummy_config):
+    processor = EvaluationRankBatchProcessor(config_path=dummy_config)
+    entry = {
+        "face_detected": face_detected,
+        "face_sharpness_score": "80",
+        "face_contrast_score": "30",
+        "face_noise_score": "5",
+        "sharpness_score": "80",
+        "contrast_score": "30",
+        "noise_score": "5",
+        "overall_evaluation": "80"
+    }
+    processor.assign_acceptance_flag(entry)
+    assert entry["accepted_flag"] == expected_flag

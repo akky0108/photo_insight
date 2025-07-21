@@ -269,19 +269,7 @@ class BaseBatchProcessor(ABC):
                     failed_batches.append(batch_idx)
 
         # 処理統計（例：成功数、失敗数、平均スコアなど）
-        success = [r for r in all_results if r.get("status") == "success"]
-        failure = [r for r in all_results if r.get("status") != "success"]
-        avg_score = (
-            sum(r.get("score", 0) for r in success) / len(success)
-            if success else None
-        )
-
-        summary = {
-            "total": len(all_results),
-            "success": len(success),
-            "failure": len(failure),
-            "avg_score": round(avg_score, 2) if avg_score is not None else None
-        }
+        summary = self._summarize_results(all_results)
         self.logger.info(f"[{self.__class__.__name__}] Batch Summary: {summary}")
 
         if self._should_log_summary_detail():
@@ -310,6 +298,30 @@ class BaseBatchProcessor(ABC):
             List[Dict[str, Any]]: 各ファイル/データに対する処理結果
         """
         return self._process_batch(batch)
+
+    def _summarize_results(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        処理結果のリストから成功/失敗件数と平均スコアを集計する共通メソッド。
+
+        Args:
+            results (List[Dict[str, Any]]): 各データ処理の結果
+
+        Returns:
+            Dict[str, Any]: 集計サマリー（total, success, failure, avg_score）
+        """
+        success = [r for r in results if r.get("status") == "success"]
+        failure = [r for r in results if r.get("status") != "success"]
+        avg_score = (
+            sum(r.get("score", 0) for r in success) / len(success)
+            if success else None
+        )
+
+        return {
+            "total": len(results),
+            "success": len(success),
+            "failure": len(failure),
+            "avg_score": round(avg_score, 2) if avg_score is not None else None,
+        }
 
     def cleanup(self) -> None:
         """

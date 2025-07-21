@@ -214,3 +214,27 @@ def test_process_summary_logging(caplog, tmp_path):
         processor.process()
 
     assert any("Success: 5" in msg for msg in caplog.messages)
+
+
+def test_summarize_results_works_as_expected():
+    from tests.integration.dummy_batch_processor import DummyBatchProcessor
+    from unittest.mock import MagicMock
+
+    processor = DummyBatchProcessor(
+        hook_manager=MagicMock(),
+        config_manager=MagicMock(),
+        logger=MagicMock()
+    )
+
+    sample_results = [
+        {"status": "success", "score": 90},
+        {"status": "success", "score": 80},
+        {"status": "failure"},
+    ]
+    summary = processor._summarize_results(sample_results)
+    assert summary == {
+        "total": 3,
+        "success": 2,
+        "failure": 1,
+        "avg_score": 85.0,
+    }
