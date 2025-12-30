@@ -291,6 +291,8 @@ class BaseBatchProcessor(ABC):
             if hasattr(self, "completed_all_batches"):
                 self.completed_all_batches = True
 
+        self.all_results = all_results
+
     def _safe_process_batch(self, batch: List[Dict], lock: Lock) -> List[Dict[str, Any]]:
         """
         スレッドセーフなバッチ処理。必要ならファイル書き込み時にlock使用。
