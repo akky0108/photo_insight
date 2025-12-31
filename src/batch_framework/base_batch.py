@@ -228,8 +228,13 @@ class BaseBatchProcessor(ABC):
 
     def process(self, data: Optional[List[Dict]] = None) -> None:
         self.logger.info(f"[{self.__class__.__name__}] Executing common batch processing tasks.")
+
+        # ① setup() で読んだ self.data を優先利用（get_data二重呼び出し防止）
         if data is None:
-            data = self.get_data()
+            if hasattr(self, "data") and isinstance(self.data, list):
+                data = self.data
+            else:
+                data = self.get_data()
 
         batches = self._generate_batches(data)
         failed_batches = []
@@ -248,7 +253,7 @@ class BaseBatchProcessor(ABC):
                     )
                     break
 
-                future = executor.submit(self._safe_process_batch, batch, self.get_lock())
+                future = executor.submit(self._safe_process_batch, batch)
                 futures[future] = (i + 1, batch)
 
             for future in as_completed(futures):
@@ -293,7 +298,7 @@ class BaseBatchProcessor(ABC):
 
         self.all_results = all_results
 
-    def _safe_process_batch(self, batch: List[Dict], lock: Lock) -> List[Dict[str, Any]]:
+    def _safe_process_batch(self, batch: List[Dict])-> List[Dict[str, Any]]:
         """
         スレッドセーフなバッチ処理。必要ならファイル書き込み時にlock使用。
         Returns:
@@ -314,9 +319,10 @@ class BaseBatchProcessor(ABC):
         success = [r for r in results if r.get("status") == "success"]
         failure = [r for r in results if r.get("status") != "success"]
         avg_score = (
-            sum(r.get("score", 0) for r in success) / len(success)
+            sum(self._safe_float_local(r.get("score", 0)) for r in success) / len(success)
             if success else None
         )
+
 
         return {
             "total": len(results),
@@ -324,6 +330,15 @@ class BaseBatchProcessor(ABC):
             "failure": len(failure),
             "avg_score": round(avg_score, 2) if avg_score is not None else None,
         }
+
+    def _safe_float_local(self, v: Any) -> float:
+        try:
+            if v in ("", None):
+                return 0.0
+            return float(v)
+        except (ValueError, TypeError):
+            return 0.0
+
 
     def cleanup(self) -> None:
         """

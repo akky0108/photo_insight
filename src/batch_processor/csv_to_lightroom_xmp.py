@@ -32,13 +32,18 @@ NS = {
     "x": "adobe:ns:meta/",
     "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
     "xmp": "http://ns.adobe.com/xap/1.0/",
-    "lr": "http://ns.adobe.com/lightroom/1.0/",
+    "xmpDM": "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+    "photoshop": "http://ns.adobe.com/photoshop/1.0/",
+    "lr": "http://ns.adobe.com/lightroom/1.0/",  # 探索用に残してOK
 }
 
 ET.register_namespace("x", NS["x"])
 ET.register_namespace("rdf", NS["rdf"])
 ET.register_namespace("xmp", NS["xmp"])
+ET.register_namespace("xmpDM", NS["xmpDM"])
+ET.register_namespace("photoshop", NS["photoshop"])
 ET.register_namespace("lr", NS["lr"])
+
 
 # =========================================================
 # 抽象スコア → Lightroom マッピング
@@ -57,16 +62,38 @@ def score_to_rating(overall: float) -> int:
     return 0
 
 
-def map_pick(accepted_flag: int) -> int:
-    # accepted_flag == 1 → AI 合格
-    return 1 if accepted_flag == 1 else 0
+def map_pick(
+    *,
+    overall: float,
+    category: str,
+    accepted_flag: int = 0,
+    thresholds: dict[str, float] = PICK_THRESHOLD_BY_GENRE,
+) -> int:
+    """
+    Pick 判定（ジャンル別閾値）
+
+    優先順位:
+      1) accepted_flag == 1 なら強制 Pick=1（既存ロジック互換）
+      2) それ以外は overall >= threshold(category) なら Pick=1
+      3) それ以外は Pick=0
+
+    ※Reject(-1)は出さない（Lightroom事故防止）
+    """
+    # 既存の「合格」フラグがあるなら最優先
+    if accepted_flag == 1:
+        return 1
+
+    cat = (category or "default").strip().lower()
+    th = thresholds.get(cat, thresholds.get("default", 65))
+    return 1 if overall >= float(th) else 0
 
 
 def map_color(
     *,
     overall: float,
     technical: float,
-    intent: float,
+    face: float,
+    comp: float,
     pick: int,
     category: str,
 ) -> str:
@@ -77,16 +104,14 @@ def map_color(
     Blue   : 要確認
     Yellow : 低優先
     """
-
-    # ❌ Pick でないものは Green にしない
+    # Pickでないなら色は基本付けない想定だけど、
+    # process_csv側で pick!=1 は color=None にしてるならここはPick前提でOK
     if pick != 1:
         return "Yellow"
 
-    # ✅ Pick の中でさらに強いものだけ Green
-    if overall >= 75:
+    # 例：強い候補だけGreen、それ以外はBlue（ここは好みで調整）
+    if overall >= 80:
         return "Green"
-
-    # 👀 Pick だが確定ではない
     return "Blue"
 
 
@@ -154,6 +179,17 @@ def get_str(row: dict, key: str, default: str = "") -> str:
     return str(value)
 
 
+def set_attr(desc: ET.Element, ns_key: str, name: str, value: Optional[str]) -> None:
+    """rdf:Description に XMPプロパティを属性としてセット（Lightroom互換を優先）"""
+    q = f"{{{NS[ns_key]}}}{name}"
+    if value is None or str(value).strip() == "":
+        # ラベル無しは「属性を消す」方が事故りにくい
+        if q in desc.attrib:
+            del desc.attrib[q]
+        return
+    desc.set(q, str(value))
+
+
 # =========================================================
 # XMP 操作ユーティリティ
 # =========================================================
@@ -174,20 +210,27 @@ def find_target_description(root: ET.Element) -> Optional[ET.Element]:
     return root.find(".//rdf:Description", NS)
 
 
-def create_new_xmp(rating: int, pick: int, color: Optional[str]) -> ET.Element:
+def create_new_xmp(rating: int, pick: int, label_key: Optional[str], label_display: Optional[str]) -> ET.Element:
     xmpmeta = ET.Element(f"{{{NS['x']}}}xmpmeta")
     rdf = ET.SubElement(xmpmeta, f"{{{NS['rdf']}}}RDF")
+
     desc = ET.SubElement(
         rdf,
         f"{{{NS['rdf']}}}Description",
         attrib={f"{{{NS['rdf']}}}about": ""},
     )
 
-    ET.SubElement(desc, f"{{{NS['xmp']}}}Rating").text = str(rating)
-    ET.SubElement(desc, f"{{{NS['lr']}}}Pick").text = str(pick)
+    # ★ Rating（属性）
+    desc.set(f"{{{NS['xmp']}}}Rating", str(int(rating)))
 
-    if color:
-        ET.SubElement(desc, f"{{{NS['lr']}}}ColorLabel").text = color
+    # Pick（属性: xmpDM:pick）
+    desc.set(f"{{{NS['xmpDM']}}}pick", str(int(pick)))
+
+    # Color label（属性）
+    if label_key:
+        desc.set(f"{{{NS['photoshop']}}}LabelColor", label_key)
+    if label_display:
+        desc.set(f"{{{NS['xmp']}}}Label", label_display)
 
     return xmpmeta
 
@@ -196,7 +239,8 @@ def merge_into_existing_xmp(
     xmp_path: Path,
     rating: int,
     pick: int,
-    color: Optional[str],
+    label_key: Optional[str],
+    label_display: Optional[str],
 ):
     tree = ET.parse(xmp_path)
     root = tree.getroot()
@@ -205,18 +249,32 @@ def merge_into_existing_xmp(
     if desc is None:
         raise RuntimeError("rdf:Description not found in XMP")
 
-    get_or_create(desc, f"{{{NS['xmp']}}}Rating").text = str(rating)
-    get_or_create(desc, f"{{{NS['lr']}}}Pick").text = str(pick)
+    # 1) ★ Rating：常に上書き（属性）
+    desc.set(f"{{{NS['xmp']}}}Rating", str(int(rating)))
 
-    if color:
-        get_or_create(desc, f"{{{NS['lr']}}}ColorLabel").text = color
+    # 2) Pick：未設定(0) or 無し のときだけ上書き（属性 xmpDM:pick）
+    existing_pick = (desc.get(f"{{{NS['xmpDM']}}}pick") or "").strip()
+    if existing_pick in ("", "0"):
+        desc.set(f"{{{NS['xmpDM']}}}pick", str(int(pick)))
+
+    # 3) Color：既存があれば守る（属性）
+    existing_label = (desc.get(f"{{{NS['xmp']}}}Label") or "").strip()
+    existing_key = (desc.get(f"{{{NS['photoshop']}}}LabelColor") or "").strip()
+    if not (existing_label or existing_key):
+        if label_key:
+            desc.set(f"{{{NS['photoshop']}}}LabelColor", label_key)
+        if label_display:
+            desc.set(f"{{{NS['xmp']}}}Label", label_display)
+
+    # お掃除：lr:Pick / lr:ColorLabel があれば消す（混乱源）
+    for tag in (f"{{{NS['lr']}}}Pick", f"{{{NS['lr']}}}ColorLabel"):
+        node = desc.find(tag)
+        if node is not None:
+            desc.remove(node)
 
     if not DRY_RUN:
-        tree.write(
-            xmp_path,
-            encoding="utf-8",
-            xml_declaration=True,
-        )
+        tree.write(xmp_path, encoding="utf-8", xml_declaration=True)
+
 
 # =========================================================
 # メイン処理
@@ -236,8 +294,9 @@ def process_csv(csv_path: Path, nef_index: dict[str, Path]):
                 continue
 
             overall = get_float(row, "overall_score", 0.0)
-            technical = get_float(row, "technical_score", 0.0)
-            intent = get_float(row, "intent_score", 0.0)
+            technical = get_float(row, "score_technical", 0.0)
+            face = get_float(row, "score_face", 0.0)
+            comp = get_float(row, "score_composition", 0.0)
             accepted_flag = get_int(row, "accepted_flag", 0)
             category = get_str(row, "category", "default")
 
@@ -251,15 +310,30 @@ def process_csv(csv_path: Path, nef_index: dict[str, Path]):
             # ---------------------------------
             # Lightroom マッピング（単一責務）
             # ---------------------------------
-            rating = score_to_rating(overall)
-            pick = map_pick(accepted_flag)
-            color = map_color(
+            # ★ Rating: CSVが指定しているならそれを採用、なければ計算
+            lr_rating = get_int(row, "lr_rating", -1)
+            rating = lr_rating if lr_rating >= 0 else score_to_rating(overall)
+
+            # Pick: 閾値×ジャンル（accepted_flagは上書き用途で優先）
+            pick = map_pick(
                 overall=overall,
-                technical=technical,
-                intent=intent,
-                pick=pick,
                 category=category,
+                accepted_flag=accepted_flag,
             )
+
+            # Color: Pick=1のときだけ“提案”する。CSVに指定があればそれを優先。
+            label_key = get_str(row, "lr_labelcolor_key", "").strip().lower()      # green/yellow/...
+            label_display = get_str(row, "lr_label_display", "").strip()          # グリーン/イエロー/...
+
+            # 既存XMPなら merge_into_existing_xmp(..., label_key, label_display)
+            # 新規なら create_new_xmp(..., label_key, label_display)
+
+            if pick == 1:
+                color_key = label_key if label_key else None
+                color_display = label_display if label_display else None
+            else:
+                color_key = None
+                color_display = None
 
             # ---------------------------------
             # XMP 書き込み
@@ -272,22 +346,23 @@ def process_csv(csv_path: Path, nef_index: dict[str, Path]):
                     xmp_path,
                     rating,
                     pick,
-                    color,
+                    color_key,
+                    color_display,
                 )
 
                 print(
                     f"🔁 MERGE {nef_name} "
-                    f"★{rating} Pick={pick} Color={color}"
+                    f"★{rating} Pick={pick} Color={color_display}"
                 )
             else:
                 if DRY_RUN:
                     print(
                         f"[DRY] NEW {nef_name} "
-                        f"★{rating} Pick={pick} Color={color}"
+                        f"★{rating} Pick={pick} Color={color_display}"
                     )
                     continue
 
-                xmp = create_new_xmp(rating, pick, color)
+                xmp = create_new_xmp(rating, pick, color_key, color_display)
                 ET.ElementTree(xmp).write(
                     xmp_path,
                     encoding="utf-8",
@@ -296,7 +371,7 @@ def process_csv(csv_path: Path, nef_index: dict[str, Path]):
 
                 print(
                     f"✨ NEW   {nef_name} "
-                    f"★{rating} Pick={pick} Color={color}"
+                    f"★{rating} Pick={pick} Color={color_display}"
                 )
 
 
