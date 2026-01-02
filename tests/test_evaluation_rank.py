@@ -3,7 +3,7 @@ import tempfile
 import shutil
 import csv
 import pytest
-from evaluation_rank_batch_processor import EvaluationRankBatchProcessor
+from batch_processor.evaluation_rank.evaluation_rank_batch_processor import EvaluationRankBatchProcessor
 
 @pytest.fixture
 def dummy_config(tmp_path):

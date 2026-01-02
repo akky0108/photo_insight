@@ -1,7 +1,9 @@
 import os
 import time
 import logging
+import inspect
 from abc import ABC, abstractmethod
+from certifi import where
 from dotenv import load_dotenv
 from typing import Optional, Callable, List, Dict, Any
 from watchdog.events import FileSystemEventHandler
@@ -105,6 +107,13 @@ class BaseBatchProcessor(ABC):
         self.processed_count = 0
         self.config = self.config_manager.config
         self._lock = Lock()
+
+        # data cache (single-load contract)
+        self._data_cache: Optional[List[Dict]] = None
+        self._data_loaded: bool = False
+
+        # Migration guard: warn if subclass overrides get_data()
+        self._warn_if_get_data_overridden()
 
     def execute(self, *args, **kwargs) -> None:
         """
@@ -219,12 +228,44 @@ class BaseBatchProcessor(ABC):
         if raise_exception:
             raise RuntimeError(message)
 
+    def _warn_if_get_data_overridden(self) -> None:
+        """
+        get_data() override は非推奨（Baseがキャッシュを握る契約を壊しやすい）。
+        サブクラスは load_data() を実装してください。
+        """
+        try:
+            # Class-level function identity check
+            if self.__class__.get_data is not BaseBatchProcessor.get_data:
+                # どこで定義されているか（調査しやすいように出す）
+                try:
+                    src = inspect.getsourcefile(self.__class__)
+                except Exception:
+                    src = None
+                where = f" ({src})" if src else ""
+                self.logger.warning(
+                    f"[{self.__class__.__name__}] Overriding get_data() is deprecated. "
+                    f"Implement load_data() instead.{where}"
+                )
+        except Exception:
+            # ガードが原因で落とさない
+            return
+
     def setup(self) -> None:
         """
         セットアップフェーズの共通処理。必要に応じてサブクラスでオーバーライド可能。
         """
         self.logger.info(f"[{self.__class__.__name__}] Executing common setup tasks.")
+        # === Contract ===
+        # data is loaded once (cached) and any side-effects should be done in after_data_loaded()
         self.data = self.get_data()
+        self.after_data_loaded(self.data)
+
+    def after_data_loaded(self, data: List[Dict]) -> None:
+        """
+        データロード後に一度だけ実行したい副作用（例: calibration構築）をここに寄せる。
+        デフォルトは何もしない。必要なサブクラスだけ override する。
+        """
+        return
 
     def process(self, data: Optional[List[Dict]] = None) -> None:
         self.logger.info(f"[{self.__class__.__name__}] Executing common batch processing tasks.")
@@ -404,15 +445,55 @@ class BaseBatchProcessor(ABC):
         """スレッドセーフな処理に使うロックを提供する。"""
         return self._lock
 
-    @abstractmethod
+    # =========================
+    # Data loading contract
+    # =========================
+
     def get_data(self, *args, **kwargs) -> List[Dict]:
         """
-        データ取得メソッド。具体的な実装はサブクラスで行う必要がある。
+        データ取得（Base側でキャッシュを握って一回化する）。
 
-        Returns:
-            List[Dict]: バッチ処理対象のデータ一覧
+        移行方針:
+          - 新規実装は load_data() を override する（推奨）
+          - 既存実装が get_data() を override している場合は _legacy_get_data() 経由で互換動作
+
+        ※ サブクラスで get_data() を override しないでください（将来的にfinal扱いにする想定）。
         """
-        pass
+        if self._data_loaded and self._data_cache is not None:
+            return self._data_cache
+
+        # Prefer new contract
+        try:
+            data = self.load_data(*args, **kwargs)
+        except NotImplementedError:
+            # Backward compatibility path
+            data = self._legacy_get_data(*args, **kwargs)
+
+        if data is None:
+            data = []
+
+        self._data_cache = data
+        self._data_loaded = True
+        return data
+
+    @abstractmethod
+    def load_data(self, *args, **kwargs) -> List[Dict]:
+        """
+        推奨: データ取得（純I/O、できれば副作用ゼロ）。
+        サブクラスは基本こちらを実装する。
+        """
+        raise NotImplementedError
+
+    def _legacy_get_data(self, *args, **kwargs) -> List[Dict]:
+        """
+        互換用: 旧契約の get_data() を実装しているサブクラス用の逃げ道。
+        サブクラスが旧 get_data() を override している場合、
+        この Base 実装が呼ばれてしまうので、本来はここへは来ない想定。
+
+        しかし移行の過渡期に「Base.get_data() を呼びたいが load_data 未実装」
+        というケースを救済するために用意。
+        """
+        raise NotImplementedError("Please implement load_data() (preferred) or override get_data() (legacy).")
 
     @abstractmethod
     def _process_batch(self, batch: List[Dict]) -> List[Dict[str, Any]]:

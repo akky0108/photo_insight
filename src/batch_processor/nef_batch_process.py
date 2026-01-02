@@ -1,7 +1,5 @@
-import csv
-import time
+
 import argparse
-from datetime import datetime
 from typing import List, Dict, Optional, Any
 from pathlib import Path
 from threading import Lock
@@ -19,9 +17,6 @@ class NEFFileBatchProcess(BaseBatchProcessor):
 
     def __init__(self, config_path=None, max_workers=4):
         super().__init__(config_path=config_path, max_workers=max_workers)
-
-        self._cached_data: Optional[List[Dict[str, Any]]] = None
-        self._cache_key: Optional[str] = None
 
         self.exif_handler = ExifFileHandler()
 
@@ -57,15 +52,15 @@ class NEFFileBatchProcess(BaseBatchProcessor):
         self.success_count: int = 0
         self.failure_count: int = 0
 
+       # Base契約: setup() で self.data が作られる（load_data() が呼ばれる）
+        self.target_dirs: List[Path] = []
+
     # ------------------------------------------------------------
     # lifecycle
     # ------------------------------------------------------------
     def setup(self) -> None:
-        self._cached_data = None
-        self._cache_key = None
-
-        # ★ 必須：常に定義
-        self.target_dirs: List[Path] = []
+        # ★ 必須：常に定義（Base.setup() から load_data() が呼ばれるため）
+        self.target_dirs = []
 
         self.output_data.clear()
         self.success_count = 0
@@ -81,8 +76,8 @@ class NEFFileBatchProcess(BaseBatchProcessor):
         self.target_dirs = [d for d in base_dir.iterdir() if d.is_dir()]
         self.logger.info(f"初期設定完了: 画像ディレクトリ {base_dir}")
 
-        """初期化処理（data はここで作らない）"""
-        #super().setup()
+        # Base契約: setup() -> self.data = self.get_data() -> after_data_loaded(self.data)
+        super().setup()
 
     def cleanup(self) -> None:
         super().cleanup()
@@ -91,30 +86,17 @@ class NEFFileBatchProcess(BaseBatchProcessor):
     # ------------------------------------------------------------
     # data collection
     # ------------------------------------------------------------
-    def get_data(self, target_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
-        # ★ ① ここで「実際の target_dir」を確定させる
-        if target_dir is None:
-            target_dir = getattr(self, "target_dir", None)
-
-        cache_key = self._make_cache_key(target_dir)
-
-        # 🔑 キャッシュヒット
-        if self._cached_data is not None and self._cache_key == cache_key:
-            self.logger.info(
-                f"get_data(): キャッシュ使用 ({len(self._cached_data)} 件)"
-            )
-            return self._cached_data
-
-        # 🔄 キャッシュミス（キー違い or 初回）
-        if self._cache_key != cache_key:
-            self.logger.info(
-                f"get_data(): キャッシュ更新 "
-                f"(old={self._cache_key}, new={cache_key})"
-            )
-
-        self._cache_key = cache_key
-        self._cached_data = None
-
+    def load_data(self) -> List[Dict[str, Any]]:
+        """
+        BaseBatchProcessor の新契約:
+        - load_data(): 純I/O（副作用なし）
+        - キャッシュは Base が握る（get_data() は Base 側）
+       
+        仕様:
+        - CLI などで self.target_dir が設定されていれば、そのディレクトリのみ処理
+        - 未設定なら setup() で収集した self.target_dirs を全対象に処理
+        """
+        target_dir: Optional[Path] = getattr(self, "target_dir", None)
         nef_files: List[Path] = []
 
         if target_dir:
@@ -128,7 +110,7 @@ class NEFFileBatchProcess(BaseBatchProcessor):
                 self.logger.info(f"{d} から {len(found)} 件検出")
                 nef_files.extend(found)
 
-        self._cached_data = [
+        data = [
             {
                 "path": path,
                 "subdir_name": path.parent.name,
@@ -136,8 +118,8 @@ class NEFFileBatchProcess(BaseBatchProcessor):
             for path in nef_files
         ]
 
-        self.logger.info(f"get_data(): 収集ファイル数 = {len(self._cached_data)}")
-        return self._cached_data
+        self.logger.info(f"get_data(): 収集ファイル数 = {len(data)}")
+        return data
 
     # ------------------------------------------------------------
     # batch processing
@@ -213,14 +195,6 @@ class NEFFileBatchProcess(BaseBatchProcessor):
     def _get_lock_for_file(self, file_path: Path) -> Lock:
         key = str(file_path.resolve())
         return self._csv_locks[key]
-
-    def _make_cache_key(self, target_dir: Optional[Path]) -> str:
-        if target_dir:
-            stat = target_dir.stat()
-            return f"{target_dir}:{stat.st_mtime}"
-        else:
-            base_stat = self.base_directory_path.stat()
-            return f"ALL:{base_stat.st_mtime}"
 
 # ------------------------------------------------------------
 # CLI
