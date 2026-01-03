@@ -1,4 +1,5 @@
 # tests/integration/test_base_batch_processor.py
+import os
 import pytest
 import logging
 import signal
@@ -170,3 +171,70 @@ def test_max_workers_invalid_values_are_corrected(invalid_value):
         max_workers=0
     )
     assert processor.max_workers == 1
+
+
+def test_process_returns_aggregated_results(tmp_path):
+    from tests.integration.dummy_batch_processor import DummyBatchProcessorWithResult
+
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"batch_size": 2}))
+    config_manager = ConfigManager(config_path=str(config_path))
+
+    processor = DummyBatchProcessorWithResult(
+        hook_manager=MagicMock(),
+        config_manager=config_manager
+    )
+
+    processor.process()
+
+    # 結果が summary に反映されているか
+    summary = processor.final_summary  # process内でself.final_summary = {...} する前提
+
+    assert summary["total"] == 6
+    assert summary["success"] == 5
+    assert summary["failure"] == 1
+    assert "avg_score" in summary and summary["avg_score"] > 0
+
+
+def test_process_summary_logging(caplog, tmp_path):
+    from tests.integration.dummy_batch_processor import DummyBatchProcessorWithResult
+
+    os.environ["DEBUG_LOG_SUMMARY"] = "1"  # 開発ログを強制有効化
+
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"batch_size": 2}))
+    config_manager = ConfigManager(config_path=str(config_path))
+
+    processor = DummyBatchProcessorWithResult(
+        hook_manager=MagicMock(),
+        config_manager=config_manager
+    )
+
+    with caplog.at_level(logging.INFO):
+        processor.process()
+
+    assert any("Success: 5" in msg for msg in caplog.messages)
+
+
+def test_summarize_results_works_as_expected():
+    from tests.integration.dummy_batch_processor import DummyBatchProcessor
+    from unittest.mock import MagicMock
+
+    processor = DummyBatchProcessor(
+        hook_manager=MagicMock(),
+        config_manager=MagicMock(),
+        logger=MagicMock()
+    )
+
+    sample_results = [
+        {"status": "success", "score": 90},
+        {"status": "success", "score": 80},
+        {"status": "failure"},
+    ]
+    summary = processor._summarize_results(sample_results)
+    assert summary == {
+        "total": 3,
+        "success": 2,
+        "failure": 1,
+        "avg_score": 85.0,
+    }

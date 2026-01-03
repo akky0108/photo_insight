@@ -1,9 +1,11 @@
 import os
 import time
 import logging
+import inspect
 from abc import ABC, abstractmethod
+from certifi import where
 from dotenv import load_dotenv
-from typing import Optional, Callable, List, Dict
+from typing import Optional, Callable, List, Dict, Any
 from watchdog.events import FileSystemEventHandler
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
@@ -105,6 +107,13 @@ class BaseBatchProcessor(ABC):
         self.processed_count = 0
         self.config = self.config_manager.config
         self._lock = Lock()
+
+        # data cache (single-load contract)
+        self._data_cache: Optional[List[Dict]] = None
+        self._data_loaded: bool = False
+
+        # Migration guard: warn if subclass overrides get_data()
+        self._warn_if_get_data_overridden()
 
     def execute(self, *args, **kwargs) -> None:
         """
@@ -219,20 +228,58 @@ class BaseBatchProcessor(ABC):
         if raise_exception:
             raise RuntimeError(message)
 
+    def _warn_if_get_data_overridden(self) -> None:
+        """
+        get_data() override は非推奨（Baseがキャッシュを握る契約を壊しやすい）。
+        サブクラスは load_data() を実装してください。
+        """
+        try:
+            # Class-level function identity check
+            if self.__class__.get_data is not BaseBatchProcessor.get_data:
+                # どこで定義されているか（調査しやすいように出す）
+                try:
+                    src = inspect.getsourcefile(self.__class__)
+                except Exception:
+                    src = None
+                where = f" ({src})" if src else ""
+                self.logger.warning(
+                    f"[{self.__class__.__name__}] Overriding get_data() is deprecated. "
+                    f"Implement load_data() instead.{where}"
+                )
+        except Exception:
+            # ガードが原因で落とさない
+            return
+
     def setup(self) -> None:
         """
         セットアップフェーズの共通処理。必要に応じてサブクラスでオーバーライド可能。
         """
         self.logger.info(f"[{self.__class__.__name__}] Executing common setup tasks.")
+        # === Contract ===
+        # data is loaded once (cached) and any side-effects should be done in after_data_loaded()
         self.data = self.get_data()
+        self.after_data_loaded(self.data)
+
+    def after_data_loaded(self, data: List[Dict]) -> None:
+        """
+        データロード後に一度だけ実行したい副作用（例: calibration構築）をここに寄せる。
+        デフォルトは何もしない。必要なサブクラスだけ override する。
+        """
+        return
 
     def process(self, data: Optional[List[Dict]] = None) -> None:
         self.logger.info(f"[{self.__class__.__name__}] Executing common batch processing tasks.")
+
+        # ① setup() で読んだ self.data を優先利用（get_data二重呼び出し防止）
         if data is None:
-            data = self.get_data()
+            if hasattr(self, "data") and isinstance(self.data, list):
+                data = self.data
+            else:
+                data = self.get_data()
 
         batches = self._generate_batches(data)
         failed_batches = []
+        all_results: List[Dict[str, Any]] = []
 
         if not batches:
             self.logger.info("No data to process. Skipping batch execution.")
@@ -247,13 +294,14 @@ class BaseBatchProcessor(ABC):
                     )
                     break
 
-                future = executor.submit(self._safe_process_batch, batch, self.get_lock())
+                future = executor.submit(self._safe_process_batch, batch)
                 futures[future] = (i + 1, batch)
 
             for future in as_completed(futures):
                 batch_idx, batch_data = futures[future]
                 try:
-                    future.result()
+                    batch_results = future.result()
+                    all_results.extend(batch_results)
                 except Exception as e:
                     self.logger.error(
                         f"[{self.__class__.__name__}] [Batch {batch_idx}] Failed in thread: {e}",
@@ -266,6 +314,20 @@ class BaseBatchProcessor(ABC):
                     )
                     failed_batches.append(batch_idx)
 
+        # 処理統計（例：成功数、失敗数、平均スコアなど）
+        summary = self._summarize_results(all_results)
+        self.logger.info(f"[{self.__class__.__name__}] Batch Summary: {summary}")
+
+        if self._should_log_summary_detail():
+            self.logger.info(
+                f"Processed {summary['total']} items. "
+                f"Success: {summary['success']}, Failures: {summary['failure']}"
+            )
+            if summary["avg_score"] is not None:
+                self.logger.info(f"Average score: {summary['avg_score']}")
+
+        self.final_summary = summary
+
         if failed_batches:
             self.logger.warning(
                 f"[{self.__class__.__name__}] Processing completed with failures in batches: {failed_batches}"
@@ -275,11 +337,49 @@ class BaseBatchProcessor(ABC):
             if hasattr(self, "completed_all_batches"):
                 self.completed_all_batches = True
 
-    def _safe_process_batch(self, batch: List[Dict], lock: Lock) -> None:
+        self.all_results = all_results
+
+    def _safe_process_batch(self, batch: List[Dict])-> List[Dict[str, Any]]:
         """
         スレッドセーフなバッチ処理。必要ならファイル書き込み時にlock使用。
+        Returns:
+            List[Dict[str, Any]]: 各ファイル/データに対する処理結果
         """
-        self._process_batch(batch)  # _process_batch内でCSV出力などを行う
+        return self._process_batch(batch)
+
+    def _summarize_results(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        処理結果のリストから成功/失敗件数と平均スコアを集計する共通メソッド。
+
+        Args:
+            results (List[Dict[str, Any]]): 各データ処理の結果
+
+        Returns:
+            Dict[str, Any]: 集計サマリー（total, success, failure, avg_score）
+        """
+        success = [r for r in results if r.get("status") == "success"]
+        failure = [r for r in results if r.get("status") != "success"]
+        avg_score = (
+            sum(self._safe_float_local(r.get("score", 0)) for r in success) / len(success)
+            if success else None
+        )
+
+
+        return {
+            "total": len(results),
+            "success": len(success),
+            "failure": len(failure),
+            "avg_score": round(avg_score, 2) if avg_score is not None else None,
+        }
+
+    def _safe_float_local(self, v: Any) -> float:
+        try:
+            if v in ("", None):
+                return 0.0
+            return float(v)
+        except (ValueError, TypeError):
+            return 0.0
+
 
     def cleanup(self) -> None:
         """
@@ -329,26 +429,81 @@ class BaseBatchProcessor(ABC):
         """
         return getattr(self, "memory_threshold_exceeded", False)
 
+    def _should_log_summary_detail(self) -> bool:
+        """
+        詳細なサマリーログ出力を行うかどうかを判定する。
+
+        ・環境変数 DEBUG_LOG_SUMMARY=1 が設定されていれば True
+        ・設定ファイル内 config["debug"]["log_summary_detail"] == True でも有効
+        """
+        return (
+            os.getenv("DEBUG_LOG_SUMMARY") == "1"
+            or self.config.get("debug", {}).get("log_summary_detail", False)
+        )
+
     def get_lock(self) -> Lock:
         """スレッドセーフな処理に使うロックを提供する。"""
         return self._lock
 
-    @abstractmethod
+    # =========================
+    # Data loading contract
+    # =========================
+
     def get_data(self, *args, **kwargs) -> List[Dict]:
         """
-        データ取得メソッド。具体的な実装はサブクラスで行う必要がある。
+        データ取得（Base側でキャッシュを握って一回化する）。
 
-        Returns:
-            List[Dict]: バッチ処理対象のデータ一覧
+        移行方針:
+          - 新規実装は load_data() を override する（推奨）
+          - 既存実装が get_data() を override している場合は _legacy_get_data() 経由で互換動作
+
+        ※ サブクラスで get_data() を override しないでください（将来的にfinal扱いにする想定）。
         """
-        pass
+        if self._data_loaded and self._data_cache is not None:
+            return self._data_cache
+
+        # Prefer new contract
+        try:
+            data = self.load_data(*args, **kwargs)
+        except NotImplementedError:
+            # Backward compatibility path
+            data = self._legacy_get_data(*args, **kwargs)
+
+        if data is None:
+            data = []
+
+        self._data_cache = data
+        self._data_loaded = True
+        return data
 
     @abstractmethod
-    def _process_batch(self, batch: List[Dict]) -> None:
+    def load_data(self, *args, **kwargs) -> List[Dict]:
+        """
+        推奨: データ取得（純I/O、できれば副作用ゼロ）。
+        サブクラスは基本こちらを実装する。
+        """
+        raise NotImplementedError
+
+    def _legacy_get_data(self, *args, **kwargs) -> List[Dict]:
+        """
+        互換用: 旧契約の get_data() を実装しているサブクラス用の逃げ道。
+        サブクラスが旧 get_data() を override している場合、
+        この Base 実装が呼ばれてしまうので、本来はここへは来ない想定。
+
+        しかし移行の過渡期に「Base.get_data() を呼びたいが load_data 未実装」
+        というケースを救済するために用意。
+        """
+        raise NotImplementedError("Please implement load_data() (preferred) or override get_data() (legacy).")
+
+    @abstractmethod
+    def _process_batch(self, batch: List[Dict]) -> List[Dict[str, Any]]:
         """
         バッチ単位の処理メソッド。サブクラスでの実装が必須。
 
         Args:
             batch (List[Dict]): 単一バッチのデータ
+
+        Returns:
+            List[Dict[str, Any]]: 各データごとの処理結果を返す（例：status/score/エラーなど）
         """
         pass
