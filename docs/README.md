@@ -124,3 +124,130 @@ class SampleBatchProcessor(BaseBatchProcessor):
     - cleanup 例外は最終的に RuntimeError となる
 
 （tests/unit/processors/ 参照）
+
+## Portrait Quality Evaluation – Design Memo
+
+## 目的
+
+ポートレート写真を
+技術品質・顔品質・構図の3軸で評価し、
+運用可能な accepted / rejected 判定 と理由を安定して出力する。
+
+本設計は以下を重視する：
+- 閾値ロジックの 明確化
+- CSV 出力の 安定性
+- 将来の Lightroom / 再学習 / 集計への拡張性
+
+テストによる 仕様固定
+
+## 評価パイプライン概要
+```powershell
+画像
+ ↓
+PortraitQualityEvaluator.evaluate()
+ ├─ 顔検出（insightface）
+ ├─ 技術評価（sharpness / noise / contrast / blur / exposure）
+ ├─ 顔領域評価（face_*）
+ ├─ 構図評価（rule-based）
+ ├─ 派生指標
+ │   ├─ lead_room_score
+ │   ├─ delta_face_sharpness
+ │   └─ delta_face_contrast
+ └─ accepted 判定（3ルート）
+ ↓
+PortraitQualityBatchProcessor
+ ↓
+CSV 出力（ヘッダ保証済み）
+```
+
+## accepted 判定ロジック
+判定は 3ルート制（優先順位あり）
+
+優先順位
+
+```nginx
+face_quality  >  composition  >  technical
+```
+
+Route C: face_quality（最優先）
+
+「顔が良ければ採用」
+- 顔が検出されている
+- 顔のシャープネス・ノイズが高い
+- 顔が不自然に悪化していない（delta_face_*）
+- yaw が大きすぎない
+
+```python
+accepted_reason = "face_quality"
+```
+
+Route A: composition
+
+「構図が良ければ採用」
+- 三分割・フレーミングが良好
+- 視線方向に余白がある（lead_room_score）
+- 最低限の技術品質を満たす
+
+```python
+accepted_reason = "composition"
+```
+
+Route B: technical
+
+「技術的に非常に安定していれば採用」
+- ノイズ・コントラスト・ブレが高水準
+- 顔品質が致命的に悪化していない
+
+```python
+accepted_reason = "technical"
+```
+
+Rejected
+
+どのルートにも該当しない場合：
+
+```python
+accepted_flag = False
+accepted_reason = "rejected"
+```
+
+## 出力フィールド設計（CSV）
+顔系
+
+- face_detected
+- face_*_score
+- yaw / pitch / roll / gaze
+- delta_face_sharpness
+- delta_face_contrast
+
+画像全体
+
+- sharpness_score
+- noise_score
+- contrast_score
+- blurriness_score
+- exposure_score
+
+構図
+- composition_rule_based_score
+- framing_score
+- face_position_score
+- face_direction_score
+- lead_room_score
+
+判定メタ
+- accepted_flag
+- accepted_reason
+
+※ ヘッダは PortraitQualityHeaderGenerator で一元管理
+※ CSV 出力はテストで保証済み
+
+## テスト戦略（要点）
+レイヤ	目的
+Evaluator	accepted 分岐・優先順位を固定
+Header	CSV ヘッダ漏れ防止
+Batch	save_results が実際に書くことを保証
+
+重要
+評価ロジックを変える場合は、
+必ず accepted 判定テストが落ちる → 修正 → 通す、の順で行う。

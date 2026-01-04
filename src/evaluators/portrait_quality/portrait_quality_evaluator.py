@@ -106,13 +106,13 @@ class PortraitQualityEvaluator:
                 )
                 return {}
 
+            face_result = {"faces": []}
             if self.skip_face_processing:
                 self.logger.info("顔処理をスキップします。")
-                faces = []
             else:
                 face_result = self.face_processor.detect_faces(self.rgb_image)
-                faces = face_result.get("faces", [])
 
+            faces = face_result.get("faces", [])
             results["face_detected"] = bool(faces)
             results["faces"] = faces
 
@@ -134,7 +134,16 @@ class PortraitQualityEvaluator:
                 results["roll"] = face_attrs.get("roll", 0)
                 results["gaze"] = face_attrs.get("gaze", [0, 0])
 
+                results["lead_room_score"] = self._calc_lead_room_score(self.rgb_image, best_face, results.get("yaw", 0.0)) 
+
                 results.update(self._evaluate_face_region(cropped_face))
+            else:
+                # best_faceが無いときもキーは出しておくとCSVが安定
+                results["yaw"] = 0
+                results["pitch"] = 0
+                results["roll"] = 0
+                results["gaze"] = [0, 0]
+                results["lead_room_score"] = 0.0
 
             composition_result = self._evaluate_composition(
                 self.rgb_image, face_result.get("faces", [])
@@ -148,6 +157,10 @@ class PortraitQualityEvaluator:
                     self._safe_evaluate(evaluator, self.resized_image_2048, key)
                 )
 
+            self._add_face_global_deltas(results)
+            accepted, reason = self._decide_accept(results)
+            results["accepted_flag"] = accepted
+            results["accepted_reason"] = reason
             return results
 
         except Exception as e:
@@ -288,3 +301,101 @@ class PortraitQualityEvaluator:
                 face_scores[f"face_{key}_score"] = 0
 
         return face_scores
+
+
+    # =========================
+    # utility
+    # =========================
+
+    def _calc_lead_room_score(self, image: np.ndarray, best_face: Dict[str, Any], yaw: float) -> float:
+        """
+        視線（yaw）の向きに余白があるほど +、逆なら -。
+        返り値: [-1, 1]
+        """
+        h, W = image.shape[:2]
+        box = best_face.get("box")  # [x, y, w, h]
+        if not box or len(box) != 4:
+            return 0.0
+
+        x, y, w, h = box
+        cx = x + w / 2.0
+        left_space = cx
+        right_space = W - cx
+
+        # yaw の符号は環境で逆のことがあるので、まず閾値だけ置く（微小は0）
+        if yaw > 5:        # 右向き想定
+            raw = (right_space - left_space) / W
+        elif yaw < -5:     # 左向き想定
+            raw = (left_space - right_space) / W
+        else:
+            raw = 0.0
+
+        # 安全にクリップ
+        if raw > 1.0:
+            raw = 1.0
+        elif raw < -1.0:
+            raw = -1.0
+        return float(raw)
+
+
+    def _add_face_global_deltas(self, results: Dict[str, Any]) -> None:
+        def d(a, b):
+            if a is None or b is None:
+                return None
+            try:
+                return float(a) - float(b)
+            except (TypeError, ValueError):
+                return None
+
+        results["delta_face_sharpness"] = d(
+            results.get("face_sharpness_score"), results.get("sharpness_score")
+        )
+        results["delta_face_contrast"] = d(
+            results.get("face_contrast_score"), results.get("contrast_score")
+        )
+
+
+    @staticmethod
+    def decide_accept_static(results: Dict[str, Any]) -> Tuple[bool, str]:
+        if not results.get("face_detected"):
+            return False, "no_face"
+
+        yaw = abs(float(results.get("yaw", 0)))
+
+        # Route C: face quality（最優先）
+        if (
+            results.get("exposure_score", 0) >= 0.5
+            and results.get("face_sharpness_score", 0) >= 75
+            and results.get("face_noise_score", 0) >= 70
+            and results.get("contrast_score", 0) >= 55
+            and results.get("blurriness_score", 0) >= 0.55
+            and results.get("delta_face_sharpness", -999) >= -10
+            and yaw <= 30
+        ):
+            return True, "face_quality"
+
+        # Route A: composition
+        if (
+            results.get("composition_rule_based_score", 0) >= 70
+            and results.get("framing_score", 0) >= 60
+            and results.get("lead_room_score", 0) >= 0.10
+            and results.get("noise_score", 0) >= 60
+            and results.get("blurriness_score", 0) >= 0.45
+            and results.get("exposure_score", 0) >= 0.5
+        ):
+            return True, "composition"
+
+        # Route B: technical
+        if (
+            results.get("noise_score", 0) >= 70
+            and results.get("contrast_score", 0) >= 60
+            and results.get("blurriness_score", 0) >= 0.60
+            and results.get("delta_face_sharpness", -999) >= -15
+            and results.get("exposure_score", 0) >= 1.0
+        ):
+            return True, "technical"
+
+        return False, "rejected"
+
+    def _decide_accept(self, results: Dict[str, Any]) -> Tuple[bool, str]:
+        return self.decide_accept_static(results)

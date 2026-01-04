@@ -364,6 +364,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                 os.fsync(f.fileno())  # 任意だが再開前提では有効
 
             self.processed_images.add(file_name)
+            self.logger.debug(f"Marked as processed: {file_name}")
 
     def save_results(
         self, results: List[Dict[str, Union[str, float, bool]]], file_path: str

@@ -16,6 +16,8 @@ class PortraitQualityHeaderGenerator:
             "pitch",
             "roll",
             "gaze",
+            "delta_face_sharpness",
+            "delta_face_contrast",
         ]
 
         self.image_evaluation_items = [
@@ -37,9 +39,12 @@ class PortraitQualityHeaderGenerator:
             "framing_score",
             "face_direction_score",
             "eye_contact_score",
+            "lead_room_score",        
         ]
 
         self.group_evaluation_items = ["group_id", "subgroup_id"]
+
+        self.result_meta_items = ["accepted_flag", "accepted_reason"]
 
     def get_all_headers(self) -> list:
         """
@@ -53,6 +58,7 @@ class PortraitQualityHeaderGenerator:
             + self.face_evaluation_items
             + self.composition_evaluation_items
             + self.group_evaluation_items
+            + self.result_meta_items
         )
 
     def get_face_headers(self) -> list:
@@ -78,3 +84,9 @@ class PortraitQualityHeaderGenerator:
         グループに関連する評価項目のリストを返す
         """
         return ["file_name"] + self.group_evaluation_items
+
+    def get_result_meta_headers(self) -> list:
+        """
+        結果メタデータに関連する評価項目のリストを返す
+        """
+        return ["file_name"] + self.result_meta_items
