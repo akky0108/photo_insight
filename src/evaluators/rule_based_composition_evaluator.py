@@ -1,6 +1,7 @@
 import numpy as np
 from evaluators.base_composition_evaluator import BaseCompositionEvaluator
 from utils.app_logger import Logger
+from typing import Any, Dict, Optional
 
 
 class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
@@ -9,6 +10,11 @@ class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
 
     顔の位置、フレーミング、顔の向き、顔のスケール、視線の向きの
     5つのルールに基づいて構図を評価し、スコアと分類情報を返します。
+
+    - 各ルールのスコアは 0〜1 の連続値
+    - 最終スコアは平均値 (face_composition_raw)
+    - 離散スコア (face_composition_score) は Noise / Exposure と同じ
+      0 / 0.25 / 0.5 / 0.75 / 1.0 スケール
     """
 
     # スコア定義キー（保守性・補完性向上）
@@ -17,13 +23,43 @@ class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
     FACE_DIRECTION = "face_direction_score"
     FACE_SCALE = "face_scale_score"
     EYE_CONTACT = "eye_contact_score"
-    FINAL_SCORE = "composition_rule_based_score"
+    FINAL_SCORE = "composition_rule_based_score"  # 従来互換用
+
+    # 新しい意味スコア（顔構図のまとめ）
+    FACE_COMPOSITION_RAW = "face_composition_raw"
+    FACE_COMPOSITION_SCORE = "face_composition_score"
 
     MAX_YAW_ANGLE = 45
     FRAME_MARGIN_RATIO = 0.05
 
-    def __init__(self, logger=None):
+    def __init__(
+        self,
+        logger=None,
+        config: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        Args:
+            logger: ロガー。指定がない場合は AppLogger を使用。
+            config: 閾値・重み・離散化ルールなどの設定。
+                    例:
+                    composition:
+                      discretize_thresholds:
+                        excellent: 0.85
+                        good: 0.70
+                        fair: 0.55
+                        poor: 0.40
+        """
         self.logger = logger or Logger(logger_name="RuleBasedCompositionEvaluator")
+        self.config = config or {}
+
+        comp_conf = self.config.get("composition", {})
+        disc_conf = comp_conf.get("discretize_thresholds", {})
+
+        # 離散化用しきい値（0〜1）
+        self.threshold_excellent = float(disc_conf.get("excellent", 0.85))
+        self.threshold_good = float(disc_conf.get("good", 0.70))
+        self.threshold_fair = float(disc_conf.get("fair", 0.55))
+        self.threshold_poor = float(disc_conf.get("poor", 0.40))
 
         # 関数参照ベースのルール評価関数群（IDE補完・安全性向上）
         self.RULE_EVALUATORS = [
@@ -44,22 +80,31 @@ class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
 
         Returns:
             dict: スコアと分類結果
+                - 各ルールのスコア (0〜1 の連続値)
+                - composition_rule_based_score: 従来の平均スコア (連続値)
+                - face_composition_raw: 連続値 (0〜1)
+                - face_composition_score: 離散値 (0 / 0.25 / 0.5 / 0.75 / 1.0)
         """
         results = {
-            self.FINAL_SCORE: 0,
-            self.FACE_POSITION: 0,
-            self.FRAMING: 0,
-            self.FACE_DIRECTION: 0,
-            self.FACE_SCALE: 0,
-            self.EYE_CONTACT: 0,
+            self.FINAL_SCORE: 0.0,
+            self.FACE_POSITION: 0.0,
+            self.FRAMING: 0.0,
+            self.FACE_DIRECTION: 0.0,
+            self.FACE_SCALE: 0.0,
+            self.EYE_CONTACT: 0.0,
             "group_id": "unclassified",
             "subgroup_id": 0,
+            # 新スキーマ
+            self.FACE_COMPOSITION_RAW: None,
+            self.FACE_COMPOSITION_SCORE: None,
         }
 
         if not face_boxes:
             self.logger.warning("顔が検出されませんでした。構図評価をスキップします。")
+            # 顔がない場合は「評価不能」として raw=None, score=None のまま返す
             return results
 
+        # 各ルール評価
         for rule_fn in self.RULE_EVALUATORS:
             rule_fn(image, face_boxes, results)
 
@@ -71,9 +116,16 @@ class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
             self.EYE_CONTACT,
         ]
         scores = [results[k] for k in keys if results[k] is not None]
-        avg_score = sum(scores) / len(scores) if scores else 0
-        results[self.FINAL_SCORE] = avg_score
+        avg_score = sum(scores) / len(scores) if scores else 0.0
 
+        # 連続値（生値）としての最終スコア
+        results[self.FINAL_SCORE] = float(avg_score)  # 互換用
+        results[self.FACE_COMPOSITION_RAW] = float(avg_score)
+
+        # 離散スコア（Noise / Exposure と同じスケール）
+        results[self.FACE_COMPOSITION_SCORE] = self._to_discrete_score(avg_score)
+
+        # グループ分類は従来通り連続値で判定
         results["group_id"] = self.classify_group(*[results[k] for k in keys])
         results["subgroup_id"] = (
             int(results[self.FACE_POSITION] * 100) * 10000
@@ -81,12 +133,38 @@ class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
             + int(results[self.FRAMING] * 100)
         )
 
-        self.logger.debug(f"Composition rule-based score: {avg_score:.2f}")
+        self.logger.debug(f"Composition rule-based raw score: {avg_score:.2f}")
+        self.logger.debug(
+            f"Face composition discrete score: {results[self.FACE_COMPOSITION_SCORE]:.2f}"
+        )
         self.logger.debug(
             f"Group ID: {results['group_id']}, Subgroup ID: {results['subgroup_id']}"
         )
         return results
 
+    # -----------------------
+    # 離散化ロジック
+    # -----------------------
+    def _to_discrete_score(self, value: float) -> float:
+        """
+        0〜1 の連続スコアを 0 / 0.25 / 0.5 / 0.75 / 1.0 に離散化する。
+        Noise / Exposure とスケールを揃える前提。
+        """
+        v = float(value)
+
+        if v >= self.threshold_excellent:
+            return 1.0
+        if v >= self.threshold_good:
+            return 0.75
+        if v >= self.threshold_fair:
+            return 0.5
+        if v >= self.threshold_poor:
+            return 0.25
+        return 0.0
+
+    # -----------------------
+    # 既存ロジック（そのまま）
+    # -----------------------
     def classify_group(
         self, fp: float, fr: float, fd: float, fs: float, ec: float
     ) -> str:

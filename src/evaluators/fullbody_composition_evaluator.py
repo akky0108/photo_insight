@@ -1,5 +1,5 @@
 import numpy as np
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional, Tuple, Dict, Any
 
 from evaluators.base_composition_evaluator import BaseCompositionEvaluator
 from utils.app_logger import Logger
@@ -8,15 +8,24 @@ from utils.app_logger import Logger
 class FullBodyCompositionEvaluator(BaseCompositionEvaluator):
     """
     全身ポーズや体のバランスに基づく構図評価クラス。
+
+    - BODY_POSITION / BODY_BALANCE / POSE_DYNAMICS の 3 要素を 0〜1 で評価
+    - 重み付き平均により body_composition_raw (0〜1) を算出
+    - body_composition_score は Noise / Exposure と同じ 5 段階
+      (0 / 0.25 / 0.5 / 0.75 / 1.0) の離散スコア
     """
 
     # スコアキー
     BODY_POSITION: str = "body_position_score"
     BODY_BALANCE: str = "body_balance_score"
     POSE_DYNAMICS: str = "pose_dynamics_score"
-    FINAL_SCORE: str = "composition_fullbody_score"
+    FINAL_SCORE: str = "composition_fullbody_score"  # 従来互換用
 
-    # スコア分類閾値
+    # 新しい意味スコア（全身構図のまとめ）
+    BODY_COMPOSITION_RAW: str = "body_composition_raw"
+    BODY_COMPOSITION_SCORE: str = "body_composition_score"
+
+    # スコア分類閾値（グループ分類用・raw 用）
     HIGH_QUALITY_THRESHOLD: float = 0.8
     MEDIUM_QUALITY_THRESHOLD: float = 0.5
 
@@ -27,21 +36,63 @@ class FullBodyCompositionEvaluator(BaseCompositionEvaluator):
         "low_quality": 0,
     }
 
-    # 重み設定
+    # 重み設定（必要なら config で上書き）
     WEIGHTS: Dict[str, float] = {
         BODY_POSITION: 0.4,
         BODY_BALANCE: 0.3,
         POSE_DYNAMICS: 0.3,
     }
 
-    def __init__(self, logger: Optional[Logger] = None) -> None:
+    def __init__(
+        self,
+        logger: Optional[Logger] = None,
+        config: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        Args:
+            logger: ロガー。指定がない場合は AppLogger を使用。
+            config: 閾値・重み・離散化ルールなどの設定。
+                    例:
+                    composition:
+                      discretize_thresholds:
+                        excellent: 0.85
+                        good: 0.70
+                        fair: 0.55
+                        poor: 0.40
+        """
         self.logger = logger or Logger(logger_name="FullBodyCompositionEvaluator")
+        self.config = config or {}
+
+        comp_conf = self.config.get("composition", {})
+        disc_conf = comp_conf.get("discretize_thresholds", {})
+
+        # 離散化用しきい値（0〜1）
+        self.threshold_excellent = float(disc_conf.get("excellent", 0.85))
+        self.threshold_good = float(disc_conf.get("good", 0.70))
+        self.threshold_fair = float(disc_conf.get("fair", 0.55))
+        self.threshold_poor = float(disc_conf.get("poor", 0.40))
+
+        # 重みを config から上書き可能にしておく（任意）
+        weights_conf: Dict[str, float] = comp_conf.get("fullbody_weights", {})
+        if weights_conf:
+            self.WEIGHTS = {
+                **self.WEIGHTS,
+                **{k: float(v) for k, v in weights_conf.items()},
+            }
 
     def evaluate(
         self, image: np.ndarray, body_keypoints: List[Optional[List[float]]]
     ) -> Dict[str, float]:
         """
         画像とキーポイントから構図スコアを評価し、結果を返す。
+
+        Returns:
+            dict:
+                - body_position_score / body_balance_score / pose_dynamics_score: 各0〜1の連続値
+                - composition_fullbody_score: 従来の最終スコア (0〜1 連続)
+                - body_composition_raw: 0〜1 の連続値（full body の意味スコア）
+                - body_composition_score: 0 / 0.25 / 0.5 / 0.75 / 1.0 の離散値
+                - group_id / subgroup_id: 従来通りのグループ分類
         """
         results: Dict[str, float] = {
             self.FINAL_SCORE: 0.0,
@@ -50,15 +101,25 @@ class FullBodyCompositionEvaluator(BaseCompositionEvaluator):
             self.POSE_DYNAMICS: 0.0,
             "group_id": "unclassified",
             "subgroup_id": 0,
+            # 新スキーマ
+            self.BODY_COMPOSITION_RAW: None,
+            self.BODY_COMPOSITION_SCORE: None,
         }
 
         results[self.BODY_POSITION] = self.evaluate_body_position(image, body_keypoints)
         results[self.BODY_BALANCE] = self.evaluate_body_balance(image, body_keypoints)
         results[self.POSE_DYNAMICS] = self.evaluate_pose_dynamics(image, body_keypoints)
 
-        results[self.FINAL_SCORE] = self.calculate_final_score(results)
+        # 連続値の最終スコア（従来の composition_fullbody_score）
+        final_raw: float = self.calculate_final_score(results)
+        results[self.FINAL_SCORE] = final_raw
+        results[self.BODY_COMPOSITION_RAW] = final_raw
 
-        group: str = self.classify_group(results[self.FINAL_SCORE])
+        # 離散スコア（Noise / Exposure とスケールを揃える）
+        results[self.BODY_COMPOSITION_SCORE] = self._to_discrete_score(final_raw)
+
+        # グループ分類は raw スコアを使用（従来ロジック）
+        group: str = self.classify_group(final_raw)
         results["group_id"] = group
         results["subgroup_id"] = self.SUBGROUP_MAP.get(group, 0)
 
@@ -66,11 +127,36 @@ class FullBodyCompositionEvaluator(BaseCompositionEvaluator):
             f"Scores - Position: {results[self.BODY_POSITION]:.2f}, "
             f"Balance: {results[self.BODY_BALANCE]:.2f}, "
             f"Dynamics: {results[self.POSE_DYNAMICS]:.2f}, "
-            f"Final: {results[self.FINAL_SCORE]:.2f}, Group: {group}"
+            f"Raw: {final_raw:.2f}, "
+            f"Discrete: {results[self.BODY_COMPOSITION_SCORE]:.2f}, "
+            f"Group: {group}"
         )
 
         return results
 
+    # -----------------------
+    # 離散化ロジック
+    # -----------------------
+    def _to_discrete_score(self, value: float) -> float:
+        """
+        0〜1 の連続スコアを 0 / 0.25 / 0.5 / 0.75 / 1.0 に離散化する。
+        Noise / Exposure / Composition でスケールを統一するための共通設計。
+        """
+        v = float(value)
+
+        if v >= self.threshold_excellent:
+            return 1.0
+        if v >= self.threshold_good:
+            return 0.75
+        if v >= self.threshold_fair:
+            return 0.5
+        if v >= self.threshold_poor:
+            return 0.25
+        return 0.0
+
+    # -----------------------
+    # 個別スコア & グループ分類
+    # -----------------------
     def calculate_final_score(self, results: Dict[str, float]) -> float:
         """
         個別スコアと重みに基づき、最終スコアを計算。
@@ -87,7 +173,7 @@ class FullBodyCompositionEvaluator(BaseCompositionEvaluator):
 
     def classify_group(self, score: float) -> str:
         """
-        スコアに基づきグループ分類を行う。
+        スコアに基づきグループ分類を行う（連続値ベース）。
         """
         if score >= self.HIGH_QUALITY_THRESHOLD:
             return "high_quality"
