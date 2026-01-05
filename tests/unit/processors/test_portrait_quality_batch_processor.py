@@ -19,7 +19,6 @@ def processor(tmp_path):
                     self.memory_threshold = 90
 
                 def setup(self) -> None:
-                    # super().setup() を呼ばない
                     self._set_directories_and_files()
                     self._load_processed_images()
                     self.memory_threshold_exceeded = False
@@ -38,10 +37,19 @@ def processor(tmp_path):
             proc = TestablePortraitQualityBatchProcessor(
                 config_path=None, logger=MagicMock(), date="2025-01-01", batch_size=2
             )
+
+            picture_root = tmp_path / "picture_root"
+            # date 指定時に実際に見に行くパスを作る: <picture_root>/<year>/<date>
+            (picture_root / "2025" / "2025-01-01").mkdir(parents=True, exist_ok=True)
+
+            out_dir = tmp_path / "output"
+            out_dir.mkdir(parents=True, exist_ok=True)
+
             proc.config = {
                 "batch_size": 2,
-                "output_directory": str(tmp_path / "output"),
-                "base_directory_root": str(tmp_path / "base"),
+                "output_directory": str(out_dir),
+                "picture_root": str(picture_root),   # ★ここが重要
+                # "base_directory_root" はこのコードパスでは使われないので不要
             }
             return proc
 

@@ -96,39 +96,38 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         ディレクトリとファイルパスを設定するヘルパー。
         日付指定がある場合はそれに応じたパスを生成。
         """
+        import re
+
+        picture_root = self.config.get("picture_root", "/mnt/l/picture")
+
         self.output_directory = self.config.get("output_directory", "temp")
         os.makedirs(self.output_directory, exist_ok=True)
 
-        base_directory_root = self.config.get(
-            "base_directory_root", "/mnt/l/picture/2024"
-        )
         if self.date:
-            self.base_directory = os.path.join(base_directory_root, self.date)
-            self.image_csv_file = os.path.join(
-                self.output_directory, f"{self.date}_raw_exif_data.csv"
-            )
-            self.result_csv_file = os.path.join(
-                self.output_directory, f"evaluation_results_{self.date}.csv"
-            )
-            self.processed_images_file = os.path.join(
-                self.output_directory, f"processed_images_{self.date}.txt"
-            )
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", self.date):
+                raise ValueError(f"Invalid date format: {self.date} (expected YYYY-MM-DD)")
+            year = self.date[:4]
+            self.base_directory = os.path.join(picture_root, year, self.date)
         else:
             self.base_directory = self.config.get(
-                "base_directory", "/mnt/l/picture/2024/2024-07-02/"
-            )
-            self.image_csv_file = os.path.join(
-                self.output_directory, "nef_exif_data.csv"
-            )
-            self.result_csv_file = os.path.join(
-                self.output_directory, "evaluation_results.csv"
-            )
-            self.processed_images_file = os.path.join(
-                self.output_directory, "processed_images.txt"
+                "base_directory", "/mnt/l/picture/2025/2025-01-01"
             )
 
-        os.makedirs(self.base_directory, exist_ok=True)
+        if self.date:
+            self.image_csv_file = os.path.join(self.output_directory, f"{self.date}_raw_exif_data.csv")
+            self.result_csv_file = os.path.join(self.output_directory, f"evaluation_results_{self.date}.csv")
+            self.processed_images_file = os.path.join(self.output_directory, f"processed_images_{self.date}.txt")
+        else:
+            self.image_csv_file = os.path.join(self.output_directory, "nef_exif_data.csv")
+            self.result_csv_file = os.path.join(self.output_directory, "evaluation_results.csv")
+            self.processed_images_file = os.path.join(self.output_directory, "processed_images.txt")
+
+        # 入力元は作らない。存在しないなら即落として設定ミスを早期発見する。
+        if not os.path.isdir(self.base_directory):
+            raise FileNotFoundError(f"Base directory does not exist: {self.base_directory}")
+
         self.logger.info(f"ベースディレクトリ: {self.base_directory}")
+
 
     def _load_processed_images(self) -> None:
         """

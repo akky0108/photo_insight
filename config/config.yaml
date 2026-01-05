@@ -27,8 +27,7 @@ paths:
 append_mode: false
 
 # 基本のディレクトリパス（例: /mnt/l/picture/2024/2024-08-26）
-base_directory: "/mnt/l/picture/2025/"
-base_directory_root: "/mnt/l/picture/2025/"
+base_directory: "/mnt/l/picture/"
 
 # ターゲット日付
 target_date: "2025-01-01"

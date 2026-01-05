@@ -4,18 +4,28 @@ from evaluators.portrait_quality.portrait_quality_evaluator import PortraitQuali
 
 def _base(**overrides):
     r = dict(
+        # face
         face_detected=True,
         yaw=0,
         exposure_score=1.0,
         face_sharpness_score=0,
         face_noise_score=0,
         delta_face_sharpness=-999,
+
+        # composition
         composition_rule_based_score=0,
         framing_score=0,
         lead_room_score=0.0,
+
+        # technical
         noise_score=0,
         contrast_score=0,
         blurriness_score=0.0,
+
+        # full body (NEW)
+        full_body_detected=False,
+        pose_score=0.0,
+        full_body_cut_risk=1.0,
     )
     r.update(overrides)
     return r
@@ -29,6 +39,48 @@ def test_no_face():
     accepted, reason = _decide(_base(face_detected=False))
     assert accepted is False
     assert reason == "no_face"
+
+
+def test_full_body_accept():
+    accepted, reason = _decide(_base(
+        face_detected=False,
+        full_body_detected=True,
+        pose_score=55,
+        full_body_cut_risk=0.6,
+        noise_score=60,
+        blurriness_score=0.45,
+        exposure_score=0.5,
+    ))
+    assert accepted is True
+    assert reason == "full_body"
+
+
+def test_full_body_rejected():
+    accepted, reason = _decide(_base(
+        face_detected=False,
+        full_body_detected=True,
+        pose_score=10,              # 条件未達
+        full_body_cut_risk=0.9,     # 条件未達
+        noise_score=10,
+        blurriness_score=0.1,
+        exposure_score=0.0,
+    ))
+    assert accepted is False
+    assert reason == "full_body_rejected"
+
+
+def test_full_body_rejected_by_cut_risk():
+    accepted, reason = _decide(_base(
+        face_detected=False,
+        full_body_detected=True,
+        pose_score=80,           # ここは満たす
+        full_body_cut_risk=0.9,  # ここで落ちる
+        noise_score=80,
+        blurriness_score=0.6,
+        exposure_score=1.0,
+    ))
+    assert accepted is False
+    assert reason == "full_body_rejected"
 
 
 def test_face_quality():
@@ -85,7 +137,6 @@ def test_rejected():
 
 
 def test_priority_face_quality_over_composition():
-    # face_quality も composition も満たすが、face_quality が勝つべき
     accepted, reason = _decide(_base(
         # face_quality 条件
         exposure_score=0.5,
@@ -122,3 +173,22 @@ def test_priority_composition_over_technical():
     ))
     assert accepted is True
     assert reason == "composition"
+
+
+def test_full_body_does_not_override_face_routes():
+    accepted, reason = _decide(_base(
+        face_detected=True,
+        full_body_detected=True,
+        pose_score=100,
+        full_body_cut_risk=0.0,
+        # face_quality で落ちる条件にする
+        exposure_score=0.0,
+        face_sharpness_score=0,
+        face_noise_score=0,
+        blurriness_score=0.0,
+        contrast_score=0,
+    ))
+    assert accepted is False
+    assert reason == "rejected"
+
+    

@@ -116,6 +116,35 @@ class PortraitQualityEvaluator:
             results["face_detected"] = bool(faces)
             results["faces"] = faces
 
+            # --- Full body / pose ---
+            body_result: Dict[str, Any] = {}
+            try:
+                # 新API（推奨）: detect() が dict を返す想定
+                body_result = self.body_detector.detect(self.rgb_image)
+            except AttributeError:
+                # 旧API: detect_full_body() しか無い
+                full_body = bool(self.body_detector.detect_full_body(self.rgb_image))
+                body_result = {
+                    "full_body_detected": full_body,
+                    # full_body だけでも判定できるようデフォルトを入れる
+                    "pose_score": 100.0 if full_body else 0.0,
+                    "full_body_cut_risk": 0.0 if full_body else 1.0,
+                }
+            except Exception as e:
+                self.logger.warning(f"全身検出に失敗: {e}")
+                body_result = {
+                    "full_body_detected": False,
+                    "pose_score": 0.0,
+                    "full_body_cut_risk": 1.0,
+                }
+
+            # ★必須キー穴埋め（detect() 実装の揺れを吸収）
+            results.update(body_result)
+            results.setdefault("full_body_detected", False)
+            results.setdefault("pose_score", 0.0)
+            results.setdefault("full_body_cut_risk", 1.0)
+
+            # 構図評価
             composition_result = self._evaluate_composition(self.rgb_image, faces)
             results.update(composition_result)
 
@@ -357,7 +386,47 @@ class PortraitQualityEvaluator:
 
     @staticmethod
     def decide_accept_static(results: Dict[str, Any]) -> Tuple[bool, str]:
+        full_body_ok = (
+            results.get("full_body_detected") is True
+            and results.get("pose_score", 0.0) >= 1.0
+            and results.get("full_body_cut_risk", 0.0) <= 0.6
+            and results.get("noise_score", 0) >= 60
+            and results.get("blurriness_score", 0) >= 0.45
+            and results.get("exposure_score", 0) >= 0.5
+        )
+
+        # --- Full body route: 顔が無くても全身が検出できていればルート判定へ ---
         if not results.get("face_detected"):
+            if results.get("full_body_detected"):
+                # pose_score は 0/1 or 0/100 どっちでも来てもOKにする
+                pose_score = results.get("pose_score", 0.0)
+                try:
+                    pose_score = float(pose_score)
+                except (TypeError, ValueError):
+                    pose_score = 0.0
+
+                # 0/1系なら100スケールに寄せる
+                if 0.0 <= pose_score <= 1.0:
+                    pose_score *= 100.0
+
+                cut_risk = results.get("full_body_cut_risk", 1.0)
+                try:
+                    cut_risk = float(cut_risk)
+                except (TypeError, ValueError):
+                    cut_risk = 1.0
+
+                # 全身ルート（顔なしでもOK）
+                if (
+                    pose_score >= 55.0
+                    and cut_risk <= 0.6
+                    and results.get("noise_score", 0) >= 60
+                    and results.get("blurriness_score", 0) >= 0.45
+                    and results.get("exposure_score", 0) >= 0.5
+                ):
+                    return True, "full_body"
+
+                return False, "full_body_rejected"
+
             return False, "no_face"
 
         yaw = abs(float(results.get("yaw", 0)))
@@ -373,6 +442,10 @@ class PortraitQualityEvaluator:
             and yaw <= 30
         ):
             return True, "face_quality"
+
+        # Route D: full body（顔が弱くても拾う）
+        if full_body_ok:
+            return True, "full_body"
 
         # Route A: composition
         if (

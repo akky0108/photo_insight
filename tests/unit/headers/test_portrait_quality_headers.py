@@ -36,3 +36,19 @@ def test_save_results_writes_acceptance_columns(tmp_path):
     assert "accepted_flag" in text
     assert "accepted_reason" in text
     assert "face_quality" in text
+
+
+def test_headers_include_full_body_columns():
+    headers = PortraitQualityHeaderGenerator().get_all_headers()
+
+    expected_keys = [
+        "full_body_detected",
+        "pose_score",
+        "headroom_ratio",
+        "footroom_ratio",
+        "side_margin_min_ratio",
+        "full_body_cut_risk",
+    ]
+
+    for key in expected_keys:
+        assert key in headers, f"{key} is missing from CSV headers"

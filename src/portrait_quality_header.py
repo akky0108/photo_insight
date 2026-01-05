@@ -42,6 +42,15 @@ class PortraitQualityHeaderGenerator:
             "lead_room_score",        
         ]
 
+        self.body_evaluation_items = [
+            "full_body_detected",
+            "pose_score",
+            "headroom_ratio",
+            "footroom_ratio",
+            "side_margin_min_ratio",
+            "full_body_cut_risk",
+        ]
+
         self.group_evaluation_items = ["group_id", "subgroup_id"]
 
         self.result_meta_items = ["accepted_flag", "accepted_reason"]
@@ -55,6 +64,7 @@ class PortraitQualityHeaderGenerator:
                 "file_name",  # ファイル名は必ず最初に追加
             ]
             + self.image_evaluation_items
+            + self.body_evaluation_items 
             + self.face_evaluation_items
             + self.composition_evaluation_items
             + self.group_evaluation_items
