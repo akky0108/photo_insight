@@ -74,6 +74,15 @@ class PortraitQualityHeaderGenerator:
             "full_body_cut_risk",
         ]
 
+        self.body_evaluation_items = [
+            "full_body_detected",
+            "pose_score",
+            "headroom_ratio",
+            "footroom_ratio",
+            "side_margin_min_ratio",
+            "full_body_cut_risk",
+        ]
+
         self.group_evaluation_items = ["group_id", "subgroup_id"]
 
         self.result_meta_items = ["accepted_flag", "accepted_reason"]
