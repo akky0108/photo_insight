@@ -207,7 +207,40 @@ class PortraitQualityEvaluator:
             results["face_detected"] = bool(faces)
             results["faces"] = faces
 
-            composition_result = self._evaluate_composition(self.rgb_image, faces)
+            # --- Full body / pose ---
+            body_result: Dict[str, Any] = {}
+            try:
+                body_result = self.body_detector.detect(self.bgr_u8)
+            except AttributeError:
+                full_body = bool(self.body_detector.detect_full_body(self.bgr_u8))
+                body_result = {
+                    "full_body_detected": full_body,
+                    "pose_score": 100.0 if full_body else 0.0,
+                    "full_body_cut_risk": 0.0 if full_body else 1.0,
+                }
+            except Exception as e:
+                self.logger.warning(f"全身検出に失敗: {e}")
+                body_result = {
+                    "full_body_detected": False,
+                    "pose_score": 0.0,
+                    "full_body_cut_risk": 1.0,
+                }
+
+            # ★必須キー穴埋め（detect() 実装の揺れを吸収）
+            results.update(body_result)
+            results.setdefault("full_body_detected", False)
+            results.setdefault("pose_score", 0.0)
+            results.setdefault("full_body_cut_risk", 1.0)
+
+            # ★ body_keypoints を拾う（キー名は想定なので、存在しなければ []）
+            body_keypoints = (
+                body_result.get("keypoints")
+                or body_result.get("body_keypoints")
+                or []
+            )
+
+            # 構図評価(１回目)
+            composition_result = self._evaluate_composition(self.rgb_u8, faces, body_keypoints)
             results.update(composition_result)
 
             # 顔のスコア計算（顔全体に対して）
@@ -612,8 +645,166 @@ class PortraitQualityEvaluator:
 
 
     @staticmethod
-    def decide_accept_static(results: Dict[str, Any]) -> Tuple[bool, str]:
-        if not results.get("face_detected"):
+    def decide_accept_static(
+        results: Dict[str, Any],
+        thresholds: Optional[Dict[str, float]] = None,  # ★ 追加
+    ) -> Tuple[bool, str]:
+        """
+        ノイズスコアが 0〜1 の 5段階離散 (1.0, 0.75, 0.5, 0.25, 0.0) を前提とした判定。
+
+        旧ロジックの 60 / 70 しきい値は以下のようにマッピング:
+            60  → 0.5  (fair 以上)
+            70  → 0.75 (good 以上)
+
+        さらに noise_grade / face_noise_grade も補助的に参照する:
+            excellent → 1.0
+            good      → 0.75
+            fair/warn → 0.5
+            poor      → 0.25
+            bad       → 0.0
+        """
+
+        def _f(key: str, default: float = 0.0) -> float:
+            v = results.get(key, default)
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return float(default)
+
+        def _pose_to_100(v: float) -> float:
+            """
+            pose_score が 0〜1 / 0〜100 どちらでも来てもよいように正規化する。
+            """
+            try:
+                v = float(v)
+            except (TypeError, ValueError):
+                return 0.0
+            if 0.0 <= v <= 1.0:
+                return v * 100.0
+            return v
+
+        def _grade_to_score_like(grade: str) -> float | None:
+            """
+            grade 文字列から 0〜1 のスコア相当値にマッピング。
+            未知のラベルは None（無視）とする。
+            """
+            if not grade:
+                return None
+            g = grade.strip().lower()
+
+            if g in ("excellent", "very_good", "best"):
+                return 1.0
+            if g in ("good",):
+                return 0.75
+            if g in ("fair", "ok", "warn"):
+                return 0.5
+            if g in ("poor", "weak"):
+                return 0.25
+            if g in ("bad", "ng"):
+                return 0.0
+            return None
+
+        def _ok_from(score: float, grade_score: float | None, thr: float) -> bool:
+            """
+            数値スコア or グレード由来スコアのどちらかが閾値を超えれば OK。
+            """
+            if score >= thr:
+                return True
+            if grade_score is not None and grade_score >= thr:
+                return True
+            return False
+
+        def _thr(name: str, default: float) -> float:
+            """
+            閾値テーブルから取り出し。なければデフォルトを使う。
+            """
+            if thresholds is None:
+                return default
+            try:
+                return float(thresholds.get(name, default))
+            except (TypeError, ValueError):
+                return default
+
+        # 共通で使う数値を先に float 化
+        noise_score = _f("noise_score", 0.0)
+        face_noise_score = _f("face_noise_score", 0.0)
+        blurriness_score = _f("blurriness_score", 0.0)
+        exposure_score = _f("exposure_score", 0.0)
+        pose_score_raw = _f("pose_score", 0.0)
+        pose_score_100 = _pose_to_100(pose_score_raw)
+        full_body_cut_risk = _f("full_body_cut_risk", 1.0)
+        yaw = abs(_f("yaw", 0.0))
+
+        contrast_score = _f("contrast_score", 0.0)
+
+        # ★ 新スケール: まず composition_score (0〜1) を使い、
+        #   無ければ従来の composition_rule_based_score をフォールバックで使う
+        raw_comp_score = results.get("composition_score")
+        if raw_comp_score is not None:
+            try:
+                composition_score = float(raw_comp_score)
+            except (TypeError, ValueError):
+                composition_score = _f("composition_rule_based_score", 0.0)
+        else:
+            composition_score = _f("composition_rule_based_score", 0.0)
+
+        framing_score = _f("framing_score", 0.0)
+        lead_room_score = _f("lead_room_score", 0.0)
+
+        delta_face_sharpness = _f("delta_face_sharpness", -999.0)
+        face_sharpness_score = _f("face_sharpness_score", 0.0)
+
+        full_body_detected = bool(results.get("full_body_detected"))
+        face_detected = bool(results.get("face_detected"))
+
+        # grade 情報も読む
+        noise_grade = str(results.get("noise_grade", "") or "")
+        face_noise_grade = str(results.get("face_noise_grade", "") or "")
+
+        noise_grade_score = _grade_to_score_like(noise_grade)
+        face_noise_grade_score = _grade_to_score_like(face_noise_grade)
+
+        # --- ノイズ関連の閾値 ---
+        noise_ok_thr = _thr("noise_ok", 0.5)
+        noise_good_thr = _thr("noise_good", 0.75)
+        face_noise_good_thr = _thr("face_noise_good", 0.75)
+
+        noise_ok = _ok_from(noise_score, noise_grade_score, noise_ok_thr)
+        noise_good = _ok_from(noise_score, noise_grade_score, noise_good_thr)
+        face_noise_good = _ok_from(face_noise_score, face_noise_grade_score, face_noise_good_thr)
+
+        # full body 共通条件（pose_score は 0〜100 換算で扱う）
+        pose_min_100 = _thr("full_body_pose_min_100", 55.0)
+        cut_risk_max = _thr("full_body_cut_risk_max", 0.6)
+        blurriness_min_full = _thr("blurriness_min_full_body", 0.45)
+        exposure_min_common = _thr("exposure_min_common", 0.5)
+
+        full_body_ok = (
+            full_body_detected
+            and pose_score_100 >= pose_min_100
+            and full_body_cut_risk <= cut_risk_max
+            and noise_ok
+            and blurriness_score >= blurriness_min_full
+            and exposure_score >= exposure_min_common
+        )
+
+        # --- Full body route: 顔が無くても全身が検出できていればルート判定へ ---
+        if not face_detected:
+            if full_body_detected:
+                cut_risk = full_body_cut_risk
+
+                # 全身ルート（顔なしでもOK）
+                if (
+                    pose_score_100 >= pose_min_100
+                    and cut_risk <= cut_risk_max
+                    and noise_ok
+                    and blurriness_score >= blurriness_min_full
+                    and exposure_score >= exposure_min_common
+                ):
+                    return True, "full_body"
+
+                return False, "full_body_rejected"
+
             return False, "no_face"
 
         # ==== ここから顔ありルート ====
