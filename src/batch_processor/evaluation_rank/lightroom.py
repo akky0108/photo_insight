@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 
 # Lightroom（日本語ラベルセット想定）: 表示名マップ
@@ -55,32 +55,35 @@ def score_to_rating(overall: float) -> int:
     return 0
 
 
-def choose_color_label(category: str, accepted_flag: int, rating: int) -> str:
+def choose_color_label(category: str, accepted_flag: int, secondary_flag: int, rating: int) -> str:
     """
     Lightroom color label の運用ルール
 
-    Green  : 採用確定（accepted_flag=1）
-    Yellow : 惜しい（★3以上だが未採用）
+    Green  : 本採用（accepted_flag=1）
+    Yellow : セカンダリ採用（secondary_accept_flag=1）
     Red    : 問題あり（★1以下）
     None   : その他
     """
+    # 本採用が最優先
     if accepted_flag == 1:
         return "Green"
 
-    if rating >= 3:
+    # セカンダリ採用
+    if secondary_flag == 1:
         return "Yellow"
 
+    # 明らかに微妙（低レーティング）
     if rating <= 1:
         return "Red"
 
+    # それ以外は色なし（星だけで判断）
     return ""
 
 
-def shorten_reason_for_lr(reason: str, max_len: int = 90) -> str:
+def shorten_reason_for_lr(reason: str, max_len: int = 90, prefix: str = "ACC:") -> str:
     """
     Lightroom のキーワード用に短文化する。
-    - accepted=1 の写真だけに付与される前提
-    - 冒頭に ACC: を付けて検索性を上げる
+    - prefix で ACC: / SEC: などを付けられる
     """
     if not reason:
         return ""
@@ -94,11 +97,10 @@ def shorten_reason_for_lr(reason: str, max_len: int = 90) -> str:
     s = s.replace(" comp=", " c=")
     s = s.replace("overall=", "o=")
 
-    # 余分な空白を削除
     s = " ".join(s.split())
 
-    # accepted 写真の明示トークン
-    s = "ACC:" + s
+    if prefix:
+        s = prefix + s
 
     return s[:max_len]
 
@@ -140,17 +142,40 @@ def apply_lightroom_fields(row: Dict[str, Any], *, keyword_max_len: int = 90) ->
     rating = score_to_rating(overall)
 
     accepted_flag = int(row.get("accepted_flag", 0) or 0)
+    secondary_flag = int(row.get("secondary_accept_flag", 0) or 0)  # ★追加
     category = str(row.get("category", "") or "")
 
-    label = choose_color_label(category, accepted_flag, rating)
+    label = choose_color_label(category, accepted_flag, secondary_flag, rating)
 
     row["lr_rating"] = rating
     row["lr_color_label"] = label  # 既存互換として残す（任意）
     row["lr_labelcolor_key"] = to_labelcolor_key(label)
     row["lr_label_display"] = to_label_display_from_key(row["lr_labelcolor_key"])
 
-    reason = row.get("accepted_reason", "") or ""
+    reason_primary = row.get("accepted_reason", "") or ""
+    reason_secondary = row.get("secondary_accept_reason", "") or ""
+
     if accepted_flag == 1:
-        row["lr_keywords"] = shorten_reason_for_lr(reason, max_len=keyword_max_len)
+        # 本採用 → ACC:
+        row["lr_keywords"] = shorten_reason_for_lr(
+            reason_primary, max_len=keyword_max_len, prefix="ACC:"
+        )
+    elif secondary_flag == 1:
+        # セカンダリ → SEC:
+        # secondary_accept_reason 側にすでに "SEC:" が含まれている場合は prefix="" でもOK
+        # ここでは prefix="SEC:" を付けて分かりやすくしている
+        row["lr_keywords"] = shorten_reason_for_lr(
+            reason_secondary, max_len=keyword_max_len, prefix="SEC:"
+        )
     else:
         row["lr_keywords"] = ""
+
+
+# ここを追加
+def apply_lightroom_fields_to_rows(rows: List[Dict[str, Any]], *, keyword_max_len: int = 90) -> None:
+    """
+    rows 全体に apply_lightroom_fields を適用するヘルパー。
+    バッチ処理側はこれを1発呼べばよい。
+    """
+    for r in rows:
+        apply_lightroom_fields(r, keyword_max_len=keyword_max_len)

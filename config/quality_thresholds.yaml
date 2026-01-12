@@ -154,18 +154,38 @@ quality_thresholds:
       face_noise_good: 0.75
       full_body_pose_min_100: 55.0
       full_body_cut_risk_max: 0.6
-      blurriness_min_full_body: 0.45
+      blurriness_min_full_body: 0.40
       exposure_min_common: 0.5
       composition_score_min: 0.75
       framing_score_min: 0.5
       lead_room_score_min: 0.10
       face_quality_exposure_min: 0.5
       face_quality_face_sharpness_min: 0.75
-      face_quality_contrast_min: 55.0
-      face_quality_blur_min: 0.55
+      face_quality_contrast_min: 0.5
+      face_quality_blur_min: 0.50
       face_quality_delta_face_sharpness_min: -10.0
       face_quality_yaw_max_abs_deg: 30.0
-      technical_contrast_min: 60.0
-      technical_blur_min: 0.60
+      technical_contrast_min: 0.55
+      technical_blur_min: 0.55
       technical_delta_face_sharpness_min: -15.0
       technical_exposure_min: 1.0
+      technical_face_blur_min: 0.50
+      technical_face_sharpness_min: 0.50
+      expression_min: 0.6
+    
+      # shot_type: full body / seated / upper_body / face_only 用
+      full_body_body_height_min: 0.30
+      full_body_cut_risk_max_for_shot_type: 0.90
+      full_body_footroom_min_for_shot_type: 0.00
+
+      seated_center_y_min: 0.50
+      seated_center_y_max: 0.75
+      seated_footroom_max: 0.22
+      seated_body_height_min: 0.30
+
+      upper_body_headroom_min: 0.15
+      upper_body_footroom_max: 0.15
+      face_only_body_height_max: 0.35
+      center_side_margin_min: 0.02
+
+

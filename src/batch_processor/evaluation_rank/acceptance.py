@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 # accepted_flag（分布ベース）
 DEFAULT_ACCEPT_RULES = {
-    "portrait": {"percentile": 70, "max_accept": 5},
+    "portrait": {"percentile": 70, "max_accept": 8},
     "non_face": {"percentile": 80, "max_accept": 3},
 }
 
@@ -84,7 +84,7 @@ def build_accepted_reason(
     """
     accepted_reason を 1列にまとめる。
     - accepted_flag=1: contrib 上位Nだけで短文化
-    - accepted_flag=0: フル（デバッグ用に残す）
+    - accepted_flag=0: 空文字（現状運用を維持）
     """
     def _to_float(d: Dict[str, Any]) -> Dict[str, float]:
         return {k: safe_float(v) for k, v in d.items()}
@@ -106,10 +106,13 @@ def build_accepted_reason(
         merged.update({f"comp.{k}": v for k, v in c.items()})
 
         top = _top_items(merged, top_n)
-        top_txt = ", ".join([f"{k}={format_score(v)}" for k, v in top]) if top else ""
+        top_txt = ", ".join(
+            [f"{k}={format_score(v)}" for k, v in top]
+        ) if top else ""
 
         return (
-            f"{category} rank={rank}/{max_accept} thr={format_score(threshold)} "
+            f"{category} rank={rank}/{max_accept} "
+            f"thr={format_score(threshold)} "
             f"overall={format_score(overall)} top={top_txt}"
         )
 
@@ -126,18 +129,39 @@ class AcceptRules:
     top_flag_ratio: float = DEFAULT_TOP_FLAG_RATIO
 
 
+def overall_sort_key(row: Dict[str, Any]) -> Tuple[float, float, float, float, str]:
+    """
+    overall_score を軸にしつつ、サブスコアで tie-break するソートキー。
+    - 1st: overall_score
+    - 2nd: score_face
+    - 3rd: score_composition
+    - 4th: score_technical
+    - 5th: file_name/filename で最終安定化
+    """
+    overall = safe_float(row.get("overall_score"))
+    face = safe_float(row.get("score_face"))
+    comp = safe_float(row.get("score_composition"))
+    tech = safe_float(row.get("score_technical"))
+    fname = str(row.get("file_name") or row.get("filename") or "")
+    return (overall, face, comp, tech, fname)
+
+
 class AcceptanceEngine:
     """
-    cleanup() でやっている
-    - category 付与
-    - accepted_flag 計算
-    - accepted_reason 生成
-    - flag 付与
-    をまとめて担当する
+    Ranking / Cleanup でやっている
+      - category 付与
+      - accepted_flag 計算
+      - accepted_reason 生成
+      - flag 付与
+    をまとめて担当するクラス。
     """
 
     def __init__(self, rules: Optional[AcceptRules] = None):
         self.rules = rules or AcceptRules()
+
+    # -------------------------
+    # category / threshold
+    # -------------------------
 
     def assign_category(self, rows: List[Dict[str, Any]]) -> None:
         for r in rows:
@@ -151,10 +175,20 @@ class AcceptanceEngine:
         portrait_scores = [safe_float(r.get("overall_score")) for r in portrait_rows]
         non_face_scores = [safe_float(r.get("overall_score")) for r in non_face_rows]
 
-        portrait_thr = percentile(portrait_scores, self.rules.portrait_percentile) if portrait_scores else 0.0
-        non_face_thr = percentile(non_face_scores, self.rules.non_face_percentile) if non_face_scores else 0.0
+        portrait_thr = (
+            percentile(portrait_scores, self.rules.portrait_percentile)
+            if portrait_scores else 0.0
+        )
+        non_face_thr = (
+            percentile(non_face_scores, self.rules.non_face_percentile)
+            if non_face_scores else 0.0
+        )
 
         return {"portrait": portrait_thr, "non_face": non_face_thr}
+
+    # -------------------------
+    # accepted_flag / accepted_reason
+    # -------------------------
 
     def apply_accepted_flags(self, rows: List[Dict[str, Any]]) -> Dict[str, float]:
         """
@@ -167,15 +201,21 @@ class AcceptanceEngine:
         portrait_rows = [r for r in rows if r["category"] == "portrait"]
         non_face_rows = [r for r in rows if r["category"] == "non_face"]
 
-        portrait_rows.sort(key=lambda r: safe_float(r.get("overall_score")), reverse=True)
-        non_face_rows.sort(key=lambda r: safe_float(r.get("overall_score")), reverse=True)
+        # 先に secondary_accept_flag を 0 で初期化
+        for r in rows:
+            r["secondary_accept_flag"] = 0
 
         # portrait
+        portrait_rows.sort(key=overall_sort_key, reverse=True)
         for i, r in enumerate(portrait_rows):
             rank = i + 1
             overall = safe_float(r.get("overall_score"))
             ok = (i < self.rules.portrait_max_accept) and (overall >= th["portrait"])
             r["accepted_flag"] = int(ok)
+
+            # ★ しきい値以上はセカンド候補にする
+            if overall >= th["portrait"]:
+                r["secondary_accept_flag"] = 1
 
             r["accepted_reason"] = build_accepted_reason(
                 category="portrait",
@@ -194,11 +234,15 @@ class AcceptanceEngine:
             )
 
         # non_face
+        non_face_rows.sort(key=overall_sort_key, reverse=True)
         for i, r in enumerate(non_face_rows):
             rank = i + 1
             overall = safe_float(r.get("overall_score"))
             ok = (i < self.rules.non_face_max_accept) and (overall >= th["non_face"])
             r["accepted_flag"] = int(ok)
+
+            if overall >= th["non_face"]:
+                r["secondary_accept_flag"] = 1
 
             r["accepted_reason"] = build_accepted_reason(
                 category="non_face",
@@ -218,11 +262,28 @@ class AcceptanceEngine:
 
         return th
 
+    # -------------------------
+    # flag（全体上位比率）
+    # -------------------------
+
     def apply_top_flag(self, rows: List[Dict[str, Any]]) -> None:
-        rows.sort(key=lambda r: safe_float(r.get("overall_score")), reverse=True)
-        top_n = max(1, int(len(rows) * float(self.rules.top_flag_ratio)))
-        for i, r in enumerate(rows):
+        """
+        全体に対して flag を付与する。
+        - rows 自体はソートせず、コピーをソートして flag を書き戻す
+        - ソートキーは overall_sort_key を利用
+        """
+        if not rows:
+            return
+
+        sorted_rows = sorted(rows, key=overall_sort_key, reverse=True)
+        top_n = max(1, int(len(sorted_rows) * float(self.rules.top_flag_ratio)))
+
+        for i, r in enumerate(sorted_rows):
             r["flag"] = 1 if i < top_n else 0
+
+    # -------------------------
+    # entry point
+    # -------------------------
 
     def run(self, rows: List[Dict[str, Any]]) -> Dict[str, float]:
         """

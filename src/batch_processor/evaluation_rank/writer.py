@@ -44,20 +44,74 @@ def write_csv(path: Path, rows: List[Dict[str, Any]], columns: Sequence[str]) ->
             writer.writerow({k: r.get(k) for k in columns})
 
 
+# =========================
+# ランキング用の並び替え
+# =========================
+
+def _safe_float(value: Any) -> float:
+    try:
+        if value in ("", None):
+            return 0.0
+        return float(value)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def sort_rows_for_ranking(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    ランキングCSV用の行ソートヘルパー。
+
+    優先順位:
+    1. category: portrait が先, non_face が後
+    2. accepted_flag: 1 が先
+    3. flag: 1 が先
+    4. overall_score: 高い順
+    5. file_name/filename: 文字列昇順（安定化用）
+    """
+    def _cat_order(cat: str) -> int:
+        if cat == "portrait":
+            return 0
+        if cat == "non_face":
+            return 1
+        return 2  # 未設定などは最後
+
+    def _key(r: Dict[str, Any]):
+        cat = _cat_order(str(r.get("category") or ""))
+        accepted = int(r.get("accepted_flag") or 0)
+        flag = int(r.get("flag") or 0)
+        overall = _safe_float(r.get("overall_score") or 0.0)
+        fname = str(r.get("file_name") or r.get("filename") or "")
+        # 降順にしたいものは符号を反転
+        return (
+            cat,
+            -accepted,
+            -flag,
+            -overall,
+            fname,
+        )
+
+    return sorted(rows, key=_key)
+
+
 def write_ranking_csv(
     *,
     output_csv: Path,
     rows: List[Dict[str, Any]],
     base_columns: Sequence[str],
+    sort_for_ranking: bool = True,
 ) -> List[str]:
     """
     ranking出力専用:
     - extra columns を集める
     - columns を確定する
+    - （必要なら）行をランキング順にソートする
     - CSV を書き出す
 
     return: 実際に書いた columns（テストやログに使える）
     """
+    if sort_for_ranking:
+        rows = sort_rows_for_ranking(rows)
+
     extra_columns = collect_extra_columns(rows)
     columns = build_columns(base_columns, extra_columns)
     write_csv(output_csv, rows, columns)

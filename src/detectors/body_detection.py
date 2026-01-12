@@ -39,11 +39,12 @@ class FullBodyDetector:
 
         # “全身”判定に使う主要点
         self.required_landmarks = [
-            self.mp_pose.PoseLandmark.NOSE,
             self.mp_pose.PoseLandmark.LEFT_SHOULDER,
             self.mp_pose.PoseLandmark.RIGHT_SHOULDER,
             self.mp_pose.PoseLandmark.LEFT_HIP,
             self.mp_pose.PoseLandmark.RIGHT_HIP,
+            self.mp_pose.PoseLandmark.LEFT_KNEE,
+            self.mp_pose.PoseLandmark.RIGHT_KNEE,
             self.mp_pose.PoseLandmark.LEFT_ANKLE,
             self.mp_pose.PoseLandmark.RIGHT_ANKLE,
         ]
@@ -117,6 +118,10 @@ class FullBodyDetector:
         footroom_ratio = float(bottom_margin / H)
         side_margin_min_ratio = float(min(left_margin, right_margin) / W)
 
+        # 体の縦サイズと重心（upper_body / seated の判定に効かせる）
+        body_height_ratio = float(bh / H) if H > 0 else 0.0
+        body_center_y_ratio = float((y1 + bh / 2) / H) if H > 0 else 0.5
+
         # 切れリスク（簡易）: 余白が小さいほどリスク↑
         # 0.0=安全, 1.0=危険
         risk = 0.0
@@ -132,13 +137,15 @@ class FullBodyDetector:
         return {
             "full_body_detected": bool(full_body_detected),
             "pose_score": pose_score,
-            # CSVで重いなら将来 body_x/body_y/body_w/body_h に分解してもOK
             "pose_bbox": pose_bbox,
             "headroom_ratio": headroom_ratio,
             "footroom_ratio": footroom_ratio,
             "side_margin_min_ratio": side_margin_min_ratio,
+            "body_height_ratio": body_height_ratio,          # ★ 追加
+            "body_center_y_ratio": body_center_y_ratio,      # ★ 追加
             "full_body_cut_risk": full_body_cut_risk,
         }
+
 
     def draw_landmarks(self, image: np.ndarray) -> np.ndarray:
         """
