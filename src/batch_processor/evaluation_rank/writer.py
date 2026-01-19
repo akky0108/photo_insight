@@ -21,9 +21,6 @@ def collect_extra_columns(rows: List[Dict[str, Any]]) -> List[str]:
 
 
 def build_columns(base_columns: Sequence[str], extra_columns: Sequence[str]) -> List[str]:
-    """
-    base + extra + tail の順に結合（tailは本処理で固定）
-    """
     tail = [
         "lr_keywords",
         "lr_rating",
@@ -32,7 +29,19 @@ def build_columns(base_columns: Sequence[str], extra_columns: Sequence[str]) -> 
         "lr_label_display",
         "accepted_reason",
     ]
-    return list(base_columns) + list(extra_columns) + tail
+
+    cols = list(base_columns) + list(extra_columns) + tail
+
+    # 順序を保って重複削除
+    seen = set()
+    uniq: List[str] = []
+    for c in cols:
+        if c in seen:
+            continue
+        seen.add(c)
+        uniq.append(c)
+    return uniq
+
 
 
 def write_csv(path: Path, rows: List[Dict[str, Any]], columns: Sequence[str]) -> None:
@@ -41,7 +50,12 @@ def write_csv(path: Path, rows: List[Dict[str, Any]], columns: Sequence[str]) ->
         writer = csv.DictWriter(f, fieldnames=list(columns))
         writer.writeheader()
         for r in rows:
-            writer.writerow({k: r.get(k) for k in columns})
+            out = {}
+            for k in columns:
+                v = r.get(k)
+                out[k] = "" if v is None else v
+            writer.writerow(out)
+
 
 
 # =========================

@@ -188,4 +188,25 @@ quality_thresholds:
       face_only_body_height_max: 0.35
       center_side_margin_min: 0.02
 
+    local_sharpness:
+      patch_size: 32
+      stride: 32
+      min_image_side: 128
+      max_patches: 0
+      laplacian_ksize: 3
 
+      texture_filter:
+        enabled: true
+        method: "sobel"
+        edge_threshold: 30.0
+        min_edge_ratio: 0.02
+
+      discretize_thresholds_raw:
+        poor: 8.0
+        fair: 12.0
+        good: 18.0
+        excellent: 26.0
+
+    local_contrast:
+      patch_size: 32
+      stride: 32

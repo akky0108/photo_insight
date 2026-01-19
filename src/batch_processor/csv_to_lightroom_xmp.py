@@ -380,25 +380,18 @@ def process_csv(
                 accepted_flag=accepted_flag,
             )
 
-            # Color: CSVにあれば優先、無ければ計算（ただし pick==1 のときだけ提案）
+            # Color:
+            #  ここでは「評価結果CSV側の lr_color_label をそのまま信じる」方針にする。
+            #  Pick は「採用フラグ」として別概念（色のフィルタ条件には使わない）。
             lr_color_label = get_str(row, "lr_color_label", "")
-            csv_key, csv_disp = normalize_lr_color_label(lr_color_label)
+            color_key, color_disp = normalize_lr_color_label(lr_color_label)
 
-            if pick == 1:
-                if csv_key:
-                    color_key, color_disp = csv_key, csv_disp
-                else:
-                    calc = map_color(
-                        overall=overall,
-                        technical=technical,
-                        face=face,
-                        comp=comp,
-                        pick=pick,
-                        category=category,
-                    )
-                    color_key, color_disp = normalize_lr_color_label(calc)
-            else:
+            # CSV 側が空（""）のときは「自動では色を付けない」= None に倒す。
+            # 既存色をどうするかは merge_into_existing_xmp() の
+            # force_color / clear_color_if_pick0 のポリシーに任せる。
+            if not color_key:
                 color_key, color_disp = None, None
+
 
             if xmp_path.exists():
                 if backup_xmp and not dry_run:

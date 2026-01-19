@@ -36,24 +36,32 @@ class PortraitQualityHeaderGenerator:
             # ★ 追加: 顔ぼやけ具合評価
             "face_blurriness_raw",
             "face_blurriness_score",
-            "face_blurriness_status",
             "face_blurriness_grade",
+            "face_blurriness_eval_status",
+            "face_blurriness_fallback_reason",
             #★ 追加: 顔ぼやけ具合評価の明るさ補正後スコア
             "face_blurriness_score_brightness_adjusted",
         ]
 
         self.image_evaluation_items = [
             "sharpness_score",
-            "sharpness_raw",           # ←追加（必要なら）
-            "sharpness_eval_status",   # ←追加（任意：デバッグ用）
+            "sharpness_raw",
+            "sharpness_eval_status",
+
+            # ----------------------------
+            # Blurriness
+            # ----------------------------
             "blurriness_score",
-            "blurriness_raw",          # ←追加（必要なら）
+            "blurriness_raw",
             "blurriness_grade",
-            "blurriness_eval_status",  # ←追加（任意：デバッグ用）
+            "blurriness_eval_status",
+            "blurriness_fallback_reason",
+
             "contrast_score",
             "contrast_raw",
             "contrast_eval_status",
             "contrast_grade",
+
             "noise_score",
             "noise_grade",
             "noise_sigma_midtone",
@@ -61,18 +69,38 @@ class PortraitQualityHeaderGenerator:
             "noise_mask_ratio",
             "noise_eval_status",
             "noise_fallback_reason",
+
+            # ----------------------------
+            # Local Sharpness
+            # ----------------------------
             "local_sharpness_score",
+            "local_sharpness_raw",
             "local_sharpness_std",
+            "local_sharpness_eval_status",
+            "local_sharpness_fallback_reason",
+
+            # ----------------------------
+            # Local Contrast
+            # ----------------------------
             "local_contrast_score",
+            "local_contrast_raw",
             "local_contrast_std",
+            "local_contrast_eval_status",
+            "local_contrast_fallback_reason",
+
+            # ----------------------------
+            # Exposure
+            # ----------------------------
             "exposure_score",
             "mean_brightness",
             "exposure_grade",
             "exposure_eval_status",
             "exposure_fallback_reason",
-            #★ 追加: 画像全体のぼやけ具合評価 （明るさ補正後スコア含む）
+
+            # ----------------------------
+            # Brightness adjusted
+            # ----------------------------
             "blurriness_score_brightness_adjusted",
-            #★ 追加: 画像全体のノイズ評価（明るさ補正後スコア含む）
             "noise_score_brightness_adjusted",
         ]
 
@@ -90,6 +118,21 @@ class PortraitQualityHeaderGenerator:
             "composition_raw",
             "composition_score",
             "composition_status",
+            # メイン被写体の中心座標（RoT 評価に使用した点）
+            "main_subject_center_source",  # "face_center" / "full_body_center" / "face_box" / "body_keypoints" / "manual" / "unknown" など
+            "main_subject_center_x",
+            "main_subject_center_y",
+            # ★ 追加: 画像全体の構図評価指標（ルール・オブ・サード）
+            "rule_of_thirds_raw",
+            "rule_of_thirds_score",
+
+            # ★ 各構図要素の寄与（最終 composition_score に対して）
+            "contrib_comp_composition_rule_based_score",
+            "contrib_comp_face_position_score",
+            "contrib_comp_framing_score",
+            "contrib_comp_lead_room_score",
+            "contrib_comp_body_composition_score",
+            "contrib_comp_rule_of_thirds_score",            
         ]
 
         self.body_evaluation_items = [
@@ -101,15 +144,6 @@ class PortraitQualityHeaderGenerator:
             "full_body_cut_risk",
             "body_height_ratio",
             "body_center_y_ratio",
-        ]
-
-        self.body_evaluation_items = [
-            "full_body_detected",
-            "pose_score",
-            "headroom_ratio",
-            "footroom_ratio",
-            "side_margin_min_ratio",
-            "full_body_cut_risk",
         ]
 
         self.expression_items = [

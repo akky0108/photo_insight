@@ -15,6 +15,9 @@ def decide_accept(
     ノイズスコアが 0〜1 の 5段階離散 (1.0, 0.75, 0.5, 0.25, 0.0) を前提とした判定。
     """
 
+    # ------------------------------
+    # ヘルパ
+    # ------------------------------
     def _f(key: str, default: float = 0.0) -> float:
         v = results.get(key, default)
         try:
@@ -115,8 +118,9 @@ def decide_accept(
     footroom_ratio = _f("footroom_ratio", 0.0)
     side_margin_min_ratio = _f("side_margin_min_ratio", 0.0)
 
-    # 顔ボックスの高さ比
+    # 顔ボックスの高さ比（将来用）
     face_box_height_ratio = _f("face_box_height_ratio", 0.0)
+    _ = face_box_height_ratio  # 未使用警告回避（必要になったら削除）
 
     # ポーズ BBox の縦サイズ比と重心位置（headroom/footroom から逆算）
     body_height_ratio = max(0.0, min(1.0, 1.0 - headroom_ratio - footroom_ratio))
@@ -216,7 +220,6 @@ def decide_accept(
         # デフォルトは face_only に寄せる
         return "face_only"
 
-
     shot_type = _estimate_shot_type()
     results["shot_type"] = shot_type  # ★ CSV にも残して分析できるようにしておく
 
@@ -260,6 +263,50 @@ def decide_accept(
     blurriness_score_for_decision = blurriness_score_adj
 
     # ==============================
+    # group_id / subgroup_id の割り当て
+    # ==============================
+    # group_id:
+    #   A: 顔が中心のショット（face_only / upper_body）
+    #   B: 全身・座りショット（full_body / seated）
+    #   C: no_face（参考に含める）
+    #
+    # subgroup_id:
+    #   1: 明るさ問題なし
+    #   2: 明るさ補正が必要（exposure が低い、または補正が入っている）
+    #   3: その他（後で拡張可能）
+    #
+    def _assign_group(st: str) -> str:
+        if st in ("face_only", "upper_body"):
+            return "A"
+        if st in ("full_body", "seated"):
+            return "B"
+        return "C"
+
+    def _assign_subgroup(
+        exposure: float,
+        noise_adj: float,
+        blur_adj: float,
+    ) -> str:
+        # 暗い or 補正後値が補正前より大きい → 補正適用あり（A-2/B-2）
+        low_exp_thr = _thr("subgroup_low_exposure_threshold", 0.5)
+
+        if exposure < low_exp_thr:
+            return "2"
+        if noise_adj > noise_score or blur_adj > blurriness_score:
+            return "2"
+        return "1"
+
+    group_id = _assign_group(shot_type)
+    subgroup_id = _assign_subgroup(
+        exposure_score,
+        noise_score_adj,
+        blurriness_score_adj,
+    )
+
+    results["group_id"] = group_id
+    results["subgroup_id"] = subgroup_id
+
+    # ==============================
     # ノイズ関連の閾値・判定
     # ==============================
     noise_ok_thr = _thr("noise_ok", 0.5)
@@ -269,7 +316,11 @@ def decide_accept(
 
     noise_ok = _ok_from(noise_score_for_decision, noise_grade_score, noise_ok_thr)
     noise_good = _ok_from(noise_score_for_decision, noise_grade_score, noise_good_thr)
-    face_noise_good = _ok_from(face_noise_score, face_noise_grade_score, face_noise_good_thr)
+    face_noise_good = _ok_from(
+        face_noise_score,
+        face_noise_grade_score,
+        face_noise_good_thr,
+    )
 
     # full body 用ノイズ判定
     noise_ok_for_full_body = (
@@ -284,10 +335,14 @@ def decide_accept(
     fb_face_contrast_min = _thr("full_body_face_contrast_min", 0.50)
 
     contrast_ok_global_fb = _ok_from(
-        contrast_score, contrast_grade_score, fb_contrast_min
+        contrast_score,
+        contrast_grade_score,
+        fb_contrast_min,
     )
     contrast_ok_face_fb = _ok_from(
-        face_contrast_score, face_contrast_grade_score, fb_face_contrast_min
+        face_contrast_score,
+        face_contrast_grade_score,
+        fb_face_contrast_min,
     )
 
     contrast_ok_for_full_body = contrast_ok_global_fb or contrast_ok_face_fb
@@ -317,11 +372,9 @@ def decide_accept(
     # ==============================
     if not face_detected:
         if full_body_detected:
-            cut_risk = full_body_cut_risk
-
             if (
                 pose_score_100 >= pose_min_100
-                and cut_risk <= cut_risk_max
+                and full_body_cut_risk <= cut_risk_max
                 and footroom_ratio >= fb_footroom_min  # ★ 顔なしでも同様に足元チェック
                 and noise_ok_for_full_body
                 and contrast_ok_for_full_body
@@ -347,7 +400,9 @@ def decide_accept(
     fq_pitch_max = _thr("face_quality_pitch_max_abs_deg", 90.0)  # ★ デフォルト 90° なので既存挙動は変えない
 
     contrast_ok_for_face_quality = _ok_from(
-        face_contrast_score, face_contrast_grade_score, fq_contrast_min
+        face_contrast_score,
+        face_contrast_grade_score,
+        fq_contrast_min,
     )
 
     # Route C: face quality（最優先）
@@ -392,10 +447,14 @@ def decide_accept(
     tech_face_sharpness_min = _thr("technical_face_sharpness_min", 0.5)
 
     contrast_ok_global = _ok_from(
-        contrast_score, contrast_grade_score, tech_contrast_min
+        contrast_score,
+        contrast_grade_score,
+        tech_contrast_min,
     )
     contrast_ok_face = _ok_from(
-        face_contrast_score, face_contrast_grade_score, tech_contrast_min
+        face_contrast_score,
+        face_contrast_grade_score,
+        tech_contrast_min,
     )
 
     contrast_ok_for_tech = contrast_ok_global or contrast_ok_face
@@ -412,4 +471,3 @@ def decide_accept(
         return True, "technical"
 
     return False, "rejected"
-

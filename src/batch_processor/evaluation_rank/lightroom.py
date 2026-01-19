@@ -17,6 +17,9 @@ LR_LABEL_DISPLAY_JA = {
     "": "",
 }
 
+# 顔ピント「良し」とみなすしきい値（0〜100スケール）
+FACE_SHARPNESS_FOCUS_THRESHOLD = 70.0
+
 
 def safe_float(value: Any) -> float:
     try:
@@ -27,20 +30,69 @@ def safe_float(value: Any) -> float:
         return 0.0
 
 
+def safe_bool(value: Any) -> bool:
+    """
+    CSVの TRUE/FALSE/1/0/yes/no などをざっくり bool 化。
+    """
+    if value is None or value == "":
+        return False
+    if isinstance(value, bool):
+        return value
+    s = str(value).strip().lower()
+    if s in {"1", "true", "t", "yes", "y"}:
+        return True
+    if s in {"0", "false", "f", "no", "n"}:
+        return False
+    # 最後に数値っぽいものだけ拾う
+    try:
+        return bool(int(float(s)))
+    except Exception:
+        return False
+
+
+def safe_int_flag(value: Any) -> int:
+    """
+    CSV由来の 0/1, True/False, "TRUE"/"False" を 0/1 に正規化する。
+    int("False") 事故を確実に回避するため、ここ以外で int(...) しない。
+    """
+    if value is None or value == "":
+        return 0
+    if isinstance(value, bool):
+        return 1 if value else 0
+    if isinstance(value, (int, float)):
+        return 1 if int(value) != 0 else 0
+
+    s = str(value).strip().lower()
+    if s in ("1", "true", "t", "yes", "y"):
+        return 1
+    if s in ("0", "false", "f", "no", "n"):
+        return 0
+
+    # それでもダメなら最後に数値変換を試す（例: "2" / "1.0"）
+    try:
+        return 1 if int(float(s)) != 0 else 0
+    except Exception:
+        return 0
+
+
+def to_0_100(v: Any) -> float:
+    """
+    0〜1 でも 0〜100 でも入ってきてもよいように正規化。
+    """
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return 0.0
+    if v < 0:
+        return 0.0
+    if v <= 1.0:
+        return v * 100.0
+    return v
+
+
 def score_to_rating(overall: float) -> int:
     """
     overall_score (0–100) → Lightroom 星評価 (0–5)
-
-    運用意図:
-    ★★★★★ (5): そのまま納品・公開・代表作候補（確実に残す）
-    ★★★★☆ (4): 非常に良い。用途次第で採用
-    ★★★☆☆ (3): 記録・素材として有用（削らない）
-    ★★☆☆☆ (2): 微妙だが状況証拠として残す可能性あり
-    ★☆☆☆☆ (1): 基本不要だが誤検出・検証用
-    ☆☆☆☆☆ (0): 自動削除候補
-
-    ※ 閾値は「日ごとの分布」よりも
-       人間の最終判断基準として安定させる目的で固定値。
     """
     if overall >= 85:
         return 5
@@ -55,35 +107,39 @@ def score_to_rating(overall: float) -> int:
     return 0
 
 
-def choose_color_label(category: str, accepted_flag: int, secondary_flag: int, rating: int) -> str:
+def choose_color_label(
+    *,
+    accepted_flag: int,
+    secondary_flag: int,
+    rating: int,
+    top_flag: int,
+    face_in_focus: bool,
+) -> str:
     """
     Lightroom color label の運用ルール
-
     Green  : 本採用（accepted_flag=1）
-    Yellow : セカンダリ採用（secondary_accept_flag=1）
-    Red    : 問題あり（★1以下）
+    Yellow : セカンダリ採用（secondary_accept_flag=1） or 顔ピント良好で要検討
+    Blue   : 上位だがまだ保留（flag=1 & rating>=2）
+    Red    : 問題あり（★1以下 & 顔ピントも悪い）
     None   : その他
     """
-    # 本採用が最優先
     if accepted_flag == 1:
         return "Green"
-
-    # セカンダリ採用
     if secondary_flag == 1:
         return "Yellow"
-
-    # 明らかに微妙（低レーティング）
-    if rating <= 1:
+    if rating <= 1 and not face_in_focus:
         return "Red"
-
-    # それ以外は色なし（星だけで判断）
+    if top_flag == 1 and rating >= 2:
+        return "Blue"
+    if face_in_focus:
+        return "Yellow"
     return ""
 
 
-def shorten_reason_for_lr(reason: str, max_len: int = 90, prefix: str = "ACC:") -> str:
+def shorten_reason_for_lr(reason: str, *, max_len: int = 90) -> str:
     """
-    Lightroom のキーワード用に短文化する。
-    - prefix で ACC: / SEC: などを付けられる
+    Lightroom のキーワード用に短文化する（prefixは reason 側に入っている前提）。
+    accepted_reason が ACC:/SEC:/SEC-RESCUE: を含むので、ここで付け足さない。
     """
     if not reason:
         return ""
@@ -97,10 +153,8 @@ def shorten_reason_for_lr(reason: str, max_len: int = 90, prefix: str = "ACC:") 
     s = s.replace(" comp=", " c=")
     s = s.replace("overall=", "o=")
 
+    # 連続空白の除去
     s = " ".join(s.split())
-
-    if prefix:
-        s = prefix + s
 
     return s[:max_len]
 
@@ -122,60 +176,57 @@ def to_label_display_from_key(label_key: str) -> str:
 
 
 def apply_lightroom_fields(row: Dict[str, Any], *, keyword_max_len: int = 90) -> None:
-    """
-    row に Lightroom 用フィールドを in-place で付与する。
-
-    必要入力（row内）:
-      - overall_score
-      - category（portrait/non_face）
-      - accepted_flag
-      - accepted_reason（accepted=1 のときだけ有効）
-
-    付与出力:
-      - lr_rating
-      - lr_color_label
-      - lr_labelcolor_key
-      - lr_label_display
-      - lr_keywords
-    """
     overall = safe_float(row.get("overall_score"))
     rating = score_to_rating(overall)
 
-    accepted_flag = int(row.get("accepted_flag", 0) or 0)
-    secondary_flag = int(row.get("secondary_accept_flag", 0) or 0)  # ★追加
-    category = str(row.get("category", "") or "")
+    accepted_flag = safe_int_flag(row.get("accepted_flag", 0))
+    secondary_flag = safe_int_flag(row.get("secondary_accept_flag", 0))
+    top_flag = safe_int_flag(row.get("flag", 0))
 
-    label = choose_color_label(category, accepted_flag, secondary_flag, rating)
+    # ★理由は accepted_reason 1本（A統一）
+    reason = row.get("accepted_reason", "") or ""
+    reason_norm = str(reason).strip()
+
+    # ★最後の砦：reason から secondary を推定して矛盾を吸収
+    inferred_secondary = 1 if (
+        accepted_flag == 0
+        and secondary_flag == 0
+        and (reason_norm.startswith("SEC:") or reason_norm.startswith("SEC-RESCUE:"))
+    ) else 0
+    effective_secondary_flag = 1 if secondary_flag == 1 or inferred_secondary == 1 else 0
+
+    face_detected = safe_bool(row.get("face_detected"))
+    face_sharp_score = safe_float(row.get("face_sharpness_score"))
+    face_sharp_100 = to_0_100(face_sharp_score)
+    face_in_focus = bool(face_detected and face_sharp_100 >= FACE_SHARPNESS_FOCUS_THRESHOLD)
+
+    label = choose_color_label(
+        accepted_flag=accepted_flag,
+        secondary_flag=effective_secondary_flag,  # ★ここ
+        rating=rating,
+        top_flag=top_flag,
+        face_in_focus=face_in_focus,
+    )
 
     row["lr_rating"] = rating
-    row["lr_color_label"] = label  # 既存互換として残す（任意）
+    row["lr_color_label"] = label
     row["lr_labelcolor_key"] = to_labelcolor_key(label)
     row["lr_label_display"] = to_label_display_from_key(row["lr_labelcolor_key"])
 
-    reason_primary = row.get("accepted_reason", "") or ""
-    reason_secondary = row.get("secondary_accept_reason", "") or ""
-
-    if accepted_flag == 1:
-        # 本採用 → ACC:
-        row["lr_keywords"] = shorten_reason_for_lr(
-            reason_primary, max_len=keyword_max_len, prefix="ACC:"
-        )
-    elif secondary_flag == 1:
-        # セカンダリ → SEC:
-        # secondary_accept_reason 側にすでに "SEC:" が含まれている場合は prefix="" でもOK
-        # ここでは prefix="SEC:" を付けて分かりやすくしている
-        row["lr_keywords"] = shorten_reason_for_lr(
-            reason_secondary, max_len=keyword_max_len, prefix="SEC:"
-        )
+    # ★keywords：accepted または（推定込み）secondary のときだけ reason を載せる
+    if accepted_flag == 1 or effective_secondary_flag == 1:
+        row["lr_keywords"] = shorten_reason_for_lr(reason_norm, max_len=keyword_max_len)
     else:
         row["lr_keywords"] = ""
 
 
-# ここを追加
-def apply_lightroom_fields_to_rows(rows: List[Dict[str, Any]], *, keyword_max_len: int = 90) -> None:
+def apply_lightroom_fields_to_rows(
+    rows: List[Dict[str, Any]],
+    *,
+    keyword_max_len: int = 90,
+) -> None:
     """
     rows 全体に apply_lightroom_fields を適用するヘルパー。
-    バッチ処理側はこれを1発呼べばよい。
     """
     for r in rows:
         apply_lightroom_fields(r, keyword_max_len=keyword_max_len)

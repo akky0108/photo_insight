@@ -26,6 +26,29 @@ from face_detectors.face_processor import FaceProcessor
 
 from evaluators.quality_thresholds import QualityThresholds
 from evaluators.portrait_accept_rules import decide_accept
+from evaluators.portrait_quality.metric_mapping import MetricResultMapper
+
+GLOBAL_METRICS = (
+    "sharpness",
+    "blurriness",
+    "contrast",
+    "noise",
+    "local_sharpness",
+    "local_contrast",
+    "exposure",
+    "color_balance",
+)
+
+FACE_REGION_METRICS = (
+    "sharpness",
+    "blurriness",
+    "contrast",
+    "noise",
+    "local_sharpness",
+    "local_contrast",
+    "exposure",
+    "color_balance",
+)
 
 class PortraitQualityEvaluator:
     """
@@ -110,13 +133,14 @@ class PortraitQualityEvaluator:
             "blurriness": BlurrinessEvaluator(),
             "contrast": ContrastEvaluator(),
             "noise": NoiseEvaluator(max_noise_value=max_noise_value),
-            "local_sharpness": LocalSharpnessEvaluator(block_size=local_region_size),
-            "local_contrast": LocalContrastEvaluator(block_size=local_region_size),
+            "local_sharpness": LocalSharpnessEvaluator(),
+            "local_contrast": LocalContrastEvaluator(),
             "exposure": ExposureEvaluator(),
             "color_balance": ColorBalanceEvaluator(),
         }
 
         self.body_detector = FullBodyDetector()
+        self.mapper = MetricResultMapper()
 
         # self.composition_evaluator = RuleBasedCompositionEvaluator(logger=self.logger)
         # 変更後: 顔＋全身を統合する Composite を使う
@@ -215,29 +239,31 @@ class PortraitQualityEvaluator:
         
     def evaluate(self) -> Dict[str, Any]:
         self.logger.info(f"評価開始: 画像ファイル {self.file_name}")
-        results = {}
+        results: Dict[str, Any] = {}
 
         try:
-            # resized_2048 はRGBだけど、評価入力の必須はこっち
             if self.resized_2048_bgr_u8 is None:
                 self.logger.error("resized_2048_bgr_u8 が None です。評価をスキップします。")
                 return {}
 
-            # 顔検出は RGB uint8 を使う（insightface 安定）
+            # -------------------------
+            # face detect
+            # -------------------------
             face_result = {"faces": []}
             if self.skip_face_processing:
                 self.logger.info("顔処理をスキップします。")
             else:
-                face_result = self.face_processor.detect_faces(self.rgb_u8)
+                face_result = self.face_processor.detect_faces(self.rgb_u8) or {"faces": []}
 
-            faces = face_result.get("faces", [])
+            faces = face_result.get("faces", []) or []
             results["face_detected"] = bool(faces)
             results["faces"] = faces
 
-            # --- Full body / pose ---
-            body_result: Dict[str, Any] = {}
+            # -------------------------
+            # full body / pose
+            # -------------------------
             try:
-                body_result = self.body_detector.detect(self.bgr_u8)
+                body_result = self.body_detector.detect(self.bgr_u8) or {}
             except AttributeError:
                 full_body = bool(self.body_detector.detect_full_body(self.bgr_u8))
                 body_result = {
@@ -253,40 +279,30 @@ class PortraitQualityEvaluator:
                     "full_body_cut_risk": 1.0,
                 }
 
-            # ★必須キー穴埋め（detect() 実装の揺れを吸収）
             results.update(body_result)
-            results.setdefault("full_body_detected", False)
-            results.setdefault("pose_score", 0.0)
-            results.setdefault("full_body_cut_risk", 1.0)
 
-            # ★ body_keypoints を拾う（キー名は想定なので、存在しなければ []）
-            body_keypoints = (
-                body_result.get("keypoints")
-                or body_result.get("body_keypoints")
-                or []
-            )
+            body_keypoints = body_result.get("keypoints") or body_result.get("body_keypoints") or []
 
-            # 構図評価
-            composition_result = self._evaluate_composition(self.rgb_u8, faces, body_keypoints)
-            results.update(composition_result)
+            # -------------------------
+            # composition
+            # -------------------------
+            results.update(self._evaluate_composition(self.rgb_u8, faces, body_keypoints))
 
-            # 顔のスコア計算（顔全体に対して）
-            results.update(self._evaluate_face(self.evaluators["face"], self.rgb_u8))
-
-            best_face = self.face_processor.get_best_face(face_result["faces"])
-            # 最も信頼性の高い顔に対する局所評価と属性追加
+            # -------------------------
+            # face attributes + face region metrics
+            # -------------------------
+            best_face = self.face_processor.get_best_face(faces)
             if best_face:
-                # crop はRGB u8から取る → 評価器用にBGRへ
                 cropped_face_rgb_u8 = self.face_processor.crop_face(self.rgb_u8, best_face)
                 cropped_face_bgr_u8 = cv2.cvtColor(cropped_face_rgb_u8, cv2.COLOR_RGB2BGR)
 
-                face_attrs = self.face_processor.extract_attributes(best_face)
-                results["yaw"] = face_attrs.get("yaw", 0)
-                results["pitch"] = face_attrs.get("pitch", 0)
-                results["roll"] = face_attrs.get("roll", 0)
+                face_attrs = self.face_processor.extract_attributes(best_face) or {}
+                results["yaw"] = face_attrs.get("yaw", 0.0)
+                results["pitch"] = face_attrs.get("pitch", 0.0)
+                results["roll"] = face_attrs.get("roll", 0.0)
                 results["gaze"] = face_attrs.get("gaze", [0, 0])
 
-                # ★ 追加: 顔ボックスの高さ比（0〜1）を計算して保存
+                # face_box_height_ratio
                 try:
                     h, _w = self.rgb_u8.shape[:2]
                     box = best_face.get("box")
@@ -297,45 +313,42 @@ class PortraitQualityEvaluator:
                     else:
                         results["face_box_height_ratio"] = 0.0
                 except Exception:
-                    # 万が一 shape / box でコケても落ちないように
                     results["face_box_height_ratio"] = 0.0
 
                 results["lead_room_score"] = self._calc_lead_room_score(
-                    self.rgb_u8, best_face, results.get("yaw", 0.0)
+                    self.rgb_u8, best_face, float(results.get("yaw", 0.0))
                 )
 
-                results.update(self._evaluate_face_region(cropped_face_bgr_u8))
-            else:
-                # best_faceが無いときもキーは出しておくとCSVが安定
-                results["yaw"] = 0
-                results["pitch"] = 0
-                results["roll"] = 0
-                results["gaze"] = [0, 0]
-                results["lead_room_score"] = 0.0
-                # ★ 顔が取れないときは 0 扱い
-                results["face_box_height_ratio"] = 0.0
+                results.update(self._eval_metrics(cropped_face_bgr_u8, FACE_REGION_METRICS, prefix="face_", tag="face"))
 
-            for key, evaluator in self.evaluators.items():
-                if key == "face":
-                    continue
-                results.update(self._safe_evaluate(evaluator, self.resized_2048_bgr_u8, key))
+            # -------------------------
+            # global metrics
+            # -------------------------
+            results.update(self._eval_metrics(self.resized_2048_bgr_u8, GLOBAL_METRICS, prefix="", tag="global"))
 
-            # ★ ここから追加: expression_score を組み立て
+            # -------------------------
+            # derived
+            # -------------------------
             self._add_expression_score(results)
-
-            # 既存のデルタ系を追加
             self._add_face_global_deltas(results)
 
             accepted, reason = self.decide_accept_static(results, thresholds=self.decision_thresholds)
             results["accepted_flag"] = accepted
             results["accepted_reason"] = reason
-            return results
 
+            # -------------------------
+            # finalize (schema + csv normalization)
+            # -------------------------
+            self._ensure_result_schema(results)
+            self._normalize_for_csv(results)
+
+            return results
 
         except Exception as e:
             self.logger.error(f"評価中のエラー: {str(e)}")
             self.logger.error(traceback.format_exc())
             return {}
+
 
     def _evaluate_face(self, evaluator, image):
         """
@@ -379,6 +392,9 @@ class PortraitQualityEvaluator:
                 - face_composition_raw / face_composition_score
                 - body_composition_raw / body_composition_score
                 - composition_raw / composition_score / composition_status
+                - main_subject_center_source / main_subject_center_x / main_subject_center_y
+                - rule_of_thirds_raw / rule_of_thirds_score
+                - contrib_comp_*** 系
                 - group_id / subgroup_id
         """
         try:
@@ -398,6 +414,20 @@ class PortraitQualityEvaluator:
                     "composition_raw": None,
                     "composition_score": 0.5,
                     "composition_status": "not_computed_with_default",
+                    # RoT / 中心情報
+                    "main_subject_center_source": None,
+                    "main_subject_center_x": None,
+                    "main_subject_center_y": None,
+                    "rule_of_thirds_raw": None,
+                    "rule_of_thirds_score": None,
+                    # contrib 系（全部 None にしておく）
+                    "contrib_comp_composition_rule_based_score": None,
+                    "contrib_comp_face_position_score": None,
+                    "contrib_comp_framing_score": None,
+                    "contrib_comp_lead_room_score": None,
+                    "contrib_comp_body_composition_score": None,
+                    "contrib_comp_rule_of_thirds_score": None,
+                    # グループ分類
                     "group_id": "unclassified",
                     "subgroup_id": -1,
                 }
@@ -433,6 +463,35 @@ class PortraitQualityEvaluator:
                 "composition_score": result.get("composition_score"),
                 "composition_status": result.get("composition_status", "ok"),
 
+                # メイン被写体中心（RoT 評価に使った点）
+                "main_subject_center_source": result.get("main_subject_center_source"),
+                "main_subject_center_x": result.get("main_subject_center_x"),
+                "main_subject_center_y": result.get("main_subject_center_y"),
+
+                # ルール・オブ・サード評価
+                "rule_of_thirds_raw": result.get("rule_of_thirds_raw"),
+                "rule_of_thirds_score": result.get("rule_of_thirds_score"),
+
+                # 各構図要素の寄与（あればそのまま・なければ None）
+                "contrib_comp_composition_rule_based_score": result.get(
+                    "contrib_comp_composition_rule_based_score"
+                ),
+                "contrib_comp_face_position_score": result.get(
+                    "contrib_comp_face_position_score"
+                ),
+                "contrib_comp_framing_score": result.get(
+                    "contrib_comp_framing_score"
+                ),
+                "contrib_comp_lead_room_score": result.get(
+                    "contrib_comp_lead_room_score"
+                ),
+                "contrib_comp_body_composition_score": result.get(
+                    "contrib_comp_body_composition_score"
+                ),
+                "contrib_comp_rule_of_thirds_score": result.get(
+                    "contrib_comp_rule_of_thirds_score"
+                ),
+
                 # グループ分類（どちらかが上書きするが、それでOK）
                 "group_id": result.get("group_id", "unclassified"),
                 "subgroup_id": result.get("subgroup_id", -1),
@@ -453,291 +512,162 @@ class PortraitQualityEvaluator:
                 "composition_raw": None,
                 "composition_score": 0.5,
                 "composition_status": "error_fallback",
+                # RoT / 中心情報もフォールバック値を返す
+                "main_subject_center_source": None,
+                "main_subject_center_x": None,
+                "main_subject_center_y": None,
+                "rule_of_thirds_raw": None,
+                "rule_of_thirds_score": None,
+                "contrib_comp_composition_rule_based_score": None,
+                "contrib_comp_face_position_score": None,
+                "contrib_comp_framing_score": None,
+                "contrib_comp_lead_room_score": None,
+                "contrib_comp_body_composition_score": None,
+                "contrib_comp_rule_of_thirds_score": None,
                 "group_id": "unclassified",
                 "subgroup_id": -1,
             }
         
 
-    def _safe_evaluate(self, evaluator, image: np.ndarray, name: str) -> Dict[str, Any]:
-        """
-        各評価器を安全に実行し、例外時にはデフォルト値を返す。
-
-        引数:
-            evaluator: 評価器インスタンス
-            image (np.ndarray): 評価対象の画像
-            name (str): 評価指標の名称（"sharpness" など）
-
-        戻り値:
-            Dict[str, Any]: 評価スコアおよび必要に応じた補助情報
-        """
-        try:
-            result = evaluator.evaluate(image) or {}
-            output: Dict[str, Any] = {}
-
-            # --- NoiseEvaluator だけは raw 情報をそのまま通す ---
-            if name == "noise":
-                for k, v in result.items():
-                    output[k] = v
-
-            # --- SharpnessEvaluator（新仕様: raw + 離散スコア） ---
-            elif name == "sharpness":
-                # 0〜1 の離散スコア
-                output["sharpness_score"] = result.get("sharpness_score", 0.5)
-
-                # ラプラシアン分散の生値（デバッグ・後分析用）
-                if "sharpness_raw" in result:
-                    output["sharpness_raw"] = result["sharpness_raw"]
-
-                # 評価ステータス（ok / invalid_input / error など）
-                if "sharpness_eval_status" in result:
-                    output["sharpness_eval_status"] = result["sharpness_eval_status"]
-
-            # --- ContrastEvaluator（新仕様: raw + 離散スコア + grade） ---
-            elif name == "contrast":
-                # 0〜1 の離散スコア
-                output["contrast_score"] = result.get("contrast_score", 0.5)
-
-                # 生値（標準偏差）
-                if "contrast_raw" in result:
-                    output["contrast_raw"] = result["contrast_raw"]
-
-                # grade (excellent/good/...）
-                if "contrast_grade" in result:
-                    output["contrast_grade"] = result["contrast_grade"]
-
-            # --- BlurrinessEvaluator（新仕様: raw + 離散スコア + grade） ---
-            elif name == "blurriness":
-                # 0〜1 の離散スコア（意味スコア）
-                output["blurriness_score"] = result.get("blurriness_score", 0.5)
-
-                # 生値（統合ブレ指標）
-                if "blurriness_raw" in result:
-                    output["blurriness_raw"] = result["blurriness_raw"]
-
-                # grade (excellent/good/fair/...)
-                if "blurriness_grade" in result:
-                    output["blurriness_grade"] = result["blurriness_grade"]
-
-            # --- ExposureEvaluator（Noise と同ポリシー） ---
-            elif name == "exposure":
-                # 0〜1 の離散スコア
-                output["exposure_score"] = result.get("exposure_score", 0.5)
-
-                # grade があれば拾う
-                if "exposure_grade" in result:
-                    output["exposure_grade"] = result["exposure_grade"]
-
-                # 生値（0..1 / 0..255 相当）
-                if "mean_brightness" in result:
-                    output["mean_brightness"] = result["mean_brightness"]
-                if "mean_brightness_8bit" in result:
-                    output["mean_brightness_8bit"] = result["mean_brightness_8bit"]
-
-                # 評価ステータス系
-                if "exposure_eval_status" in result:
-                    output["exposure_eval_status"] = result["exposure_eval_status"]
-                if "exposure_fallback_reason" in result:
-                    output["exposure_fallback_reason"] = result["exposure_fallback_reason"]
-
-                # 必要なら dtype も（デバッグ用）
-                if "image_dtype" in result:
-                    output["exposure_image_dtype"] = result["image_dtype"]
-
-            else:
-                # 従来どおりの 1スコア系 evaluator
-                output[f"{name}_score"] = result.get(f"{name}_score", 0)
-
-                # local_* 系は std も出す
-                if "local_" in name:
-                    output[f"{name}_std"] = result.get(f"{name}_std", 0)
-
-            gc.collect()
-            return output
-
-        except Exception as e:
-            self.logger.error(f"{name} 評価中にエラー: {str(e)}")
-            self.logger.error(traceback.format_exc())
-
-            # Noise のときだけ、フォールバック値を少し丁寧に返す
-            if name == "noise":
-                return {
-                    "noise_score": 0.5,                 # 中立寄り
-                    "noise_grade": "error",
-                    "noise_sigma_midtone": None,
-                    "noise_sigma_used": None,
-                    "noise_mask_ratio": None,
-                    "noise_eval_status": "fallback",
-                    "noise_fallback_reason": "exception",
-                }
-
-            # Sharpness のフォールバックも少し丁寧に返す
-            if name == "sharpness":
-                return {
-                    "sharpness_score": 0.5,              # 中立寄り
-                    "sharpness_raw": None,
-                    "sharpness_eval_status": "exception",
-                }
-
-            # ★ Exposure のフォールバックも丁寧に返す
-            if name == "exposure":
-                return {
-                    "exposure_score": 0.5,
-                    "exposure_grade": "error",
-                    "mean_brightness": None,
-                    "mean_brightness_8bit": None,
-                    "exposure_eval_status": "fallback",
-                    "exposure_fallback_reason": "exception",
-                }
-
-            # それ以外は従来どおり
-            return {f"{name}_score": 0}
-
-
-    def _evaluate_face_region(self, face_crop: np.ndarray) -> Dict[str, Any]:
+    def _evaluate_face_region(self, face_crop_bgr_u8: np.ndarray) -> Dict[str, Any]:
         """
         顔領域に対して個別評価器を適用し、局所スコアを算出する。
         """
-        face_scores: Dict[str, Any] = {}
-
-        for key in [
-            "sharpness",
-            "contrast",
-            "noise",
-            "blurriness",
-            "local_sharpness",
-            "local_contrast",
-            "exposure",
-            "color_balance",
-        ]:
-            evaluator = self.evaluators.get(key)
+        out: Dict[str, Any] = {}
+        for name in FACE_REGION_METRICS:
+            evaluator = self.evaluators.get(name)
             if evaluator is None:
                 continue
-
-            try:
-                result = evaluator.evaluate(face_crop) or {}
-
-                # ---------- ノイズだけは新仕様にあわせて特別扱い ----------
-                if key == "noise":
-                    # 5段階(0〜1)のスコアをそのまま顔用に流用
-                    face_scores["face_noise_score"] = result.get("noise_score", 0.5)
-
-                    # 必要なら grade や生値も顔用に残しておく
-                    if "noise_grade" in result:
-                        face_scores["face_noise_grade"] = result["noise_grade"]
-                    if "noise_sigma_midtone" in result:
-                        face_scores["face_noise_sigma_midtone"] = result["noise_sigma_midtone"]
-                    if "noise_sigma_used" in result:
-                        face_scores["face_noise_sigma_used"] = result["noise_sigma_used"]
-                    if "noise_mask_ratio" in result:
-                        face_scores["face_noise_mask_ratio"] = result["noise_mask_ratio"]
-                    if "noise_eval_status" in result:
-                        face_scores["face_noise_eval_status"] = result["noise_eval_status"]
-                    if "noise_fallback_reason" in result:
-                        face_scores["face_noise_fallback_reason"] = result["noise_fallback_reason"]
-
-                    # ノイズはこれで次の key へ
-                    continue
-
-                # ---------- SharpnessEvaluator（raw + 離散スコア） ----------
-                if key == "sharpness":
-                    # 意味スコア（0〜1 の 5段階）
-                    face_scores["face_sharpness_score"] = result.get("sharpness_score", 0.5)
-
-                    # 生値（ラプラシアン分散）はあれば拾うだけ（ヘッダが無ければ CSV 側で捨てられる）
-                    if "sharpness_raw" in result:
-                        face_scores["face_sharpness_raw"] = result["sharpness_raw"]
-
-                    # 評価ステータスもあれば保存
-                    if "sharpness_eval_status" in result:
-                        face_scores["face_sharpness_eval_status"] = result["sharpness_eval_status"]
-
-                    # sharpness はここで完了
-                    continue
-
-                # ---------- ContrastEvaluator（顔用） ----------
-                if key == "contrast":
-                    face_scores["face_contrast_score"] = result.get("contrast_score", 0.5)
-
-                    if "contrast_raw" in result:
-                        face_scores["face_contrast_raw"] = result["contrast_raw"]
-                    if "contrast_grade" in result:
-                        face_scores["face_contrast_grade"] = result["contrast_grade"]
-
-                    continue
-
-                # ---------- BlurrinessEvaluator（顔用） ----------
-                if key == "blurriness":
-                    face_scores["face_blurriness_score"] = result.get("blurriness_score", 0.5)
-
-                    if "blurriness_raw" in result:
-                        face_scores["face_blurriness_raw"] = result["blurriness_raw"]
-                    if "blurriness_grade" in result:
-                        face_scores["face_blurriness_grade"] = result["blurriness_grade"]
-
-                    continue
-
-                # ---------- ExposureEvaluator（顔用） ----------
-                if key == "exposure":
-                    # 意味スコア
-                    face_scores["face_exposure_score"] = result.get("exposure_score", 0.5)
-
-                    # grade
-                    if "exposure_grade" in result:
-                        face_scores["face_exposure_grade"] = result["exposure_grade"]
-
-                    # 生値
-                    if "mean_brightness" in result:
-                        face_scores["face_mean_brightness"] = result["mean_brightness"]
-                    if "mean_brightness_8bit" in result:
-                        face_scores["face_mean_brightness_8bit"] = result["mean_brightness_8bit"]
-
-                    # ステータス系
-                    if "exposure_eval_status" in result:
-                        face_scores["face_exposure_eval_status"] = result["exposure_eval_status"]
-                    if "exposure_fallback_reason" in result:
-                        face_scores["face_exposure_fallback_reason"] = result["exposure_fallback_reason"]
-
-                    continue
-
-                # ---------- それ以外（従来どおり） ----------
-                score_key = f"face_{key}_score"
-                face_scores[score_key] = result.get(f"{key}_score", 0)
-
-                # local_* 系は std も拾う
-                if "local_" in key:
-                    face_scores[f"face_{key}_std"] = result.get(f"{key}_std", 0)
-
-            except Exception as e:
-                self.logger.warning(f"顔領域の{key}評価に失敗: {str(e)}")
-
-                if key == "noise":
-                    # ノイズ評価の例外時はニュートラル寄りで返す
-                    face_scores["face_noise_score"] = 0.5
-                    face_scores["face_noise_grade"] = "warn"
-
-                elif key == "sharpness":
-                    # シャープネス評価の例外時もニュートラル寄りにしておく
-                    face_scores["face_sharpness_score"] = 0.5
-                    face_scores["face_sharpness_eval_status"] = "exception"
-
-                elif key == "blurriness":
-                    face_scores["face_blurriness_score"] = 0.5
-                    face_scores["face_blurriness_grade"] = "warn"
-
-                # ★ Exposure の例外時はニュートラル寄りで返す
-                elif key == "exposure":
-                    face_scores["face_exposure_score"] = 0.5
-                    face_scores["face_exposure_grade"] = "warn"
-
-                else:
-                    face_scores[f"face_{key}_score"] = 0
-
-        return face_scores
+            r = self._try_eval(evaluator, face_crop_bgr_u8, name=f"face:{name}")
+            out.update(self.mapper.map(name, r, prefix="face_"))
+        return out
 
 
     # =========================
     # utility
     # =========================
+
+    def _eval_metrics(self, image: np.ndarray, metrics, prefix: str, tag: str) -> Dict[str, Any]:
+        out: Dict[str, Any] = {}
+        for name in metrics:
+            evaluator = self.evaluators.get(name)
+            if evaluator is None:
+                continue
+            r = self._try_eval(evaluator, image, name=f"{tag}:{name}")
+            out.update(self.mapper.map(name, r, prefix=prefix))
+        return out
+
+
+    def _ensure_result_schema(self, results: Dict[str, Any]) -> None:
+        """
+        CSVスキーマを安定化させるための穴埋め。
+        - 顔が無い場合: face_* 系は not_computed_with_default / no_face に統一
+        - 顔がある場合: 既存値を尊重しつつ欠損だけ埋める
+        """
+
+        # --- common ---
+        results.setdefault("face_detected", False)
+        results.setdefault("faces", [])
+        results.setdefault("yaw", 0.0)
+        results.setdefault("pitch", 0.0)
+        results.setdefault("roll", 0.0)
+        results.setdefault("gaze", [0, 0])
+        results.setdefault("lead_room_score", 0.0)
+        results.setdefault("face_box_height_ratio", 0.0)
+
+        # --- body defaults（detect実装揺れ対策）---
+        results.setdefault("full_body_detected", False)
+        results.setdefault("pose_score", 0.0)
+        results.setdefault("full_body_cut_risk", 1.0)
+
+        # alias（accept/shot_type が body_center_y を見る可能性に備える）
+        if "body_center_y_ratio" in results and "body_center_y" not in results:
+            results["body_center_y"] = results.get("body_center_y_ratio")
+
+        # accept 安定化
+        results.setdefault("accepted_flag", False)
+        results["accepted_reason"] = str(results.get("accepted_reason") or "")
+        results.setdefault("shot_type", "unknown")
+
+        # ==========================================================
+        # face_* schema stabilization
+        # ==========================================================
+        face_detected = bool(results.get("face_detected"))
+
+        # face系で扱うメトリクス名（MetricResultMapperと対応）
+        face_metrics = (
+            "sharpness",
+            "blurriness",
+            "contrast",
+            "noise",
+            "local_sharpness",
+            "local_contrast",
+            "exposure",
+            "color_balance",
+        )
+
+        # scoreのデフォルト（ニュートラル）
+        default_score = {
+            "sharpness": 0.5,
+            "blurriness": 0.5,
+            "contrast": 0.5,
+            "noise": 0.5,
+            "local_sharpness": 0.0,   # local系は0でもOK（運用に合わせて0.5でも可）
+            "local_contrast": 0.0,
+            "exposure": 0.5,
+            "color_balance": 0.5,
+        }
+
+        if not face_detected:
+            # 顔が無い = 測定不能（悪い評価ではない）
+            status = "not_computed_with_default"
+            reason = "no_face"
+
+            for m in face_metrics:
+                # score本体（最低限）
+                results.setdefault(f"face_{m}_score", default_score.get(m, 0.0))
+
+                # status / reason を必ず揃える（okは禁止）
+                results[f"face_{m}_eval_status"] = status
+
+                # fallback_reason が列として存在するものは埋める（無ければ作ってOK）
+                # 例: noise/exposure/local_* などは今後の分析にも効くので入れちゃう
+                results.setdefault(f"face_{m}_fallback_reason", reason)
+
+            # grade系も顔無しなら not_computed / None 寄せ（列を安定させたいなら）
+            # すでにCSVヘッダにある前提で埋める
+            results.setdefault("face_blurriness_grade", None)
+            results.setdefault("face_contrast_grade", None)
+            results.setdefault("face_noise_grade", None)
+            results.setdefault("face_exposure_grade", None)
+            results.setdefault("face_color_balance_grade", None)
+
+            # local系 std も安定化
+            results.setdefault("face_local_sharpness_std", 0.0)
+            results.setdefault("face_local_contrast_std", 0.0)
+
+            # face系 raw（必要ならNoneで固定）
+            results.setdefault("face_sharpness_raw", None)
+            results.setdefault("face_blurriness_raw", None)
+            results.setdefault("face_contrast_raw", None)
+            results.setdefault("face_mean_brightness", None)
+
+        else:
+            # 顔がある場合：欠損だけ埋める（statusが無いなら ok 扱いにしてよい）
+            for m in face_metrics:
+                results.setdefault(f"face_{m}_score", default_score.get(m, 0.0))
+                results.setdefault(f"face_{m}_eval_status", "ok")
+                # fallback_reason は ok のとき空欄でOK（埋めない）
+
+
+    def _normalize_for_csv(self, results: Dict[str, Any]) -> None:
+        # faces はCSVに安全に載る形式へ（list/dict -> 文字列）
+        faces = results.get("faces", [])
+        if isinstance(faces, (list, dict)):
+            results["faces"] = str(faces)
+        else:
+            results["faces"] = str(faces)
+
 
     def _calc_lead_room_score(self, image: np.ndarray, best_face: Dict[str, Any], yaw: float) -> float:
         """
@@ -834,6 +764,16 @@ class PortraitQualityEvaluator:
 
         results["expression_score"] = score
         results["expression_grade"] = grade
+
+
+    def _try_eval(self, evaluator, image: np.ndarray, name: str) -> Dict[str, Any]:
+        try:
+            return evaluator.evaluate(image) or {}
+        except Exception as e:
+            self.logger.error(f"{name} evaluate failed: {e}")
+            self.logger.error(traceback.format_exc())
+            return {}
+
 
     @staticmethod
     def decide_accept_static(
