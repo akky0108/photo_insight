@@ -1,6 +1,5 @@
 # src/batch_processor/evaluation_rank/lightroom.py
 # -*- coding: utf-8 -*-
-
 from __future__ import annotations
 
 from typing import Any, Dict, List
@@ -43,7 +42,6 @@ def safe_bool(value: Any) -> bool:
         return True
     if s in {"0", "false", "f", "no", "n"}:
         return False
-    # 最後に数値っぽいものだけ拾う
     try:
         return bool(int(float(s)))
     except Exception:
@@ -68,7 +66,6 @@ def safe_int_flag(value: Any) -> int:
     if s in ("0", "false", "f", "no", "n"):
         return 0
 
-    # それでもダメなら最後に数値変換を試す（例: "2" / "1.0"）
     try:
         return 1 if int(float(s)) != 0 else 0
     except Exception:
@@ -93,6 +90,7 @@ def to_0_100(v: Any) -> float:
 def score_to_rating(overall: float) -> int:
     """
     overall_score (0–100) → Lightroom 星評価 (0–5)
+    ※ 今回は「技術で点が伸びすぎない」前提になったので、星はやや“厳しめ寄り”のまま据え置き。
     """
     if overall >= 85:
         return 5
@@ -107,6 +105,41 @@ def score_to_rating(overall: float) -> int:
     return 0
 
 
+def format_score(x: Any) -> float:
+    """
+    表示用に丸める（accepted_reason / lr_keywords で統一表記に使う）
+    """
+    try:
+        return round(float(x), 2)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _infer_secondary_from_reason(reason: str) -> int:
+    if not reason:
+        return 0
+    s = str(reason).strip()
+    return 1 if (s.startswith("SEC:") or s.startswith("SEC-RESCUE:") or s.startswith("ACC-SEC-FILL:")) else 0
+
+
+def _infer_green_from_reason(reason: str) -> int:
+    """
+    accepted_flag が欠けていても reason から Green 相当を推定する保険。
+    """
+    if not reason:
+        return 0
+    s = str(reason).strip()
+    # build_reason_pro は "portrait group=... rank=... o=..." なので categoryで始まる
+    if s.startswith("portrait ") or s.startswith("non_face "):
+        return 1
+    # 旧形式互換
+    if "rank=" in s and "thr=" in s and ("overall=" in s or "o=" in s):
+        return 1
+    if s.startswith("ACC-FILL:") or s.startswith("ACC:") or s.startswith("ACC-"):
+        return 1
+    return 0
+
+
 def choose_color_label(
     *,
     accepted_flag: int,
@@ -114,44 +147,71 @@ def choose_color_label(
     rating: int,
     top_flag: int,
     face_in_focus: bool,
+    eye_state: str,
 ) -> str:
     """
-    Lightroom color label の運用ルール
+    Lightroom color label の運用ルール（今回の方針に最適化）
     Green  : 本採用（accepted_flag=1）
     Yellow : セカンダリ採用（secondary_accept_flag=1） or 顔ピント良好で要検討
-    Blue   : 上位だがまだ保留（flag=1 & rating>=2）
-    Red    : 問題あり（★1以下 & 顔ピントも悪い）
+    Blue   : 上位候補（flag=1）
+    Red    : 明確な問題（半目/閉眼/★1以下 & 顔ピントも悪い）
     None   : その他
     """
+    # 目状態は最優先（撮影の判断として強い）
+    # - half: 原則NG → Red
+    # - closed: 注意 → Yellow（ただしGreenが付くならGreen優先）
     if accepted_flag == 1:
         return "Green"
+
+    if eye_state == "half":
+        return "Red"
+
     if secondary_flag == 1:
         return "Yellow"
+
+    if eye_state == "closed":
+        return "Yellow"
+
+    # 明確な失敗
     if rating <= 1 and not face_in_focus:
         return "Red"
-    if top_flag == 1 and rating >= 2:
+
+    # まず候補を青で拾う（Blue=“見る”）
+    if top_flag == 1:
         return "Blue"
+
+    # 顔ピント良好なら要検討として黄
     if face_in_focus:
         return "Yellow"
+
     return ""
 
 
 def shorten_reason_for_lr(reason: str, *, max_len: int = 90) -> str:
     """
-    Lightroom のキーワード用に短文化する（prefixは reason 側に入っている前提）。
-    accepted_reason が ACC:/SEC:/SEC-RESCUE: を含むので、ここで付け足さない。
+    Lightroom のキーワード用に短文化する。
+    - accepted_reason は A統一（GreenもSecondaryも同列）
+    - 余計な情報を削って、LRで“読める”長さにする
     """
     if not reason:
         return ""
 
     s = str(reason)
 
-    # 表現を圧縮（LRで邪魔にならない）
+    # 邪魔な装飾の圧縮
     s = s.replace(" | ", " / ")
-    s = s.replace("(tech=", "t=")
-    s = s.replace(" face=", " f=")
-    s = s.replace(" comp=", " c=")
     s = s.replace("overall=", "o=")
+    s = s.replace("score_face=", "f=")
+    s = s.replace("score_composition=", "c=")
+    s = s.replace("score_technical=", "t=")
+
+    # build_reason_pro 由来の "tags=" を見やすく（tags=a,b,c → tags=a/b/c）
+    s = s.replace("tags=", "tags=")
+    if "tags=" in s:
+        # tags= の後だけ , を / に
+        head, tail = s.split("tags=", 1)
+        tail = tail.replace(",", "/").replace(" ", "")
+        s = head + "tags=" + tail
 
     # 連続空白の除去
     s = " ".join(s.split())
@@ -187,13 +247,15 @@ def apply_lightroom_fields(row: Dict[str, Any], *, keyword_max_len: int = 90) ->
     reason = row.get("accepted_reason", "") or ""
     reason_norm = str(reason).strip()
 
-    # ★最後の砦：reason から secondary を推定して矛盾を吸収
-    inferred_secondary = 1 if (
-        accepted_flag == 0
-        and secondary_flag == 0
-        and (reason_norm.startswith("SEC:") or reason_norm.startswith("SEC-RESCUE:"))
-    ) else 0
+    # ★矛盾吸収：reason から推定
+    inferred_green = _infer_green_from_reason(reason_norm) if accepted_flag == 0 else 0
+    inferred_secondary = _infer_secondary_from_reason(reason_norm) if (accepted_flag == 0 and secondary_flag == 0) else 0
+
+    effective_accepted_flag = 1 if accepted_flag == 1 or inferred_green == 1 else 0
     effective_secondary_flag = 1 if secondary_flag == 1 or inferred_secondary == 1 else 0
+
+    # eye_state は acceptance 側で付く（無ければ空）
+    eye_state = str(row.get("eye_state") or "").strip().lower()
 
     face_detected = safe_bool(row.get("face_detected"))
     face_sharp_score = safe_float(row.get("face_sharpness_score"))
@@ -201,11 +263,12 @@ def apply_lightroom_fields(row: Dict[str, Any], *, keyword_max_len: int = 90) ->
     face_in_focus = bool(face_detected and face_sharp_100 >= FACE_SHARPNESS_FOCUS_THRESHOLD)
 
     label = choose_color_label(
-        accepted_flag=accepted_flag,
-        secondary_flag=effective_secondary_flag,  # ★ここ
+        accepted_flag=effective_accepted_flag,
+        secondary_flag=effective_secondary_flag,
         rating=rating,
         top_flag=top_flag,
         face_in_focus=face_in_focus,
+        eye_state=eye_state,
     )
 
     row["lr_rating"] = rating
@@ -213,9 +276,15 @@ def apply_lightroom_fields(row: Dict[str, Any], *, keyword_max_len: int = 90) ->
     row["lr_labelcolor_key"] = to_labelcolor_key(label)
     row["lr_label_display"] = to_label_display_from_key(row["lr_labelcolor_key"])
 
-    # ★keywords：accepted または（推定込み）secondary のときだけ reason を載せる
-    if accepted_flag == 1 or effective_secondary_flag == 1:
+    # keywords:
+    # - Green/Yellow は reason を入れる
+    # - Blue は軽いヒントだけ（長文は邪魔）
+    if effective_accepted_flag == 1 or effective_secondary_flag == 1:
         row["lr_keywords"] = shorten_reason_for_lr(reason_norm, max_len=keyword_max_len)
+    elif label == "Blue":
+        # Blue は「見る理由」を短く
+        # 例: "CAND o=78.1"
+        row["lr_keywords"] = f"CAND o={format_score(overall)}"
     else:
         row["lr_keywords"] = ""
 

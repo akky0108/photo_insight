@@ -26,8 +26,14 @@ from batch_processor.evaluation_rank.scoring import (
 # utility
 # =========================
 
-def format_score(x: float) -> float:
-    return round(float(x), 2)
+def format_score(x: Any) -> float:
+    """
+    表示用丸め（CSVの見た目だけ整える）
+    """
+    try:
+        return round(float(x), 2)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def safe_float(value: Any, default: float = 0.0) -> float:
@@ -52,7 +58,6 @@ def parse_bool(v: Any) -> bool:
         return True
     if s in {"0", "false", "f", "no", "n"}:
         return False
-    # 数値っぽいものだけ拾う
     try:
         return bool(int(float(s)))
     except Exception:
@@ -64,23 +69,52 @@ def _as_scorepack(x: Any) -> Tuple[float, Dict[str, float]]:
     Scorer が ScorePack(.score/.breakdown) を返す版でも、
     旧実装の float を返す版でも落ちないようにする互換層。
     """
-    # ScorePack (score, breakdown)
     if hasattr(x, "score"):
         try:
             score = float(getattr(x, "score", 0.0) or 0.0)
         except Exception:
             score = 0.0
         bd = getattr(x, "breakdown", None) or {}
-        # breakdown は dict を想定
         try:
             return score, dict(bd)
         except Exception:
             return score, {}
-    # float
     try:
         return float(x), {}
     except Exception:
         return 0.0, {}
+
+
+def inject_best_eye_features(row: Dict[str, Any]) -> None:
+    """
+    row["faces"] に eye_closed_prob 等がある前提で、best face の値を row 直下にコピーする。
+    best face は confidence 最大。
+    失敗しても何もしない（減点しない）。
+    """
+    faces = row.get("faces")
+    if not isinstance(faces, list) or not faces:
+        return
+
+    best = None
+    best_conf = -1.0
+    for f in faces:
+        if not isinstance(f, dict):
+            continue
+        try:
+            conf = float(f.get("confidence", 0.0) or 0.0)
+        except Exception:
+            conf = 0.0
+        if conf > best_conf:
+            best_conf = conf
+            best = f
+
+    if not isinstance(best, dict):
+        return
+
+    # row直下に「書き出せる形」で載せる（acceptance/lightroom/writer が拾える）
+    row["eye_closed_prob_best"] = best.get("eye_closed_prob", 0.0)
+    row["eye_lap_var_best"] = best.get("eye_lap_var", 0.0)
+    row["eye_patch_size_best"] = best.get("eye_patch_size", 0)
 
 
 # =========================
@@ -132,7 +166,6 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
         """
         BaseBatchProcessor 契約:
         - load_data(): 純I/O（副作用なし）
-        - キャッシュは Base が握る
         """
         input_csv = (
             Path(self.paths["evaluation_data_dir"])
@@ -154,11 +187,10 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
         if hasattr(self.scorer, "build_calibration"):
             try:
                 self.scorer.build_calibration(data)
-                # scorer.calibration を持っている前提（無い場合は空）
                 self.calibration = dict(getattr(self.scorer, "calibration", {}) or {})
                 if self.calibration:
                     self.logger.info(
-                        "Calibration (P95) built: "
+                        "Calibration built: "
                         + ", ".join([f"{k}={v:.3f}" for k, v in self.calibration.items()])
                     )
                 else:
@@ -183,10 +215,6 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
 
         for row in batch:
             try:
-                if row.get("file_name") == "DSC_7135.NEF":
-                    self.logger.info(f"[debug] keys={sorted(list(row.keys()))[:60]} ... total={len(row.keys())}")
-                    self.logger.info(f"[debug] pitch={row.get('pitch')} gaze={row.get('gaze')} expr={row.get('expression_score')} eye={row.get('eye_contact_score')}")
-
                 out = dict(row)
 
                 # debug値は先に必ず初期化（例外が起きても参照できるように）
@@ -197,10 +225,8 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                 half_pen = 0.0
                 expr_eff = 0.0
 
-                # 元CSV値が "TRUE"/"FALSE" 等でも扱えるように normalize
+                # normalize（この後の scorer/acceptance が安定する）
                 face_detected = parse_bool(row.get("face_detected"))
-
-                # 追加情報（あれば）
                 full_body_detected = parse_bool(row.get("full_body_detected"))
                 pose_score = safe_float(row.get("pose_score"))
                 full_body_cut_risk = safe_float(row.get("full_body_cut_risk"))
@@ -214,8 +240,6 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                 face_score, face_bd = _as_scorepack(face_sp)
                 comp_score, comp_bd = _as_scorepack(comp_sp)
 
-                # overall_score は scorer 側で ScorePack を前提にしている可能性があるので
-                # 元のオブジェクト（tech_sp 等）を渡す
                 overall = self.scorer.overall_score(row, tech_sp, face_sp, comp_sp)
 
                 out["face_detected"] = face_detected
@@ -234,6 +258,7 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                     half_pen = float(half_closed_eye_penalty_proxy(row))
                     expr_eff = float(apply_half_closed_penalty_to_expression(expr, half_pen))
                 except Exception:
+                    # debug は落としても処理継続（採点を壊さない）
                     pass
 
                 out["debug_pitch"] = debug_pitch
@@ -242,7 +267,6 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                 out["debug_expression"] = debug_expr
                 out["debug_half_penalty"] = half_pen
                 out["debug_expr_effective"] = expr_eff
-
 
                 # ===== scores（内部は生値で保持）=====
                 out["overall_score"] = float(overall)
@@ -266,17 +290,6 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                     }
                 )
 
-                if out.get("file_name") == "DSC_7135.NEF":
-                    self.logger.info(
-                        "[out-debug] "
-                        f"debug_pitch={out.get('debug_pitch')} "
-                        f"debug_gaze_y={out.get('debug_gaze_y')} "
-                        f"debug_eye={out.get('debug_eye_contact')} "
-                        f"debug_expr={out.get('debug_expression')} "
-                        f"half={out.get('debug_half_penalty')} "
-                        f"expr_eff={out.get('debug_expr_effective')}"
-                    )
-
             except Exception as e:
                 self.logger.exception("Evaluation failed")
                 results.append(
@@ -297,11 +310,11 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
     def cleanup(self) -> None:
         """
         重要:
-        - secondary 判定をここで別途やらない（AcceptanceEngine に統一）
-        - Base の cleanup は最後に呼ぶ（出力後）
+        - accepted/secondary 判定は AcceptanceEngine に統一（ここで上書きしない）
+        - LR 付与は lightroom.py に一任（safe_int_flag & reason推定を使う）
+        - Base cleanup は最後に呼ぶ（出力後）
         """
         try:
-            # BaseBatchProcessor.process が all_results を持つ設計なので、ここで必ず取り込む
             rows = [
                 r["row"]
                 for r in self.all_results
@@ -312,16 +325,18 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                 self.logger.warning("No successful rows to output.")
                 return
 
+            # faces -> row直下へ転記（acceptanceのeye_state_policyが拾える）
+            for r in rows:
+                inject_best_eye_features(r)
+
             # ===== acceptance / category / accepted_reason / flag を 1本化 =====
             thresholds = self.acceptance.run(rows)
             portrait_thr = thresholds.get("portrait", 0.0)
             non_face_thr = thresholds.get("non_face", 0.0)
 
             # ===== Lightroom 付与（accepted_reason 一本=A統一前提）=====
+            # ここで accepted_flag 等を“文字列で再正規化して上書き”しない
             for r in rows:
-                r["accepted_flag"] = 1 if str(r.get("accepted_flag", "0")).strip() in {"1", "true", "TRUE"} else 0
-                r["secondary_accept_flag"] = 1 if str(r.get("secondary_accept_flag", "0")).strip() in {"1", "true", "TRUE"} else 0
-                r["flag"] = 1 if str(r.get("flag", "0")).strip() in {"1", "true", "TRUE"} else 0
                 apply_lightroom_fields(r, keyword_max_len=90)
 
             # ===== 出力 =====
@@ -331,6 +346,9 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
             )
             output_csv.parent.mkdir(parents=True, exist_ok=True)
 
+            # NOTE:
+            # - writer.py が score_/contrib_/eye_/debug_ を extra として末尾寄りに足す
+            # - LR系/accepted_reason は writer.py の tail で末尾固定するので base には入れない
             base_columns = [
                 "file_name",
                 "group_id",
@@ -342,46 +360,42 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                 "flag",
                 "accepted_flag",
                 "secondary_accept_flag",
+
                 "blurriness_score",
                 "sharpness_score",
                 "contrast_score",
                 "noise_score",
                 "local_sharpness_score",
                 "local_contrast_score",
+
                 "face_sharpness_score",
                 "face_contrast_score",
                 "face_noise_score",
                 "face_local_sharpness_score",
                 "face_local_contrast_score",
+
                 "composition_rule_based_score",
                 "face_position_score",
                 "framing_score",
                 "face_direction_score",
                 "eye_contact_score",
-                # Debug
+
+                # Debug（固定で先頭側に欲しければ base に入れる）
                 "debug_pitch",
                 "debug_gaze_y",
                 "debug_eye_contact",
                 "debug_expression",
                 "debug_half_penalty",
                 "debug_expr_effective",
-                # debug end
+
+                # 表示用に維持したい “score_” も base に含めてOK（extraでも拾われるが順序の意図を明確化）
                 "score_composition",
                 "score_face",
                 "score_technical",
-                "lr_keywords",
-                "lr_rating",
-                "lr_color_label",
-                "lr_labelcolor_key",
-                "lr_label_display",
-                "accepted_reason",
             ]
 
-            # face_detected 表記だけ互換（TRUE/FALSE）に寄せる + 表示用丸め
+            # 見た目用丸め（内部ロジックは全て終わっているのでここでOK）
             for r in rows:
-                r["face_detected"] = "TRUE" if bool(r.get("face_detected")) else "FALSE"
-
-                # 見た目用の丸め（内部ロジックは既に終わっているのでここでOK）
                 for k in (
                     "overall_score", "score_technical", "score_face", "score_composition",
                     "debug_pitch", "debug_gaze_y", "debug_eye_contact", "debug_expression",
@@ -394,19 +408,6 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                     if isinstance(k, str) and k.startswith("contrib_"):
                         r[k] = format_score(safe_float(r.get(k)))
 
-            for r in rows:
-                if r.get("file_name") == "DSC_7135.NEF":
-                    self.logger.info(
-                        "[prewrite] "
-                        f"debug_pitch={r.get('debug_pitch')} "
-                        f"debug_gaze_y={r.get('debug_gaze_y')} "
-                        f"debug_eye={r.get('debug_eye_contact')} "
-                        f"debug_expr={r.get('debug_expression')} "
-                        f"half={r.get('debug_half_penalty')} "
-                        f"expr_eff={r.get('debug_expr_effective')}"
-                    )
-                    break
-
             columns = write_ranking_csv(
                 output_csv=output_csv,
                 rows=rows,
@@ -414,12 +415,28 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
             )
 
             self.logger.info(f"Output written: {output_csv}")
+            # rules のフィールド名が異なる版（旧/新）を吸収
+            rules = getattr(self.acceptance, "rules", None)
+
+            portrait_p = getattr(rules, "portrait_percentile", None)
+            non_face_p = getattr(rules, "non_face_percentile", None)
+
+            # 旧版っぽい名前も拾う（存在するものだけ）
+            if portrait_p is None:
+                portrait_p = getattr(rules, "portrait_p", None) or getattr(rules, "portrait_accept_percentile", None)
+            if non_face_p is None:
+                non_face_p = getattr(rules, "non_face_p", None) or getattr(rules, "non_face_accept_percentile", None)
+
+            portrait_p_txt = "?" if portrait_p is None else str(portrait_p)
+            non_face_p_txt = "?" if non_face_p is None else str(non_face_p)
+
             self.logger.info(
-                f"Accepted thresholds: portrait(P{self.acceptance.rules.portrait_percentile}={portrait_thr:.2f}), "
-                f"non_face(P{self.acceptance.rules.non_face_percentile}={non_face_thr:.2f})"
+                f"Accepted thresholds: portrait(P{portrait_p_txt}={portrait_thr:.2f}), "
+                f"non_face(P{non_face_p_txt}={non_face_thr:.2f})"
             )
+            self.logger.info(f"Columns written: {len(columns)} cols")
+
         finally:
-            # Base cleanup は最後に
             super().cleanup()
 
 
