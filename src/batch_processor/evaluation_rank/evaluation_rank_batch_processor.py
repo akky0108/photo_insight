@@ -15,6 +15,11 @@ from batch_processor.evaluation_rank.acceptance import AcceptanceEngine
 from batch_processor.evaluation_rank.lightroom import apply_lightroom_fields
 from batch_processor.evaluation_rank.writer import write_ranking_csv
 
+from batch_processor.evaluation_rank.contract import (
+    INPUT_REQUIRED_COLUMNS,
+    OUTPUT_COLUMNS,
+)
+
 from batch_processor.evaluation_rank.scoring import (
     half_closed_eye_penalty_proxy,
     apply_half_closed_penalty_to_expression,
@@ -117,6 +122,35 @@ def inject_best_eye_features(row: Dict[str, Any]) -> None:
     row["eye_patch_size_best"] = best.get("eye_patch_size", 0)
 
 
+def _validate_input_contract(*, header: List[str], csv_path: Path) -> None:
+    """
+    入力CSVの契約（INPUT_REQUIRED_COLUMNS）を満たしているかを検証する。
+    1列でも足りない場合は、原因が分かるメッセージで即停止する。
+    """
+    hdr_set = set(header or [])
+    missing = [c for c in INPUT_REQUIRED_COLUMNS if c not in hdr_set]
+    if missing:
+        # 先頭だけ少し見せる（長すぎるとログが読めない）
+        preview = ", ".join(missing[:20])
+        suffix = "" if len(missing) <= 20 else f" ...(+{len(missing) - 20})"
+        raise ValueError(
+            f"Input CSV contract violation: missing {len(missing)} columns in {csv_path}: "
+            f"{preview}{suffix}"
+        )
+
+
+def _project_output_row_for_contract(row: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    OUTPUT_COLUMNS 契約に合わせて row を射影（不要列を落とし、足りない列は空で埋める）。
+    writer 側の extra 列自動追加を “行側” で抑止して、出力ヘッダを固定するための防波堤。
+    """
+    out: Dict[str, Any] = {}
+    for k in OUTPUT_COLUMNS:
+        v = row.get(k)
+        out[k] = "" if v is None else v
+    return out
+
+
 # =========================
 # processor
 # =========================
@@ -157,7 +191,7 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
     # -------------------------
 
     def setup(self) -> None:
-        # BaseBatchProcessor.setup が self.get_data() を呼ぶので先に用意
+        # BaseBatchProcessor.setup が self.load_data() を呼ぶので先に用意
         self.paths.setdefault("evaluation_data_dir", "./temp")
         self.paths.setdefault("output_data_dir", "./output")
         super().setup()
@@ -167,16 +201,16 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
         BaseBatchProcessor 契約:
         - load_data(): 純I/O（副作用なし）
         """
-        input_csv = (
-            Path(self.paths["evaluation_data_dir"])
-            / f"evaluation_results_{self.date}.csv"
-        )
+        input_csv = Path(self.paths["evaluation_data_dir"]) / f"evaluation_results_{self.date}.csv"
         if not input_csv.exists():
             raise FileNotFoundError(input_csv)
 
         self.logger.info(f"Loading CSV: {input_csv}")
-        with input_csv.open("r", encoding="utf-8") as f:
-            rows = list(csv.DictReader(f))
+        with input_csv.open("r", encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            header = reader.fieldnames or []
+            _validate_input_contract(header=header, csv_path=input_csv)
+            rows = list(reader)
         return rows
 
     def after_data_loaded(self, data: List[Dict[str, Any]]) -> None:
@@ -311,8 +345,8 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
         """
         重要:
         - accepted/secondary 判定は AcceptanceEngine に統一（ここで上書きしない）
-        - LR 付与は lightroom.py に一任（safe_int_flag & reason推定を使う）
-        - Base cleanup は最後に呼ぶ（出力後）
+        - LR 付与は lightroom.py に一任
+        - 出力ヘッダは contract.OUTPUT_COLUMNS をSSOTにして固定
         """
         try:
             rows = [
@@ -334,67 +368,11 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
             portrait_thr = thresholds.get("portrait", 0.0)
             non_face_thr = thresholds.get("non_face", 0.0)
 
-            # ===== Lightroom 付与（accepted_reason 一本=A統一前提）=====
-            # ここで accepted_flag 等を“文字列で再正規化して上書き”しない
+            # ===== Lightroom 付与 =====
             for r in rows:
                 apply_lightroom_fields(r, keyword_max_len=90)
 
-            # ===== 出力 =====
-            output_csv = (
-                Path(self.paths["output_data_dir"])
-                / f"evaluation_ranking_{self.date}.csv"
-            )
-            output_csv.parent.mkdir(parents=True, exist_ok=True)
-
-            # NOTE:
-            # - writer.py が score_/contrib_/eye_/debug_ を extra として末尾寄りに足す
-            # - LR系/accepted_reason は writer.py の tail で末尾固定するので base には入れない
-            base_columns = [
-                "file_name",
-                "group_id",
-                "subgroup_id",
-                "shot_type",
-                "face_detected",
-                "category",
-                "overall_score",
-                "flag",
-                "accepted_flag",
-                "secondary_accept_flag",
-
-                "blurriness_score",
-                "sharpness_score",
-                "contrast_score",
-                "noise_score",
-                "local_sharpness_score",
-                "local_contrast_score",
-
-                "face_sharpness_score",
-                "face_contrast_score",
-                "face_noise_score",
-                "face_local_sharpness_score",
-                "face_local_contrast_score",
-
-                "composition_rule_based_score",
-                "face_position_score",
-                "framing_score",
-                "face_direction_score",
-                "eye_contact_score",
-
-                # Debug（固定で先頭側に欲しければ base に入れる）
-                "debug_pitch",
-                "debug_gaze_y",
-                "debug_eye_contact",
-                "debug_expression",
-                "debug_half_penalty",
-                "debug_expr_effective",
-
-                # 表示用に維持したい “score_” も base に含めてOK（extraでも拾われるが順序の意図を明確化）
-                "score_composition",
-                "score_face",
-                "score_technical",
-            ]
-
-            # 見た目用丸め（内部ロジックは全て終わっているのでここでOK）
+            # ===== 見た目用丸め（内部ロジックは全て終わっているのでここでOK）=====
             for r in rows:
                 for k in (
                     "overall_score", "score_technical", "score_face", "score_composition",
@@ -408,20 +386,36 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                     if isinstance(k, str) and k.startswith("contrib_"):
                         r[k] = format_score(safe_float(r.get(k)))
 
+            # ===== 出力（契約に合わせて射影してから書く：ヘッダ固定のため）=====
+            output_csv = Path(self.paths["output_data_dir"]) / f"evaluation_ranking_{self.date}.csv"
+            output_csv.parent.mkdir(parents=True, exist_ok=True)
+
+            projected_rows = [_project_output_row_for_contract(r) for r in rows]
+
+            # base_columns は OUTPUT_COLUMNS をそのまま渡す（SSOT）
             columns = write_ranking_csv(
                 output_csv=output_csv,
-                rows=rows,
-                base_columns=base_columns,
+                rows=projected_rows,
+                base_columns=OUTPUT_COLUMNS,
+                sort_for_ranking=True,
             )
 
+            # writer側の仕様変更などで列が増えたら、ここで即検出して止める（運用崩壊防止）
+            if list(columns) != list(OUTPUT_COLUMNS):
+                raise RuntimeError(
+                    "Output CSV contract violation: writer produced unexpected columns/order.\n"
+                    f"expected={OUTPUT_COLUMNS}\n"
+                    f"actual={list(columns)}"
+                )
+
             self.logger.info(f"Output written: {output_csv}")
+
             # rules のフィールド名が異なる版（旧/新）を吸収
             rules = getattr(self.acceptance, "rules", None)
 
             portrait_p = getattr(rules, "portrait_percentile", None)
             non_face_p = getattr(rules, "non_face_percentile", None)
 
-            # 旧版っぽい名前も拾う（存在するものだけ）
             if portrait_p is None:
                 portrait_p = getattr(rules, "portrait_p", None) or getattr(rules, "portrait_accept_percentile", None)
             if non_face_p is None:
