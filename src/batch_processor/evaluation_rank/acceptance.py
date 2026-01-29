@@ -321,7 +321,8 @@ def build_reason_pro(
     focus = "face" if (cat == "portrait" and st not in ("full_body", "seated") and f >= c) else "comp"
 
     top = _topk_by_score({k: v for k, v in tags}, k=max_tags)
-    top_txt = ", ".join(k for k, _ in top) if top else ""
+    top_txt = ", ".join(str(k) for k, _ in top if isinstance(k, str)) if top else ""
+
 
     return (
         f"{cat} group={grp} st={st} "
@@ -395,10 +396,10 @@ class AcceptanceEngine:
 
         if st in ("full_body", "seated"):
             # 全身/座り：構図主導。顔条件を緩和
-            return comp >= 70.0 and face >= 60.0
+            return (comp >= 65.0 and face >= 60.0) or (comp >= 58.0 and safe_float(r.get("overall_score")) >= 72.0)
 
         # face_only / upper_body：顔と構図の両立（compは少し緩めて落としにくく）
-        return face >= 70.0 and comp >= 65.0
+        return (face >= 70.0 and comp >= 55.0) or (face >= 78.0 and comp >= 50.0)
 
     # --------------------------
     # accepted_flag（Green）
@@ -473,15 +474,30 @@ class AcceptanceEngine:
         # ---- 目状態ポリシー（half=強制NG / closed=注意）を最後に適用 ----
         apply_eye_state_policy(rows)
 
+        # --------------------------
+        # （ログ用）primary percentile thresholds
+        #   ※Green判定には使っていないが、運用・可視化のため返す
+        # --------------------------
+        portrait_scores = [safe_float(r.get("overall_score")) for r in rows if r.get("category") == "portrait"]
+        non_face_scores = [safe_float(r.get("overall_score")) for r in rows if r.get("category") == "non_face"]
+
+        portrait_thr = percentile(portrait_scores, self.rules.portrait_percentile) if portrait_scores else 0.0
+        non_face_thr = percentile(non_face_scores, self.rules.non_face_percentile) if non_face_scores else 0.0
+
+        # secondary thresholds（既存）
+        portrait_sec_thr = percentile(portrait_scores, self.rules.portrait_secondary_percentile) if portrait_scores else 0.0
+        non_face_sec_thr = percentile(non_face_scores, self.rules.non_face_secondary_percentile) if non_face_scores else 0.0
+
         # ---- thresholds返り値：旧キー互換（ログ/他依存の保険）----
         # primary percentile はこのエンジンでは使っていないが、参照されても壊れないように返す
         return {
-            "portrait": 0.0,
-            "non_face": 0.0,
+            "portrait": float(portrait_thr),
+            "non_face": float(non_face_thr),
             "portrait_secondary": float(portrait_sec_thr),
             "non_face_secondary": float(non_face_sec_thr),
             "green_total": float(green_total),
         }
+
 
     # --------------------------
     # flag（候補ピック）

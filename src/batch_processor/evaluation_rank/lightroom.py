@@ -190,8 +190,7 @@ def choose_color_label(
 def shorten_reason_for_lr(reason: str, *, max_len: int = 90) -> str:
     """
     Lightroom のキーワード用に短文化する。
-    - accepted_reason は A統一（GreenもSecondaryも同列）
-    - 余計な情報を削って、LRで“読める”長さにする
+    長い場合は「先頭 + … + 末尾」を残して、tail も見えるようにする。
     """
     if not reason:
         return ""
@@ -206,9 +205,7 @@ def shorten_reason_for_lr(reason: str, *, max_len: int = 90) -> str:
     s = s.replace("score_technical=", "t=")
 
     # build_reason_pro 由来の "tags=" を見やすく（tags=a,b,c → tags=a/b/c）
-    s = s.replace("tags=", "tags=")
     if "tags=" in s:
-        # tags= の後だけ , を / に
         head, tail = s.split("tags=", 1)
         tail = tail.replace(",", "/").replace(" ", "")
         s = head + "tags=" + tail
@@ -216,7 +213,25 @@ def shorten_reason_for_lr(reason: str, *, max_len: int = 90) -> str:
     # 連続空白の除去
     s = " ".join(s.split())
 
-    return s[:max_len]
+    if max_len <= 0:
+        return ""
+
+    # 短ければそのまま
+    if len(s) <= max_len:
+        return s
+
+    # max_len が小さすぎる場合は素直に先頭切り
+    if max_len <= 10:
+        return s[:max_len]
+
+    # --- ここが tail を残す本体 ---
+    # 末尾を確実に残す（最低20文字 or 全体の1/4）
+    tail_len = max(20, max_len // 4)
+    # ただし max_len を超えないように
+    tail_len = min(tail_len, max_len - 2)  # "…" + head の余地
+    head_len = max_len - 1 - tail_len      # "…" 1文字分
+
+    return s[:head_len] + "…" + s[-tail_len:]
 
 
 def to_labelcolor_key(color: str) -> str:

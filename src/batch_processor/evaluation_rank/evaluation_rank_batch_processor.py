@@ -116,7 +116,6 @@ def inject_best_eye_features(row: Dict[str, Any]) -> None:
     if not isinstance(best, dict):
         return
 
-    # row直下に「書き出せる形」で載せる（acceptance/lightroom/writer が拾える）
     row["eye_closed_prob_best"] = best.get("eye_closed_prob", 0.0)
     row["eye_lap_var_best"] = best.get("eye_lap_var", 0.0)
     row["eye_patch_size_best"] = best.get("eye_patch_size", 0)
@@ -130,25 +129,12 @@ def _validate_input_contract(*, header: List[str], csv_path: Path) -> None:
     hdr_set = set(header or [])
     missing = [c for c in INPUT_REQUIRED_COLUMNS if c not in hdr_set]
     if missing:
-        # 先頭だけ少し見せる（長すぎるとログが読めない）
         preview = ", ".join(missing[:20])
         suffix = "" if len(missing) <= 20 else f" ...(+{len(missing) - 20})"
         raise ValueError(
             f"Input CSV contract violation: missing {len(missing)} columns in {csv_path}: "
             f"{preview}{suffix}"
         )
-
-
-def _project_output_row_for_contract(row: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    OUTPUT_COLUMNS 契約に合わせて row を射影（不要列を落とし、足りない列は空で埋める）。
-    writer 側の extra 列自動追加を “行側” で抑止して、出力ヘッダを固定するための防波堤。
-    """
-    out: Dict[str, Any] = {}
-    for k in OUTPUT_COLUMNS:
-        v = row.get(k)
-        out[k] = "" if v is None else v
-    return out
 
 
 # =========================
@@ -292,7 +278,6 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                     half_pen = float(half_closed_eye_penalty_proxy(row))
                     expr_eff = float(apply_half_closed_penalty_to_expression(expr, half_pen))
                 except Exception:
-                    # debug は落としても処理継続（採点を壊さない）
                     pass
 
                 out["debug_pitch"] = debug_pitch
@@ -302,13 +287,13 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                 out["debug_half_penalty"] = half_pen
                 out["debug_expr_effective"] = expr_eff
 
-                # ===== scores（内部は生値で保持）=====
+                # ===== scores =====
                 out["overall_score"] = float(overall)
                 out["score_technical"] = float(tech_score)
                 out["score_face"] = float(face_score)
                 out["score_composition"] = float(comp_score)
 
-                # ===== breakdown（0..100スケールに揃える）=====
+                # ===== breakdown（0..100）=====
                 for k, v in (tech_bd or {}).items():
                     out[f"contrib_tech_{k}"] = safe_float(v) * 100.0
                 for k, v in (face_bd or {}).items():
@@ -346,7 +331,7 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
         重要:
         - accepted/secondary 判定は AcceptanceEngine に統一（ここで上書きしない）
         - LR 付与は lightroom.py に一任
-        - 出力ヘッダは contract.OUTPUT_COLUMNS をSSOTにして固定
+        - 出力ヘッダは contract.OUTPUT_COLUMNS をSSOTにして固定（writer が enforce）
         """
         try:
             rows = [
@@ -386,21 +371,17 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                     if isinstance(k, str) and k.startswith("contrib_"):
                         r[k] = format_score(safe_float(r.get(k)))
 
-            # ===== 出力（契約に合わせて射影してから書く：ヘッダ固定のため）=====
+            # ===== 出力（writer が contract を enforce）=====
             output_csv = Path(self.paths["output_data_dir"]) / f"evaluation_ranking_{self.date}.csv"
             output_csv.parent.mkdir(parents=True, exist_ok=True)
 
-            projected_rows = [_project_output_row_for_contract(r) for r in rows]
-
-            # base_columns は OUTPUT_COLUMNS をそのまま渡す（SSOT）
             columns = write_ranking_csv(
                 output_csv=output_csv,
-                rows=projected_rows,
-                base_columns=OUTPUT_COLUMNS,
+                rows=rows,              # 射影しない（writer側で契約列に正規化）
                 sort_for_ranking=True,
             )
 
-            # writer側の仕様変更などで列が増えたら、ここで即検出して止める（運用崩壊防止）
+            # 念のため “契約” と一致しているかを最終チェック（運用崩壊防止）
             if list(columns) != list(OUTPUT_COLUMNS):
                 raise RuntimeError(
                     "Output CSV contract violation: writer produced unexpected columns/order.\n"
