@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import csv
 from pathlib import Path
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Optional, Sequence
+
+from batch_processor.evaluation_rank.contract import OUTPUT_COLUMNS
 
 
 def safe_int_flag(value: Any) -> int:
@@ -32,94 +34,6 @@ def safe_int_flag(value: Any) -> int:
         return 0
 
 
-def collect_extra_columns(rows: List[Dict[str, Any]]) -> List[str]:
-    """
-    extra列は「存在するものだけ」末尾に追加（漏れ防止 & 安定）
-
-    追加: 目・表情など運用判断に必要な派生列も拾う（例: eye_closed_prob_best）
-    """
-    extra_cols = set()
-
-    # 追加したい “可変で増えていく列” のprefix群
-    allow_prefixes = (
-        "score_",
-        "contrib_",
-        "eye_",        # eye_closed_prob_best, eye_state, etc
-        "debug_",      # debug_* 系
-        "expr_",       # expression_* を付けるなら
-    )
-
-    # prefix じゃないけど欲しい固定列があればここに（将来用）
-    allow_exact = {
-        # "eye_closed_prob_best",
-        # "eye_patch_size_best",
-        # "eye_state",
-    }
-
-    for r in rows:
-        for k in r.keys():
-            if not isinstance(k, str):
-                continue
-            if k in allow_exact:
-                extra_cols.add(k)
-                continue
-            if k.startswith(allow_prefixes):
-                extra_cols.add(k)
-
-    return sorted(extra_cols)
-
-
-def build_columns(base_columns: Sequence[str], extra_columns: Sequence[str]) -> List[str]:
-    """
-    columns を確定する。
-    - base → extra（昇順）→ tail（固定で末尾）
-    - tail は必ず末尾に揃うように、前段から除外して最後に付与する
-    """
-    tail = [
-        "lr_keywords",
-        "lr_rating",
-        "lr_color_label",
-        "lr_labelcolor_key",
-        "lr_label_display",
-        "accepted_reason",
-    ]
-
-    tail_set = set(tail)
-
-    # 末尾固定列は前段から除外（順序の崩れを防ぐ）
-    base = [c for c in base_columns if c not in tail_set]
-    extra = [c for c in extra_columns if c not in tail_set]
-
-    cols = list(base) + list(extra) + tail
-
-    # 順序を保って重複削除
-    seen = set()
-    uniq: List[str] = []
-    for c in cols:
-        if c in seen:
-            continue
-        seen.add(c)
-        uniq.append(c)
-    return uniq
-
-
-def write_csv(path: Path, rows: List[Dict[str, Any]], columns: Sequence[str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=list(columns))
-        writer.writeheader()
-        for r in rows:
-            out = {}
-            for k in columns:
-                v = r.get(k)
-                out[k] = "" if v is None else v
-            writer.writerow(out)
-
-
-# =========================
-# ランキング用の並び替え
-# =========================
-
 def _safe_float(value: Any) -> float:
     try:
         if value in ("", None):
@@ -128,6 +42,10 @@ def _safe_float(value: Any) -> float:
     except (ValueError, TypeError):
         return 0.0
 
+
+# =========================
+# ランキング用の並び替え
+# =========================
 
 def sort_rows_for_ranking(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
@@ -141,6 +59,7 @@ def sort_rows_for_ranking(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     5. overall_score: 高い順
     6. file_name/filename: 文字列昇順（安定化用）
     """
+
     def _cat_order(cat: str) -> int:
         if cat == "portrait":
             return 0
@@ -168,26 +87,78 @@ def sort_rows_for_ranking(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return sorted(rows, key=_key)
 
 
+# =========================
+# Contract-based CSV writing
+# =========================
+
+def _normalize_row_for_output(row: Dict[str, Any], columns: Sequence[str]) -> Dict[str, Any]:
+    """
+    OUTPUT_COLUMNS を満たすように row を正規化する。
+    - 欠損列は "" で埋める（契約として必ず出力列を揃える）
+    - フラグ系は 0/1 に正規化
+    - None は "" に寄せる（CSVでの扱いを安定化）
+    - extras は無視（DictWriter 側では渡さない）
+    """
+    out: Dict[str, Any] = {}
+
+    # まずは contract で要求される列を必ず揃える
+    for c in columns:
+        v = row.get(c, "")
+
+        # 代表的な別名吸収（過去互換）
+        if v == "" and c == "file_name":
+            v = row.get("filename", "")
+
+        if v is None:
+            v = ""
+
+        # フラグはここで統一してしまう
+        if c in ("flag", "accepted_flag", "secondary_accept_flag"):
+            v = safe_int_flag(v)
+
+        out[c] = v
+
+    return out
+
+
+def write_csv_contract(path: Path, rows: List[Dict[str, Any]], columns: Sequence[str]) -> None:
+    """
+    Contract(列順・列数) を完全に守って CSV を書く。
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=list(columns),
+            extrasaction="ignore",  # 念のため（ここでは contract 以外のキーを渡さないが保険）
+        )
+        writer.writeheader()
+        for r in rows:
+            writer.writerow(_normalize_row_for_output(r, columns))
+
+
 def write_ranking_csv(
     *,
     output_csv: Path,
     rows: List[Dict[str, Any]],
-    base_columns: Sequence[str],
+    base_columns: Optional[Sequence[str]] = None,
     sort_for_ranking: bool = True,
 ) -> List[str]:
     """
-    ranking出力専用:
-    - extra columns を集める
-    - columns を確定する
-    - （必要なら）行をランキング順にソートする
-    - CSV を書き出す
+    ranking出力専用（Contract準拠）:
 
-    return: 実際に書いた columns（テストやログに使える）
+    重要:
+    - OUTPUT_COLUMNS（contract.py）を単一の正として使う（列順も契約）
+    - base_columns は後方互換のため残しているが、基本は無視する
+      （※将来、base_columns と OUTPUT_COLUMNS の整合チェックを入れたい場合の余地）
+
+    return: 実際に書いた columns（= OUTPUT_COLUMNS）
     """
+    # SSOT: 出力列は常に contract に固定
+    columns = list(OUTPUT_COLUMNS)
+
     if sort_for_ranking:
         rows = sort_rows_for_ranking(rows)
 
-    extra_columns = collect_extra_columns(rows)
-    columns = build_columns(base_columns, extra_columns)
-    write_csv(output_csv, rows, columns)
+    write_csv_contract(output_csv, rows, columns)
     return columns
