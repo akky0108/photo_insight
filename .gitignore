@@ -28,6 +28,7 @@ conda-lock.yml
 !environment.yml
 !environment_*.yml
 !requirements.txt
+!requirements-dev.txt
 !/.github/workflows/ci.yml
 
 # CI用に除外する依存関係ファイル
