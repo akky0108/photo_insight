@@ -16,15 +16,8 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt', '**/requirements-dev.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
+          python-version: "3.11"
+          cache: "pip"
 
       - name: Install dependencies (dev)
         run: |
@@ -44,15 +37,8 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt', '**/requirements-dev.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
+          python-version: "3.11"
+          cache: "pip"
 
       - name: Install dependencies (dev)
         run: |
@@ -61,28 +47,28 @@ jobs:
 
       - name: Lint with flake8 (log only)
         run: |
-          mkdir -p ci_logs
+          mkdir -p ci_logs/lint
           flake8 . \
             --count \
             --statistics \
             --show-source \
             --format="%(path)s::%(code)s::%(row)d::%(col)d::%(text)s" \
             --extend-ignore=E203,W503 \
-            > ci_logs/flake8.log || true
+            > ci_logs/lint/flake8.log || true
 
       - name: Upload flake8 log
         uses: actions/upload-artifact@v4
         with:
           name: flake8-log
-          path: ci_logs/flake8.log
+          path: ci_logs/lint/flake8.log
 
       - name: Check formatting with black (log only)
         run: |
-          mkdir -p ci_logs
-          black --check . > ci_logs/black.log 2>&1 || true
+          mkdir -p ci_logs/format
+          black --check . > ci_logs/format/black.log 2>&1 || true
 
       - name: Upload black log
         uses: actions/upload-artifact@v4
         with:
           name: black-log
-          path: ci_logs/black.log
+          path: ci_logs/format/black.log
