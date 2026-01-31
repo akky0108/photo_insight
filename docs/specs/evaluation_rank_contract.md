@@ -7,9 +7,10 @@
 
 本契約は以下を目的とする：
 
-- 評価・採用・Lightroom 付与処理の **列名整合性の固定**
-- 将来の指標追加・削除を **破壊的変更にしない**
-- GitHub 上での PR レビュー基準を明確化する
+- 評価・採用・Lightroom 付与処理における 列名・順序の固定
+- 将来の指標追加・削除を 破壊的変更にしない
+- GitHub 上での PR レビュー基準の明確化
+- CSV を中間 API とした長期運用の安定化
 
 ---
 
@@ -23,8 +24,12 @@
 - `evaluation_rank/lightroom.py`
 - `evaluation_rank/writer.py`
 
-本契約は **CSV の列構造のみ**を扱い、  
-スコア計算ロジックや閾値の是非は含まない。
+本契約は CSV の列構造・順序のみを対象とする。
+以下は対象外とする：
+
+    - スコア算出ロジック
+    - 閾値・重みの妥当性
+    - 評価アルゴリズムの内部実装
 
 ---
 
@@ -71,11 +76,10 @@ accepted_flag,accepted_reason
 
 ### 2.2 入力CSVの責務
 
-評価器（evaluators）層の最終成果物
-
-ranking 処理は 入力列を破壊・上書きしない
-
-faces は JSON list を想定（best face 抽出は ranking 側）
+- evaluators 層の最終成果物
+- ranking 処理は入力列を破壊・上書きしない
+- faces は JSON list 形式を想定
+- 顔選択・統合処理は ranking 側の責務とする
 
 ## 3. 出力CSV（evaluation_ranking_*.csv）
 ### 3.1 出力ヘッダ（完全定義）
@@ -128,9 +132,10 @@ accepted_reason
 
 ### 3.2 出力CSVの責務
 
-- ranking / acceptance / lightroom 処理の 最終成果物
-- Lightroom での実運用を前提とした 可視性優先
-- accepted_reason は Green / Yellow 共通で1本化
+- ranking / acceptance / lightroom 処理の最終成果物
+- Lightroom 実運用を前提とした可視性重視設計
+- lr_* 系は Single Source of Truth
+- accepted_reason は Green / Yellow 共通化
 
 ## 4. 列の分類（設計ルール）
 ### 4.1 必須入力列（Contract Required）
@@ -140,7 +145,7 @@ face_detected
 group_id
 subgroup_id
 shot_type
-各 *_score 系（tech / face / composition）
+各 *_score 系（technical / face / composition）
 
 ### 4.2 ranking 生成列
 
@@ -165,23 +170,47 @@ ranking ロジックに依存してはならない
 ## 5. 変更ルール（GitHub 運用）
 
 - 許可される変更
-    debug 列の追加
+    debug_* 列の追加
     contrib_* 列の追加
     accepted_reason の文言変更
+    lr_keywords の表記調整
+
 - 破壊的変更（要 PR 明示）
     列名変更
+    列削除
+    列順変更
     必須列の削除
+    型変更（bool → int など）
+
+    これらは必ず PR 内で明示し、影響範囲を記載すること。
 
 - 型の変更（bool → 数値など）
 
 ## 6. この契約の位置付け
 
-本 md は コードより優先される
-実装は本契約に 従属する
-PR レビュー時は「この契約を壊していないか」を最初に確認する
+- 本ドキュメントはコードより優先される
+- 実装は本契約に従属する
+- PR レビューでは本契約との整合性を最優先で確認する
 
-## 7. 次のステップ（別PR）
+CSV は中間 API として扱う。
 
-入力CSVの contract validation（列チェック）
-出力CSVの contract validation（列順・欠損チェック）
-pytest による自動検証
+## 7. 自動検証（pytest / CI）
+
+本契約は以下により自動検証される：
+    - test_contract_headers.py
+    - test_lightroom.py
+    - GitHub Actions CI
+
+検証内容：
+    - 列重複チェック
+    - 列順固定
+    - 欠損検知
+    - 実CSV照合
+
+## 8. 次のステップ（別PR）
+
+- 入力CSV contract validation の強化
+- 出力CSV品質テスト（分布・比率）
+- acceptance ルール分割
+- 閾値のYAML化
+- 分析スクリプト導入
