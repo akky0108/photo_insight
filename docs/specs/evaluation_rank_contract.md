@@ -167,7 +167,46 @@ accepted_reason
 debug_* は 自由追加可
 ranking ロジックに依存してはならない
 
-## 5. 変更ルール（GitHub 運用）
+## 5 Acceptance（Green / Yellow 配分ルール）
+
+acceptance.py における最終採用（Green）は、
+グループ内件数に応じて動的に比率が決定される。
+
+### Green 配分ルール（デフォルト）
+
+| 件数 n | 比率 | 備考 |
+|--------|------|------|
+| n ≤ 60 | 30% | 少数精鋭優先 |
+| 61–120 | 25% | 中規模安定帯 |
+| n >120 | 20% | 大量時の品質維持 |
+
+算出式：
+
+green_total = max(ceil(n * ratio), green_min_total)
+
+
+### Backfill ポリシー
+
+Green 枠は以下条件を満たす範囲で必ず充足される：
+
+- overall_score 上位順
+- _green_content_ok() による内容フィルタ
+- 条件不足時は順位優先で補完（backfill）
+
+これにより Green 枠欠損は発生しない設計とする。
+
+### ログ用補助情報
+
+apply_accepted_flags() の戻り値には以下を含む：
+
+- green_ratio_effective
+- total_n
+
+これらは運用・分析・デバッグ用途に限定して使用する。
+CSV 仕様には影響しない。
+
+
+## 6. 変更ルール（GitHub 運用）
 
 - 許可される変更
     debug_* 列の追加
@@ -186,7 +225,7 @@ ranking ロジックに依存してはならない
 
 - 型の変更（bool → 数値など）
 
-## 6. この契約の位置付け
+## 7. この契約の位置付け
 
 - 本ドキュメントはコードより優先される
 - 実装は本契約に従属する
@@ -194,7 +233,7 @@ ranking ロジックに依存してはならない
 
 CSV は中間 API として扱う。
 
-## 7. 自動検証（pytest / CI）
+## 8. 自動検証（pytest / CI）
 
 本契約は以下により自動検証される：
     - test_contract_headers.py
@@ -207,7 +246,7 @@ CSV は中間 API として扱う。
     - 欠損検知
     - 実CSV照合
 
-## 8. 次のステップ（別PR）
+## 9. 次のステップ（別PR）
 
 - 入力CSV contract validation の強化
 - 出力CSV品質テスト（分布・比率）
