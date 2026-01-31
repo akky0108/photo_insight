@@ -323,7 +323,6 @@ def build_reason_pro(
     top = _topk_by_score({k: v for k, v in tags}, k=max_tags)
     top_txt = ", ".join(str(k) for k, _ in top if isinstance(k, str)) if top else ""
 
-
     return (
         f"{cat} group={grp} st={st} "
         f"rank={green_rank}/{green_total} "
@@ -347,8 +346,16 @@ class AcceptRules:
     non_face_secondary_percentile: float = 70.0
 
     # ---- Green（最終採用）----
+    # 旧：固定比率（互換用に残す）
     green_ratio_total: float = 0.20
     green_min_total: int = 3
+
+    # ★新：枚数別の比率（デフォルトで有効化）
+    green_ratio_small: float = 0.30   # n <= green_count_small_max
+    green_ratio_mid: float = 0.25     # (small_max < n <= mid_max)
+    green_ratio_large: float = 0.20   # n > green_count_mid_max
+    green_count_small_max: int = 60
+    green_count_mid_max: int = 120
 
     # ---- flag（候補ピック）----
     flag_ratio: float = 0.30
@@ -362,6 +369,17 @@ class AcceptRules:
 class AcceptanceEngine:
     def __init__(self, rules: Optional[AcceptRules] = None) -> None:
         self.rules = rules or AcceptRules()
+
+    def _green_ratio_by_count(self, n: int) -> float:
+        """
+        グループ枚数 n に応じて Green 比率を切り替える。
+        デフォルト: <=60:30%, <=120:25%, それ以上:20%
+        """
+        if n <= int(self.rules.green_count_small_max):
+            return float(self.rules.green_ratio_small)
+        if n <= int(self.rules.green_count_mid_max):
+            return float(self.rules.green_ratio_mid)
+        return float(self.rules.green_ratio_large)
 
     def _assign_accept_group(self, r: Row) -> str:
         if not _bool(r.get("face_detected")):
@@ -402,6 +420,49 @@ class AcceptanceEngine:
         return (face >= 70.0 and comp >= 55.0) or (face >= 78.0 and comp >= 50.0)
 
     # --------------------------
+    # backfill relaxed gate（埋め用：少し緩める）
+    # --------------------------
+    def _backfill_relaxed_ok(self, r: Row) -> bool:
+        """
+        strict gate で green_total に満たない場合の救済ゲート。
+        - non_face は True（上位順で埋める）
+        - portrait:
+          - full_body/seated: comp>=58
+          - upper_body/face_only: face>=68 & comp>=50
+        """
+        if r.get("category") != "portrait":
+            return True
+
+        st = _shot_type(r)
+        face = safe_float(r.get("score_face"))
+        comp = safe_float(r.get("score_composition"))
+
+        if st in ("full_body", "seated"):
+            return comp >= 58.0
+        return (face >= 68.0 and comp >= 50.0)
+
+    def _mark_green(self, r: Row, *, green_rank: int, green_total: int, suffix: str = "") -> None:
+        """
+        Green を付与する統一関数。
+        - Green にしたら secondary は必ず落とす（運用の見た目が綺麗）
+        - accepted_reason は pro 形式を採用し、suffix を付与できる
+        """
+        r["accepted_flag"] = 1
+        r["secondary_accept_flag"] = 0
+        r["secondary_accept_reason"] = ""
+
+        base = build_reason_pro(
+            r,
+            green_rank=green_rank,
+            green_total=green_total,
+            max_tags=3,
+        )
+        if suffix:
+            r["accepted_reason"] = f"{base} | {suffix}"
+        else:
+            r["accepted_reason"] = base
+
+    # --------------------------
     # accepted_flag（Green）
     # --------------------------
     def apply_accepted_flags(self, rows: List[Row]) -> Dict[str, float]:
@@ -414,14 +475,20 @@ class AcceptanceEngine:
             r["secondary_accept_reason"] = ""
 
         total_n = len(rows)
+
+        # ★可変Green比率（150枚なら 0.20 → 30枚）
+        green_ratio = self._green_ratio_by_count(total_n)
+
         green_total = max(
-            int(math.ceil(total_n * float(self.rules.green_ratio_total))),
+            int(math.ceil(total_n * green_ratio)),
             int(self.rules.green_min_total),
         )
 
         sorted_all = sorted(rows, key=overall_sort_key, reverse=True)
 
         accepted_count = 0
+
+        # --- 1st pass: strict gate ---
         for r in sorted_all:
             if accepted_count >= green_total:
                 break
@@ -429,13 +496,31 @@ class AcceptanceEngine:
                 continue
 
             accepted_count += 1
-            r["accepted_flag"] = 1
-            r["accepted_reason"] = build_reason_pro(
-                r,
-                green_rank=accepted_count,
-                green_total=green_total,
-                max_tags=3,
-            )
+            self._mark_green(r, green_rank=accepted_count, green_total=green_total)
+
+        # --- 2nd pass: relaxed backfill ---
+        if accepted_count < green_total:
+            for r in sorted_all:
+                if accepted_count >= green_total:
+                    break
+                if safe_int_flag(r.get("accepted_flag")) == 1:
+                    continue
+                if not self._backfill_relaxed_ok(r):
+                    continue
+
+                accepted_count += 1
+                self._mark_green(r, green_rank=accepted_count, green_total=green_total, suffix="FILL_RELAXED")
+
+        # --- 3rd pass: forced backfill (quota guarantee) ---
+        if accepted_count < green_total:
+            for r in sorted_all:
+                if accepted_count >= green_total:
+                    break
+                if safe_int_flag(r.get("accepted_flag")) == 1:
+                    continue
+
+                accepted_count += 1
+                self._mark_green(r, green_rank=accepted_count, green_total=green_total, suffix="FILL_FORCED")
 
         # --------------------------
         # secondary（Yellow）: percentile ベース（運用互換）
@@ -496,8 +581,10 @@ class AcceptanceEngine:
             "portrait_secondary": float(portrait_sec_thr),
             "non_face_secondary": float(non_face_sec_thr),
             "green_total": float(green_total),
+            # ★追加（互換を壊さない）
+            "green_ratio_effective": float(green_ratio),
+            "total_n": float(total_n),
         }
-
 
     # --------------------------
     # flag（候補ピック）
