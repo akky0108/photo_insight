@@ -134,3 +134,22 @@ def test_local_contrast_invalid_input_type():
     assert r["local_contrast_eval_status"] == "invalid_input"
     assert r["success"] is False
     assert "type_not_ndarray" in r["local_contrast_fallback_reason"]
+
+
+def test_scale_invariant_float_vs_uint8():
+
+    from evaluators.local_contrast_evaluator import LocalContrastEvaluator
+
+    ev = LocalContrastEvaluator()
+
+    # テスト用パターン
+    img_uint8 = np.random.randint(
+        0, 256, size=(256, 256, 3), dtype=np.uint8
+    )
+
+    img_float = img_uint8.astype(np.float32) / 255.0
+
+    r1 = ev.evaluate(img_uint8)
+    r2 = ev.evaluate(img_float)
+
+    assert r1["local_contrast_score"] == r2["local_contrast_score"]
