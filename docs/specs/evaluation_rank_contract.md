@@ -184,16 +184,49 @@ acceptance.py における最終採用（Green）は、
 
 green_total = max(ceil(n * ratio), green_min_total)
 
+### Green per-group quota（偏り防止）
+
+green_per_group_enabled が有効な場合、Green（accepted_flag=1）は accept_group ごとに
+一定の枠（quota）を優先的に確保し、特定グループへの偏りを抑制する。
+
+- accept_group ごとに quota を算出し、まず各グループ内の上位から埋める
+- ただし、グループ側で gate を満たせず quota を満たせない場合がある
+  - その不足分は「全体 backfill」に回し、green_total を必ず充足する（枠欠損を起こさない）
+- green_per_group_min_each は「グループ最低保証」の意図だが、全体枠が小さすぎる場合は
+  “強いグループ優先” の配分となり、実質 0 枠のグループが発生しうる
+
 
 ### Backfill ポリシー
 
-Green 枠は以下条件を満たす範囲で必ず充足される：
+Green 枠（green_total）は必ず充足される設計とする。
+選定は overall_score 上位順を基本に、以下の **3段階**で backfill を行う：
 
-- overall_score 上位順
-- _green_content_ok() による内容フィルタ
-- 条件不足時は順位優先で補完（backfill）
+1. strict gate（内容フィルタ）  
+2. relaxed gate（不足時の救済：内容条件を一段緩和）  
+3. forced gate（最終補完：内容条件は大きく緩和するが、半目NGなどのポリシーは維持）
 
-これにより Green 枠欠損は発生しない設計とする。
+この backfill により、特定グループの quota が内容 gate で埋められない場合でも、
+不足分は全体 backfill により補完され、green_total の欠損は発生しない。
+
+
+#### accepted_reason の backfill 表示
+
+Green に採用された行の accepted_reason には、運用・デバッグ可視化のため
+backfill 由来を示すサフィックスを付与してよい。
+
+- strict gate 由来：サフィックス無し
+- relaxed gate 由来：FILL_RELAX
+- forced gate 由来：FILL_FORCED
+
+
+### Eye state policy（半目/閉眼）
+
+portrait かつ face_detected の場合、目状態推定に基づく最終ポリシーを適用する。
+
+- half（半目）: accepted_flag / secondary_accept_flag を強制 0（採用不可）
+- closed（閉眼）: warn（採用は落とさない。注意喚起は accepted_reason 等に残してよい）
+- 推定の信頼性が不足する場合（eye_patch_size が閾値未満など）は unknown とし、判定しない
+
 
 ### ログ用補助情報
 
@@ -201,9 +234,15 @@ apply_accepted_flags() の戻り値には以下を含む：
 
 - green_ratio_effective
 - total_n
+- green_per_group_enabled
+
 
 これらは運用・分析・デバッグ用途に限定して使用する。
-CSV 仕様には影響しない。
+CSV の列構造・順序（Contract）には影響しない。
+
+
+> NOTE: 本章の変更は acceptance の内部挙動（配分/補完/理由表示）に関するものであり、
+> 入出力CSVの列名・順序には影響しない。
 
 
 ## 6. 変更ルール（GitHub 運用）
