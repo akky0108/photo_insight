@@ -167,7 +167,85 @@ accepted_reason
 debug_* は 自由追加可
 ranking ロジックに依存してはならない
 
-## 5. 変更ルール（GitHub 運用）
+## 5 Acceptance（Green / Yellow 配分ルール）
+
+acceptance.py における最終採用（Green）は、
+グループ内件数に応じて動的に比率が決定される。
+
+### Green 配分ルール（デフォルト）
+
+| 件数 n | 比率 | 備考 |
+|--------|------|------|
+| n ≤ 60 | 30% | 少数精鋭優先 |
+| 61–120 | 25% | 中規模安定帯 |
+| n >120 | 20% | 大量時の品質維持 |
+
+算出式：
+
+green_total = max(ceil(n * ratio), green_min_total)
+
+### Green per-group quota（偏り防止）
+
+green_per_group_enabled が有効な場合、Green（accepted_flag=1）は accept_group ごとに
+一定の枠（quota）を優先的に確保し、特定グループへの偏りを抑制する。
+
+- accept_group ごとに quota を算出し、まず各グループ内の上位から埋める
+- ただし、グループ側で gate を満たせず quota を満たせない場合がある
+  - その不足分は「全体 backfill」に回し、green_total を必ず充足する（枠欠損を起こさない）
+- green_per_group_min_each は「グループ最低保証」の意図だが、全体枠が小さすぎる場合は
+  “強いグループ優先” の配分となり、実質 0 枠のグループが発生しうる
+
+
+### Backfill ポリシー
+
+Green 枠（green_total）は必ず充足される設計とする。
+選定は overall_score 上位順を基本に、以下の **3段階**で backfill を行う：
+
+1. strict gate（内容フィルタ）  
+2. relaxed gate（不足時の救済：内容条件を一段緩和）  
+3. forced gate（最終補完：内容条件は大きく緩和するが、半目NGなどのポリシーは維持）
+
+この backfill により、特定グループの quota が内容 gate で埋められない場合でも、
+不足分は全体 backfill により補完され、green_total の欠損は発生しない。
+
+
+#### accepted_reason の backfill 表示
+
+Green に採用された行の accepted_reason には、運用・デバッグ可視化のため
+backfill 由来を示すサフィックスを付与してよい。
+
+- strict gate 由来：サフィックス無し
+- relaxed gate 由来：FILL_RELAX
+- forced gate 由来：FILL_FORCED
+
+
+### Eye state policy（半目/閉眼）
+
+portrait かつ face_detected の場合、目状態推定に基づく最終ポリシーを適用する。
+
+- half（半目）: accepted_flag / secondary_accept_flag を強制 0（採用不可）
+- closed（閉眼）: warn（採用は落とさない。注意喚起は accepted_reason 等に残してよい）
+- 推定の信頼性が不足する場合（eye_patch_size が閾値未満など）は unknown とし、判定しない
+
+
+### ログ用補助情報
+
+apply_accepted_flags() の戻り値には以下を含む：
+
+- green_ratio_effective
+- total_n
+- green_per_group_enabled
+
+
+これらは運用・分析・デバッグ用途に限定して使用する。
+CSV の列構造・順序（Contract）には影響しない。
+
+
+> NOTE: 本章の変更は acceptance の内部挙動（配分/補完/理由表示）に関するものであり、
+> 入出力CSVの列名・順序には影響しない。
+
+
+## 6. 変更ルール（GitHub 運用）
 
 - 許可される変更
     debug_* 列の追加
@@ -186,7 +264,7 @@ ranking ロジックに依存してはならない
 
 - 型の変更（bool → 数値など）
 
-## 6. この契約の位置付け
+## 7. この契約の位置付け
 
 - 本ドキュメントはコードより優先される
 - 実装は本契約に従属する
@@ -194,7 +272,7 @@ ranking ロジックに依存してはならない
 
 CSV は中間 API として扱う。
 
-## 7. 自動検証（pytest / CI）
+## 8. 自動検証（pytest / CI）
 
 本契約は以下により自動検証される：
     - test_contract_headers.py
@@ -207,7 +285,7 @@ CSV は中間 API として扱う。
     - 欠損検知
     - 実CSV照合
 
-## 8. 次のステップ（別PR）
+## 9. 次のステップ（別PR）
 
 - 入力CSV contract validation の強化
 - 出力CSV品質テスト（分布・比率）

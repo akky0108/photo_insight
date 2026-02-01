@@ -138,11 +138,8 @@ def overall_sort_key(row: Row) -> Tuple[float, float, float, float, float, str]:
 def apply_eye_state_policy(
     rows: List[Row],
     *,
-    # 目推定の信頼性ガード（小さすぎる顔は誤爆しやすいので無視）
     eye_patch_min: int = 70,
-    # 半目NG帯（要件：半目は採用不可）
     half_min: float = 0.85,
-    # 完全閉眼（要件：完全閉眼は注意）
     closed_min: float = 0.98,
 ) -> None:
     """
@@ -180,14 +177,12 @@ def apply_eye_state_policy(
         closed_prob = _to_float(r.get("eye_closed_prob_best"), None)
         patch_size = _to_int(r.get("eye_patch_size_best"), None)
         if closed_prob is None or patch_size is None:
-            # データが無ければ判定しない（減点もしない）
             continue
 
         if patch_size < eye_patch_min:
             r["eye_state"] = "unknown"
             continue
 
-        # 半目NG（採用不可）
         if half_min <= closed_prob < closed_min:
             r["eye_state"] = "half"
             r["accepted_flag"] = 0
@@ -198,7 +193,6 @@ def apply_eye_state_policy(
             r["secondary_accept_reason"] = ""
             continue
 
-        # 完全閉眼（注意：採用は維持）
         if closed_prob >= closed_min:
             r["eye_state"] = "closed"
             tag = f"EYE_CLOSED_WARN(p={format_score(closed_prob)},sz={patch_size})"
@@ -252,7 +246,6 @@ def build_reason_pro(
     c = safe_float(row.get("score_composition"))
     t = safe_float(row.get("score_technical"))
 
-    # 0..1 系（スコア列）
     eye = safe_float(row.get("eye_contact_score"))
     face_dir = safe_float(row.get("face_direction_score"))
     framing = safe_float(row.get("framing_score"))
@@ -262,7 +255,6 @@ def build_reason_pro(
     lead = safe_float(row.get("lead_room_score"))
     body = safe_float(row.get("body_composition_score"))
 
-    # 表情（debug_* があるなら優先）
     expr = safe_float(row.get("debug_expr_effective", row.get("debug_expression", row.get("expression_score", 0.0))))
     half_pen = safe_float(row.get("debug_half_penalty", 0.0))
 
@@ -270,7 +262,6 @@ def build_reason_pro(
 
     if cat == "portrait":
         if st in ("full_body", "seated"):
-            # 全身/座り：構図/収まり優先（eyeは重視しない）
             if framing >= 0.85:
                 tags.append(("framing", framing))
             if body >= 0.80:
@@ -281,13 +272,9 @@ def build_reason_pro(
                 tags.append(("composition", rule))
             if thirds >= 0.85:
                 tags.append(("thirds", thirds))
-
-            # 顔は“良いなら補足”
             if f >= 78.0:
                 tags.append(("face_strong", f / 100.0))
-
         else:
-            # face_only / upper_body：顔＋構図の両立
             if eye >= 0.85:
                 tags.append(("eye_contact", eye))
             if face_dir >= 0.85:
@@ -301,13 +288,11 @@ def build_reason_pro(
             if thirds >= 0.85:
                 tags.append(("thirds", thirds))
 
-            # 表情（半目代理ペナルティが強い場合は控えめ）
             if expr >= 0.75 and half_pen <= 0.35:
                 tags.append(("expression", _clamp01(expr)))
             elif half_pen >= 0.60:
                 tags.append(("eye_state_risk", 0.60))
     else:
-        # non_face：構図中心
         if framing >= 0.85:
             tags.append(("framing", framing))
         if rule >= 0.85:
@@ -317,9 +302,7 @@ def build_reason_pro(
         if lead >= 0.80:
             tags.append(("lead_room", lead))
 
-    # 主戦場（最後に1つだけ）
     focus = "face" if (cat == "portrait" and st not in ("full_body", "seated") and f >= c) else "comp"
-
     top = _topk_by_score({k: v for k, v in tags}, k=max_tags)
     top_txt = ", ".join(str(k) for k, _ in top if isinstance(k, str)) if top else ""
 
@@ -357,9 +340,18 @@ class AcceptRules:
     green_count_small_max: int = 60
     green_count_mid_max: int = 120
 
+    # ★新：accept_group ごとの配分（偏り防止）
+    green_per_group_enabled: bool = True
+    green_per_group_min_each: int = 1
+
     # ---- flag（候補ピック）----
     flag_ratio: float = 0.30
     flag_min_total: int = 10
+
+    # ---- eye policy (half/closed) ----
+    eye_patch_min: int = 70
+    eye_half_min: float = 0.85
+    eye_closed_min: float = 0.98
 
 
 # ==============================
@@ -413,22 +405,16 @@ class AcceptanceEngine:
         comp = safe_float(r.get("score_composition"))
 
         if st in ("full_body", "seated"):
-            # 全身/座り：構図主導。顔条件を緩和
             return (comp >= 65.0 and face >= 60.0) or (comp >= 58.0 and safe_float(r.get("overall_score")) >= 72.0)
 
-        # face_only / upper_body：顔と構図の両立（compは少し緩めて落としにくく）
         return (face >= 70.0 and comp >= 55.0) or (face >= 78.0 and comp >= 50.0)
 
     # --------------------------
-    # backfill relaxed gate（埋め用：少し緩める）
+    # Green relaxed gate（不足時の救済）
     # --------------------------
-    def _backfill_relaxed_ok(self, r: Row) -> bool:
+    def _green_relaxed_ok(self, r: Row) -> bool:
         """
-        strict gate で green_total に満たない場合の救済ゲート。
-        - non_face は True（上位順で埋める）
-        - portrait:
-          - full_body/seated: comp>=58
-          - upper_body/face_only: face>=68 & comp>=50
+        strict gate で Green が埋まらない時の救済。
         """
         if r.get("category") != "portrait":
             return True
@@ -436,31 +422,152 @@ class AcceptanceEngine:
         st = _shot_type(r)
         face = safe_float(r.get("score_face"))
         comp = safe_float(r.get("score_composition"))
+        overall = safe_float(r.get("overall_score"))
 
         if st in ("full_body", "seated"):
-            return comp >= 58.0
-        return (face >= 68.0 and comp >= 50.0)
+            return (comp >= 60.0 and face >= 58.0) or (comp >= 55.0 and overall >= 70.0)
 
-    def _mark_green(self, r: Row, *, green_rank: int, green_total: int, suffix: str = "") -> None:
-        """
-        Green を付与する統一関数。
-        - Green にしたら secondary は必ず落とす（運用の見た目が綺麗）
-        - accepted_reason は pro 形式を採用し、suffix を付与できる
-        """
-        r["accepted_flag"] = 1
-        r["secondary_accept_flag"] = 0
-        r["secondary_accept_reason"] = ""
+        # テスト側想定: face>=68 & comp>=50
+        return (face >= 68.0 and comp >= 50.0) or (face >= 75.0 and comp >= 48.0)
 
-        base = build_reason_pro(
-            r,
-            green_rank=green_rank,
-            green_total=green_total,
-            max_tags=3,
-        )
-        if suffix:
-            r["accepted_reason"] = f"{base} | {suffix}"
-        else:
-            r["accepted_reason"] = base
+    def _green_eye_half_ng(self, r: Row) -> bool:
+        """
+        half目NGを「選定前」に回避するための軽量チェック。
+        apply_eye_state_policy と同じ閾値を使う（データがなければNGにしない）。
+        """
+        if str(r.get("category")) != "portrait":
+            return False
+        if not _bool(r.get("face_detected")):
+            return False
+
+        prob = r.get("eye_closed_prob_best")
+        sz = r.get("eye_patch_size_best")
+        if prob in ("", None) or sz in ("", None):
+            return False
+
+        try:
+            p = float(prob)
+            s = int(float(sz))
+        except Exception:
+            return False
+
+        if s < int(self.rules.eye_patch_min):
+            return False
+
+        half_min = float(self.rules.eye_half_min)
+        closed_min = float(self.rules.eye_closed_min)
+        return (half_min <= p < closed_min)
+
+    def _green_policy_ok(self, r: Row) -> bool:
+        return self._green_content_ok(r) and (not self._green_eye_half_ng(r))
+
+    def _green_policy_relaxed_ok(self, r: Row) -> bool:
+        return self._green_relaxed_ok(r) and (not self._green_eye_half_ng(r))
+
+    def _green_policy_forced_ok(self, r: Row) -> bool:
+        """
+        forced: content gate は基本無視。ただし「何でもGreen」にはしない。
+        テスト期待:
+          - face=72, comp=49 は forced で拾える
+          - face=40, comp=40 は forced でも拾わない（Bでbackfillされるべき）
+        """
+        if self._green_eye_half_ng(r):
+            return False
+
+        if str(r.get("category")) != "portrait":
+            return True
+
+        # ★最低限の床（A=40/40を落としつつ、72/49は通す）
+        face = safe_float(r.get("score_face"))
+        comp = safe_float(r.get("score_composition"))
+        overall = safe_float(r.get("overall_score"))
+
+        # まず顔スコアが一定以上
+        if face >= 60.0 and comp >= 45.0:
+            return True
+
+        # 例外：overallが高くても顔が低すぎるものは拾わない
+        # （Aの90点でも face40 は落とす）
+        if overall >= 85.0 and face >= 55.0 and comp >= 45.0:
+            return True
+
+        return False
+
+    def _group_best_score(self, rows: List[Row]) -> float:
+        if not rows:
+            return -1e9
+        return max(safe_float(r.get("overall_score")) for r in rows)
+
+    def _compute_group_quotas(
+        self,
+        group_rows: Dict[str, List[Row]],
+        *,
+        green_total_global: int,
+    ) -> Dict[str, int]:
+        """
+        accept_group ごとの green quota を計算し、合計が green_total_global になるように調整する。
+        - 原則: quota_g = max(min_each, ceil(n_g * ratio_by_count(n_g)))
+        - 合計が超える場合: quota>min_each のグループから削って調整
+        - green_total_global < group数*min_each の場合:
+            各グループの best overall が高い順に min_each を配り、それ以外は0
+        """
+        groups = list(group_rows.keys())
+        if not groups or green_total_global <= 0:
+            return {g: 0 for g in groups}
+
+        min_each = max(0, int(self.rules.green_per_group_min_each))
+
+        quotas: Dict[str, int] = {}
+        for g, rs in group_rows.items():
+            n_g = len(rs)
+            ratio_g = self._green_ratio_by_count(n_g)
+            q = int(math.ceil(n_g * float(ratio_g)))
+            q = max(q, min_each)
+            q = min(q, n_g)
+            quotas[g] = q
+
+        if green_total_global < (len(groups) * max(1, min_each)):
+            ranked = sorted(
+                groups,
+                key=lambda gg: (self._group_best_score(group_rows.get(gg, [])), gg),
+                reverse=True,
+            )
+            out = {g: 0 for g in groups}
+            remain = green_total_global
+            for g in ranked:
+                if remain <= 0:
+                    break
+                give = min_each if min_each > 0 else 1
+                out[g] = min(give, len(group_rows[g]))
+                remain -= out[g]
+
+            i = 0
+            while remain > 0 and i < len(ranked):
+                g = ranked[i]
+                if out[g] < len(group_rows[g]):
+                    out[g] += 1
+                    remain -= 1
+                else:
+                    i += 1
+            return out
+
+        total = sum(quotas.values())
+        if total > green_total_global:
+            while total > green_total_global:
+                candidates = [g for g in groups if quotas[g] > max(min_each, 1)]
+                if not candidates:
+                    candidates = [g for g in groups if quotas[g] > 0]
+                    if not candidates:
+                        break
+
+                g_pick = max(
+                    candidates,
+                    key=lambda g: (quotas[g], len(group_rows[g]), self._group_best_score(group_rows[g])),
+                )
+                quotas[g_pick] -= 1
+                total -= 1
+
+        return quotas
 
     # --------------------------
     # accepted_flag（Green）
@@ -475,12 +582,10 @@ class AcceptanceEngine:
             r["secondary_accept_reason"] = ""
 
         total_n = len(rows)
-
-        # ★可変Green比率（150枚なら 0.20 → 30枚）
-        green_ratio = self._green_ratio_by_count(total_n)
+        green_ratio_global = self._green_ratio_by_count(total_n)
 
         green_total = max(
-            int(math.ceil(total_n * green_ratio)),
+            int(math.ceil(total_n * float(green_ratio_global))),
             int(self.rules.green_min_total),
         )
 
@@ -488,39 +593,78 @@ class AcceptanceEngine:
 
         accepted_count = 0
 
-        # --- 1st pass: strict gate ---
-        for r in sorted_all:
-            if accepted_count >= green_total:
-                break
-            if not self._green_content_ok(r):
-                continue
-
+        def _mark_green(rr: Row, *, fill_tag: str = "") -> None:
+            nonlocal accepted_count
             accepted_count += 1
-            self._mark_green(r, green_rank=accepted_count, green_total=green_total)
+            rr["accepted_flag"] = 1
+            base = build_reason_pro(
+                rr,
+                green_rank=accepted_count,
+                green_total=green_total,
+                max_tags=3,
+            )
+            if fill_tag:
+                # strictはsuffix無し。埋めは "FILL_*" を付ける（テスト要件）
+                rr["accepted_reason"] = f"{base} | {fill_tag}"
+            else:
+                rr["accepted_reason"] = base
 
-        # --- 2nd pass: relaxed backfill ---
-        if accepted_count < green_total:
-            for r in sorted_all:
+        # --------------------------
+        # ★Per-group quota fill（偏り防止）
+        #   ここでは「quotaを目標に試みる」が、埋まらない分は全体backfillに回す
+        # --------------------------
+        if bool(self.rules.green_per_group_enabled) and green_total > 0:
+            group_rows: Dict[str, List[Row]] = {}
+            for r in rows:
+                g = str(r.get("accept_group") or "")
+                group_rows.setdefault(g, []).append(r)
+
+            quotas = self._compute_group_quotas(group_rows, green_total_global=green_total)
+
+            for g, rs in group_rows.items():
                 if accepted_count >= green_total:
                     break
-                if safe_int_flag(r.get("accepted_flag")) == 1:
-                    continue
-                if not self._backfill_relaxed_ok(r):
+
+                q = int(quotas.get(g, 0))
+                if q <= 0:
                     continue
 
-                accepted_count += 1
-                self._mark_green(r, green_rank=accepted_count, green_total=green_total, suffix="FILL_RELAXED")
+                rs_sorted = sorted(rs, key=overall_sort_key, reverse=True)
 
-        # --- 3rd pass: forced backfill (quota guarantee) ---
-        if accepted_count < green_total:
-            for r in sorted_all:
+                def _take_from_group(pred, *, fill_tag: str) -> None:
+                    nonlocal q
+                    for rr in rs_sorted:
+                        if accepted_count >= green_total or q <= 0:
+                            break
+                        if safe_int_flag(rr.get("accepted_flag")) == 1:
+                            continue
+                        if not pred(rr):
+                            continue
+                        _mark_green(rr, fill_tag=fill_tag)
+                        q -= 1
+
+                # strictはsuffix無し（＝FILLが混ざらない）
+                _take_from_group(self._green_policy_ok, fill_tag="")
+                # relaxed/forced は “埋め” なので FILL を付与
+                _take_from_group(self._green_policy_relaxed_ok, fill_tag="FILL_RELAX")
+                _take_from_group(self._green_policy_forced_ok, fill_tag="FILL_FORCED")
+
+        # --------------------------
+        # backfill（全体上位で埋める）: strict -> relaxed -> forced
+        # --------------------------
+        def _fill_remaining(pred, *, fill_tag: str) -> None:
+            for rr in sorted_all:
                 if accepted_count >= green_total:
                     break
-                if safe_int_flag(r.get("accepted_flag")) == 1:
+                if safe_int_flag(rr.get("accepted_flag")) == 1:
                     continue
+                if not pred(rr):
+                    continue
+                _mark_green(rr, fill_tag=fill_tag)
 
-                accepted_count += 1
-                self._mark_green(r, green_rank=accepted_count, green_total=green_total, suffix="FILL_FORCED")
+        _fill_remaining(self._green_policy_ok, fill_tag="")
+        _fill_remaining(self._green_policy_relaxed_ok, fill_tag="FILL_RELAX")
+        _fill_remaining(self._green_policy_forced_ok, fill_tag="FILL_FORCED")
 
         # --------------------------
         # secondary（Yellow）: percentile ベース（運用互換）
@@ -545,7 +689,6 @@ class AcceptanceEngine:
                     f"f={format_score(safe_float(r.get('score_face')))} "
                     f"c={format_score(safe_float(r.get('score_composition')))}"
                 )
-                # accepted_reason は運用上 “一つにまとめて見たい” を維持
                 r["accepted_reason"] = str(r.get("secondary_accept_reason") or "")
 
             elif r.get("category") == "non_face" and overall >= non_face_sec_thr:
@@ -557,11 +700,15 @@ class AcceptanceEngine:
                 r["accepted_reason"] = str(r.get("secondary_accept_reason") or "")
 
         # ---- 目状態ポリシー（half=強制NG / closed=注意）を最後に適用 ----
-        apply_eye_state_policy(rows)
+        apply_eye_state_policy(
+            rows,
+            eye_patch_min=int(self.rules.eye_patch_min),
+            half_min=float(self.rules.eye_half_min),
+            closed_min=float(self.rules.eye_closed_min),
+        )
 
         # --------------------------
         # （ログ用）primary percentile thresholds
-        #   ※Green判定には使っていないが、運用・可視化のため返す
         # --------------------------
         portrait_scores = [safe_float(r.get("overall_score")) for r in rows if r.get("category") == "portrait"]
         non_face_scores = [safe_float(r.get("overall_score")) for r in rows if r.get("category") == "non_face"]
@@ -569,21 +716,18 @@ class AcceptanceEngine:
         portrait_thr = percentile(portrait_scores, self.rules.portrait_percentile) if portrait_scores else 0.0
         non_face_thr = percentile(non_face_scores, self.rules.non_face_percentile) if non_face_scores else 0.0
 
-        # secondary thresholds（既存）
         portrait_sec_thr = percentile(portrait_scores, self.rules.portrait_secondary_percentile) if portrait_scores else 0.0
         non_face_sec_thr = percentile(non_face_scores, self.rules.non_face_secondary_percentile) if non_face_scores else 0.0
 
-        # ---- thresholds返り値：旧キー互換（ログ/他依存の保険）----
-        # primary percentile はこのエンジンでは使っていないが、参照されても壊れないように返す
         return {
             "portrait": float(portrait_thr),
             "non_face": float(non_face_thr),
             "portrait_secondary": float(portrait_sec_thr),
             "non_face_secondary": float(non_face_sec_thr),
             "green_total": float(green_total),
-            # ★追加（互換を壊さない）
-            "green_ratio_effective": float(green_ratio),
+            "green_ratio_effective": float(green_ratio_global),
             "total_n": float(total_n),
+            "green_per_group_enabled": 1.0 if bool(self.rules.green_per_group_enabled) else 0.0,
         }
 
     # --------------------------
