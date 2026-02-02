@@ -138,6 +138,7 @@ class NoiseEvaluator:
             "noise_sigma_midtone": float(sigma_midtone) if sigma_midtone is not None and np.isfinite(sigma_midtone) else None,
             "noise_sigma_used": float(sigma_used) if np.isfinite(sigma_used) else None,
             "noise_mask_ratio": mask_ratio,
+            "noise_raw": float(-sigma_used) if (sigma_used is not None and np.isfinite(sigma_used)) else None,
 
             # --- メタ情報（フォールバック・条件の追跡用） ---
             "noise_eval_status": status,               # "ok" / "fallback"
@@ -287,6 +288,7 @@ class NoiseEvaluator:
             "noise_grade": "fair",                     # 5 段階の真ん中に相当
             "noise_sigma_midtone": None,
             "noise_sigma_used": None,
+            "noise_raw": None,
             "noise_mask_ratio": float(mask_ratio) if mask_ratio is not None else None,
             "noise_eval_status": "fallback",
             "noise_fallback_reason": reason,
