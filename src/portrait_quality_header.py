@@ -11,8 +11,10 @@ class PortraitQualityHeaderGenerator:
             "face_contrast_eval_status",
             "face_contrast_grade",
             "face_noise_score",
+            "face_noise_raw",
             "face_noise_grade",
             "face_noise_sigma_midtone",
+            "face_noise_sigma_used",
             "face_noise_mask_ratio",
             "face_local_sharpness_score",
             "face_local_sharpness_std",
@@ -63,6 +65,7 @@ class PortraitQualityHeaderGenerator:
             "contrast_grade",
 
             "noise_score",
+            "noise_raw",
             "noise_grade",
             "noise_sigma_midtone",
             "noise_sigma_used",
