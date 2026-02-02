@@ -20,7 +20,7 @@ class MetricResultMapper:
         # -------------------------
         if name == "noise":
             if prefix:
-                # face_noise_score / face_noise_grade / face_noise_eval_status ... を揃える
+                # face_noise_* を揃える
                 out[f"{prefix}noise_score"] = r.get("noise_score", 0.5)
                 for k in (
                     "noise_grade",
@@ -29,14 +29,31 @@ class MetricResultMapper:
                     "noise_mask_ratio",
                     "noise_eval_status",
                     "noise_fallback_reason",
-                    # brightness_adjusted を NoiseEvaluator が返す場合
                     "noise_score_brightness_adjusted",
                 ):
                     if k in r:
                         out[f"{prefix}{k}"] = r.get(k)
+
+                # ★追加: face_noise_raw（高いほど良い）
+                sigma_used = r.get("noise_sigma_used")
+                try:
+                    out[f"{prefix}noise_raw"] = -float(sigma_used) if sigma_used is not None else None
+                except (TypeError, ValueError):
+                    out[f"{prefix}noise_raw"] = None
+
             else:
-                # global は既存通り「そのまま通す」でもOK
+                # global は既存通りそのまま通す
                 out.update(r)
+
+                # ★追加: noise_raw（高いほど良い）
+                # NoiseEvaluator が noise_raw を返していない場合に備えて mapper で補完
+                if "noise_raw" not in out:
+                    sigma_used = r.get("noise_sigma_used")
+                    try:
+                        out["noise_raw"] = -float(sigma_used) if sigma_used is not None else None
+                    except (TypeError, ValueError):
+                        out["noise_raw"] = None
+
             return out
 
         # -------------------------
