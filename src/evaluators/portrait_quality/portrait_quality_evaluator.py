@@ -651,6 +651,7 @@ class PortraitQualityEvaluator:
             results.setdefault("face_blurriness_raw", None)
             results.setdefault("face_contrast_raw", None)
             results.setdefault("face_mean_brightness", None)
+            results.setdefault("face_noise_raw", None)
 
         else:
             # 顔がある場合：欠損だけ埋める（statusが無いなら ok 扱いにしてよい）
