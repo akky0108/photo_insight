@@ -56,7 +56,12 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
+
+import matplotlib
+matplotlib.use("Agg")   # ★ headless環境対応
+
 import matplotlib.pyplot as plt
+
 
 
 DISCRETE_SCORES = [0.0, 0.25, 0.5, 0.75, 1.0]
@@ -222,6 +227,27 @@ def in_range_ratio(scores: pd.Series) -> float:
     ok = (s >= -0.001) & (s <= 1.001)
     return float(ok.mean())
 
+def resolve_raw_col(df: pd.DataFrame, score_col: str) -> Tuple[Optional[str], str]:
+    """
+    score_col から raw_col を解決する。
+    戻り値: (raw_col or None, note)
+    """
+    metric = score_col.replace("_score", "")
+
+    # 第一候補: xxx_raw
+    c1 = f"{metric}_raw"
+    if c1 in df.columns:
+        return c1, "raw"
+
+    # noise は sigma_used を raw として扱える（noise_raw が無くても動かす）
+    if metric == "noise" and "noise_sigma_used" in df.columns:
+        return "noise_sigma_used", "fallback:sigma_used"
+
+    if metric == "face_noise" and "face_noise_sigma_used" in df.columns:
+        return "face_noise_sigma_used", "fallback:sigma_used"
+
+    return None, "missing"
+
 
 def validate_score_column(
     df: pd.DataFrame,
@@ -378,7 +404,10 @@ def main() -> int:
     chosen_params_out: Dict[str, Dict] = {}
 
     for score_col in TARGET_SCORE_COLS:
-        raw_col = score_col.replace("_score", "_raw")
+        raw_col, raw_note = resolve_raw_col(df, score_col)
+        if raw_col is None:
+            warn(f"Skip '{metric}': missing required raw column (raw resolve failed)")
+            continue
         metric = score_col.replace("_score", "")
 
         # 必須カラム存在チェック
@@ -498,6 +527,7 @@ def main() -> int:
                 row[f"current_target_flag_{sv}"] = ""
                 row[f"new_target_flag_{sv}"] = ""
 
+        row["raw_resolve"] = raw_note
         metric_summary.append(row)
 
         # plots
