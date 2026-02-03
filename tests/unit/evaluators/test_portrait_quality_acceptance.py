@@ -64,11 +64,13 @@ def test_technical():
     accepted, reason = _decide(_base(
         exposure_score=1.0,
         noise_score=0.8,
-        contrast_score=60,
+        contrast_score=0.60,
         blurriness_score=0.60,
+        face_sharpness_score=0.5,
+        face_blurriness_score=0.60,
         delta_face_sharpness=-15,
     ))
-    assert accepted is True
+    assert accepted is True, f"rejected: {reason}"
     assert reason == "technical"
 
 
