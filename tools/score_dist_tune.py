@@ -406,13 +406,16 @@ def main() -> int:
     for score_col in TARGET_SCORE_COLS:
         metric = score_col.replace("_score", "")
         raw_col, raw_note = resolve_raw_col(df, score_col)
+
         if raw_col is None:
             warn(f"Skip '{metric}': missing required raw column (raw resolve failed)")
             continue
 
         # 必須カラム存在チェック
         ok, reason = validate_score_column(
-            df, score_col, raw_col,
+            df,
+            score_col,
+            raw_col,
             min_samples=args.min_samples,
             min_discrete_ratio=args.min_discrete_ratio,
         )
@@ -426,47 +429,63 @@ def main() -> int:
         raw = df[raw_col]
         cur_score = df[score_col]
 
+        # -----------------------------
+        # raw 数値化 + 向き統一
+        # -----------------------------
+        raw_num = coerce_numeric(raw)
+
+        # noise の fallback:sigma_used は「小さいほど良い」→反転して統一
+        if metric == "noise" and raw_note == "fallback:sigma_used":
+            raw_num = -raw_num
+
+        # -----------------------------
         # 現状分布
+        # -----------------------------
         cur_ratios = compute_score_ratios(cur_score)
         cur_counts = compute_score_counts(cur_score)
         cur_sat = saturation_ratio(cur_ratios)
         cur_l1 = tech_target_l1(cur_ratios) if is_tech else None
         cur_flags = tech_target_flags(cur_ratios) if is_tech else None
 
-        # 新閾値決定（json > auto）
+        # -----------------------------
+        # 閾値決定
+        # -----------------------------
         thr_source = "none"
         thr: Optional[Thresholds] = None
 
         if metric in json_params:
             thr = json_params[metric]
             thr_source = "json"
+
         else:
             if is_tech:
-                thr = propose_thresholds_for_target_distribution(raw)
+                thr = propose_thresholds_for_target_distribution(raw_num)
                 thr_source = "auto_target_quantiles_12.5_32.5_62.5_87.5"
+
             elif is_face and args.apply_face_auto:
-                thr = propose_thresholds_for_target_distribution(raw)
+                thr = propose_thresholds_for_target_distribution(raw_num)
                 thr_source = "auto_target_quantiles_12.5_32.5_62.5_87.5"
+
             else:
                 thr = None
                 thr_source = "skip_auto"
 
-        # 新スコア計算（thrが無い場合は current と同一にして出力は継続）
-        raw_num = coerce_numeric(raw)
-        # ★ここで raw の向きを統一する（rawは「高いほど良い」）
-        if metric in ("noise", "face_noise") and raw_note == "fallback:sigma_used":
-            raw_num = -raw_num
-
+        # -----------------------------
+        # 新スコア計算
+        # -----------------------------
         if thr is not None:
             new_score = raw_num.map(lambda x: score_from_raw(x, thr))
+
             chosen_params_out[metric] = {
                 "raw_col": raw_col,
                 "score_col": score_col,
                 "thresholds": thr.to_list(),
                 "source": thr_source,
             }
+
         else:
             new_score = coerce_numeric(cur_score)
+
             chosen_params_out[metric] = {
                 "raw_col": raw_col,
                 "score_col": score_col,
@@ -474,34 +493,54 @@ def main() -> int:
                 "source": thr_source,
             }
 
+        # -----------------------------
+        # 新分布
+        # -----------------------------
         new_ratios = compute_score_ratios(new_score)
         new_counts = compute_score_counts(new_score)
         new_sat = saturation_ratio(new_ratios)
         new_l1 = tech_target_l1(new_ratios) if is_tech else None
         new_flags = tech_target_flags(new_ratios) if is_tech else None
 
-        # face系の極端寄り監視
-        if is_face and (cur_sat >= args.face_saturation_warn or new_sat >= args.face_saturation_warn):
-            warn(f"Face metric '{metric}' extreme? saturation(0+1): current={cur_sat:.3f}, new={new_sat:.3f} (warn>= {args.face_saturation_warn})")
+        # -----------------------------
+        # face 極端寄り監視
+        # -----------------------------
+        if is_face and (
+            cur_sat >= args.face_saturation_warn
+            or new_sat >= args.face_saturation_warn
+        ):
+            warn(
+                f"Face metric '{metric}' extreme? "
+                f"saturation(0+1): current={cur_sat:.3f}, new={new_sat:.3f} "
+                f"(warn>= {args.face_saturation_warn})"
+            )
 
-        # long 形式比較（分布）
+        # -----------------------------
+        # long 形式
+        # -----------------------------
         for sv in DISCRETE_SCORES:
-            comparison_rows.append({
-                "metric": metric,
-                "which": "current",
-                "score": sv,
-                "count": cur_counts.get(sv, 0),
-                "ratio": cur_ratios.get(sv, 0.0),
-            })
-            comparison_rows.append({
-                "metric": metric,
-                "which": "new",
-                "score": sv,
-                "count": new_counts.get(sv, 0),
-                "ratio": new_ratios.get(sv, 0.0),
-            })
+            comparison_rows.append(
+                {
+                    "metric": metric,
+                    "which": "current",
+                    "score": sv,
+                    "count": cur_counts.get(sv, 0),
+                    "ratio": cur_ratios.get(sv, 0.0),
+                }
+            )
+            comparison_rows.append(
+                {
+                    "metric": metric,
+                    "which": "new",
+                    "score": sv,
+                    "count": new_counts.get(sv, 0),
+                    "ratio": new_ratios.get(sv, 0.0),
+                }
+            )
 
-        # metric summary
+        # -----------------------------
+        # summary
+        # -----------------------------
         row = {
             "metric": metric,
             "type": "tech" if is_tech else ("face" if is_face else "other"),
@@ -520,33 +559,50 @@ def main() -> int:
         if is_tech:
             row["current_tech_target_l1"] = float(cur_l1)
             row["new_tech_target_l1"] = float(new_l1)
-            # 各スコア帯の目標レンジ内/外
+
             for sv in DISCRETE_SCORES:
                 row[f"current_target_flag_{sv}"] = cur_flags[sv]
                 row[f"new_target_flag_{sv}"] = new_flags[sv]
+
         else:
             row["current_tech_target_l1"] = ""
             row["new_tech_target_l1"] = ""
+
             for sv in DISCRETE_SCORES:
                 row[f"current_target_flag_{sv}"] = ""
                 row[f"new_target_flag_{sv}"] = ""
 
         row["raw_resolve"] = raw_note
+
         metric_summary.append(row)
 
-        # plots
-        make_plots(plots_dir, metric, raw, cur_score, new_score)
+        # -----------------------------
+        # plots（rawは統一後を使う）
+        # -----------------------------
+        make_plots(
+            plots_dir,
+            metric,
+            raw_num,       # ★ここ重要（統一後）
+            cur_score,
+            new_score,
+        )
 
-        # console quick view
+        # -----------------------------
+        # console
+        # -----------------------------
         info("-" * 72)
         info(f"[METRIC] {metric}")
-        info(f"  source={thr_source} thresholds={thr.to_list() if thr is not None else None}")
+        info(f"  source={thr_source} thresholds={thr.to_list() if thr else None}")
+
         info("  score : current_ratio -> new_ratio (delta)")
+
         for sv in DISCRETE_SCORES:
             c = cur_ratios.get(sv, 0.0)
             n = new_ratios.get(sv, 0.0)
             d = n - c
+
             info(f"  {sv:>4} : {c:6.3f} -> {n:6.3f} ({d:+6.3f})")
+
         if is_tech:
             info(f"  tech_target_l1: {cur_l1:.6f} -> {new_l1:.6f}")
 
