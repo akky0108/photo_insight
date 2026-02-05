@@ -404,11 +404,11 @@ def main() -> int:
     chosen_params_out: Dict[str, Dict] = {}
 
     for score_col in TARGET_SCORE_COLS:
+        metric = score_col.replace("_score", "")
         raw_col, raw_note = resolve_raw_col(df, score_col)
         if raw_col is None:
             warn(f"Skip '{metric}': missing required raw column (raw resolve failed)")
             continue
-        metric = score_col.replace("_score", "")
 
         # 必須カラム存在チェック
         ok, reason = validate_score_column(
@@ -453,6 +453,10 @@ def main() -> int:
 
         # 新スコア計算（thrが無い場合は current と同一にして出力は継続）
         raw_num = coerce_numeric(raw)
+        # ★ここで raw の向きを統一する（rawは「高いほど良い」）
+        if metric in ("noise", "face_noise") and raw_note == "fallback:sigma_used":
+            raw_num = -raw_num
+
         if thr is not None:
             new_score = raw_num.map(lambda x: score_from_raw(x, thr))
             chosen_params_out[metric] = {

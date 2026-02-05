@@ -38,7 +38,7 @@ class MetricResultMapper:
                 if f"{prefix}noise_raw" not in out:
                     sigma_used = r.get("noise_sigma_used")
                     try:
-                        out[f"{prefix}noise_raw"] = float(sigma_used) if sigma_used is not None else None
+                        out[f"{prefix}noise_raw"] = -float(sigma_used) if sigma_used is not None else None
                     except (TypeError, ValueError):
                         out[f"{prefix}noise_raw"] = None
 
@@ -49,7 +49,7 @@ class MetricResultMapper:
                 if "noise_raw" not in out:
                     sigma_used = r.get("noise_sigma_used")
                     try:
-                        out["noise_raw"] = float(sigma_used) if sigma_used is not None else None
+                        out["noise_raw"] = -float(sigma_used) if sigma_used is not None else None
                     except (TypeError, ValueError):
                         out["noise_raw"] = None
 
