@@ -3,6 +3,7 @@ import gc
 import numpy as np
 import os
 import traceback
+import yaml
 
 from typing import Optional, Tuple, Dict, Any
 
@@ -97,6 +98,9 @@ class PortraitQualityEvaluator:
         self.skip_face_processing = skip_face_processing
         self.image = None
 
+        # --- evaluator 用の閾値/設定（discretize_thresholds_raw 等）をロード ---
+        self.eval_config = self._load_evaluator_config()
+        
         # 前処理器で画像を一括取得
         self.face_evaluator = FaceEvaluator(backend="insightface")
         self.face_processor = FaceProcessor(self.face_evaluator, logger=self.logger)
@@ -129,15 +133,20 @@ class PortraitQualityEvaluator:
 
         self.evaluators = {
             "face": self.face_evaluator,
-            "sharpness": SharpnessEvaluator(),
-            "blurriness": BlurrinessEvaluator(),
-            "contrast": ContrastEvaluator(),
-            "noise": NoiseEvaluator(max_noise_value=max_noise_value),
-            "local_sharpness": LocalSharpnessEvaluator(),
+            "sharpness": SharpnessEvaluator(logger=self.logger, config=self.eval_config),
+            "blurriness": BlurrinessEvaluator(logger=self.logger, config=self.eval_config),
+            "contrast": ContrastEvaluator(logger=self.logger, config=self.eval_config),
+            "noise": NoiseEvaluator(
+                max_noise_value=max_noise_value,  # 互換で残してOK
+                logger=self.logger,
+                config=self.eval_config,
+            ),
+            "local_sharpness": LocalSharpnessEvaluator(logger=self.logger, config=self.eval_config),
             "local_contrast": LocalContrastEvaluator(),
             "exposure": ExposureEvaluator(),
             "color_balance": ColorBalanceEvaluator(),
         }
+
 
         self.body_detector = FullBodyDetector()
         self.mapper = MetricResultMapper()
@@ -773,6 +782,50 @@ class PortraitQualityEvaluator:
         except Exception as e:
             self.logger.error(f"{name} evaluate failed: {e}")
             self.logger.error(traceback.format_exc())
+            return {}
+
+
+    def _load_evaluator_config(self) -> Dict[str, Any]:
+        """
+        Evaluator の discretize 閾値やノイズ等の評価パラメータを読む。
+        例: config/evaluator_thresholds.yaml
+
+        config_manager があればそこからパスを取得。
+        無ければデフォルトパスを読む。読めない場合は {} を返す。
+        """
+        # パス決定
+        path = None
+        if self.config_manager is not None:
+            try:
+                path = self.config_manager.get(
+                    "evaluator_thresholds_path",
+                    default="config/evaluator_thresholds.yaml",
+                )
+            except Exception:
+                path = "config/evaluator_thresholds.yaml"
+        else:
+            path = "config/evaluator_thresholds.yaml"
+
+        # 読み込み
+        try:
+            if not path or not isinstance(path, str):
+                return {}
+            if not os.path.exists(path):
+                self.logger.warning(f"Evaluator config not found: {path} (use defaults)")
+                return {}
+
+            with open(path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+
+            if not isinstance(data, dict):
+                self.logger.warning(f"Evaluator config is not a dict: {path} (use defaults)")
+                return {}
+
+            self.logger.info(f"Evaluator config loaded: {path}")
+            return data
+
+        except Exception as e:
+            self.logger.warning(f"Evaluator config load failed: {e} (use defaults)")
             return {}
 
 

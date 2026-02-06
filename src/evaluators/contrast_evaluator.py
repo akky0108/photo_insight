@@ -11,21 +11,66 @@ class ContrastEvaluator:
     - contrast_eval_status: ok / invalid_input など
     """
 
-    def __init__(
-        self,
-        raw_floor: float = 5.0,   # これ未満は「ほぼ真っ平 → 低コントラスト」
-        raw_ceil: float = 50.0,   # これ以上は「十分にコントラストあり」とみなして頭打ち
-        gamma: float = 0.9,       # mid〜high を少し持ち上げる補正
-    ) -> None:
-        self.raw_floor = float(raw_floor)
-        self.raw_ceil = float(raw_ceil)
-        self.gamma = float(gamma)
+    DEFAULT_DISCRETIZE_THRESHOLDS_RAW = {
+        # “保険”のデフォルト（実データで調整される前提）
+        "poor": 15.0,
+        "fair": 30.0,
+        "good": 50.0,
+        "excellent": 70.0,
+    }
+
+    def __init__(self, logger=None, config=None) -> None:
+        """
+        config 例:
+        {
+          "contrast": {
+            "discretize_thresholds_raw": {
+              "poor": 17.7,
+              "fair": 39.2,
+              "good": 64.5,
+              "excellent": 91.9
+            }
+          }
+        }
+        """
+        self.logger = logger
+        cfg = config or {}
+        contrast_cfg = cfg.get("contrast", {}) if isinstance(cfg, dict) else {}
+
+        thresholds = contrast_cfg.get("discretize_thresholds_raw", {})
+        if not isinstance(thresholds, dict):
+            thresholds = {}
+
+        def _get(name: str) -> float:
+            v = thresholds.get(name, self.DEFAULT_DISCRETIZE_THRESHOLDS_RAW[name])
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return float(self.DEFAULT_DISCRETIZE_THRESHOLDS_RAW[name])
+
+        # t0,t1,t2,t3 を poor/fair/good/excellent として固定
+        self.t_poor = _get("poor")
+        self.t_fair = _get("fair")
+        self.t_good = _get("good")
+        self.t_excellent = _get("excellent")
+
+        # 閾値の単調性が崩れていたら安全側に並べ直す（事故防止）
+        ts = sorted([self.t_poor, self.t_fair, self.t_good, self.t_excellent])
+        self.t_poor, self.t_fair, self.t_good, self.t_excellent = ts
+
+        if self.logger is not None:
+            try:
+                self.logger.debug(
+                    f"[ContrastEvaluator] discretize_thresholds_raw="
+                    f"poor:{self.t_poor}, fair:{self.t_fair}, good:{self.t_good}, excellent:{self.t_excellent}"
+                )
+            except Exception:
+                # logger が標準的APIでない可能性もあるので握りつぶす
+                pass
 
     def evaluate(self, image: np.ndarray) -> dict:
         if not isinstance(image, np.ndarray):
-            raise ValueError(
-                "Invalid input: expected a numpy array representing an image."
-            )
+            raise ValueError("Invalid input: expected a numpy array representing an image.")
 
         # 画像がカラーの場合はグレースケールに変換（BGR想定）
         if len(image.shape) == 3 and image.shape[2] == 3:
@@ -49,42 +94,23 @@ class ContrastEvaluator:
             }
 
         # ----------------------------
-        # raw → [0, 1] の連続値に正規化
+        # raw 閾値による 5段階離散化
+        #   < poor      : 0.0  (bad)
+        #   < fair      : 0.25 (poor)
+        #   < good      : 0.5  (fair)
+        #   < excellent : 0.75 (good)
+        #   >= excellent: 1.0  (excellent)
         # ----------------------------
-        #   raw_floor 未満: 0.0
-        #   raw_ceil 以上: 1.0
-        #   その間は線形補間＋ガンマ補正
-        rf = self.raw_floor
-        rc = self.raw_ceil
-
-        if rc <= rf:
-            # パラメータが変でも一応動くように
-            norm = 1.0
-        else:
-            norm = (contrast_raw - rf) / (rc - rf)
-            if norm < 0.0:
-                norm = 0.0
-            elif norm > 1.0:
-                norm = 1.0
-
-        # mid〜high を少し持ち上げる
-        # （暗部〜低コントラストはシビア、高コントラストは飽和しにくくする）
-        norm = float(norm ** self.gamma)
-
-        # ----------------------------
-        # 5段階スコア + grade
-        #  (NoiseEvaluator のスケールポリシーに合わせる)
-        # ----------------------------
-        if norm >= 0.85:
+        if contrast_raw >= self.t_excellent:
             contrast_score = 1.0
             contrast_grade = "excellent"
-        elif norm >= 0.70:
+        elif contrast_raw >= self.t_good:
             contrast_score = 0.75
             contrast_grade = "good"
-        elif norm >= 0.50:
+        elif contrast_raw >= self.t_fair:
             contrast_score = 0.5
             contrast_grade = "fair"
-        elif norm >= 0.30:
+        elif contrast_raw >= self.t_poor:
             contrast_score = 0.25
             contrast_grade = "poor"
         else:

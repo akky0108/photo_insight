@@ -12,6 +12,9 @@ class NoiseEvaluator:
     - score は基本 0.0〜1.0 の 5 段階離散値（1.0, 0.75, 0.5, 0.25, 0.0）
     - 露出・解像度・ビット深度に極力依存しない
     - 欠損・評価不能時はフォールバックで破綻しない
+
+    契約:
+    - noise_raw は「高いほど良い」で扱うため、noise_raw = -noise_sigma_used を固定する
     """
 
     def __init__(
@@ -29,6 +32,9 @@ class NoiseEvaluator:
         warn_sigma: float = 0.018,
         fallback_mode: str = "global_mad",  # or "skip"
         fallback_score: float = 0.5,
+        # 追加（統一）
+        logger=None,
+        config=None,
     ):
         """
         :param max_noise_value: 旧実装互換のために受け取るが内部では使用しない
@@ -43,19 +49,106 @@ class NoiseEvaluator:
         :param fallback_mode: マスク不足等のときの挙動
         :param fallback_score: 最終的にどうしても計算不能なときのスコア
         """
+        self.logger = logger
+
         # 旧パラメータは残しておく（ログ用など）
         self.max_noise_value = max_noise_value
 
-        self.downsample_long_edge = downsample_long_edge
-        self.gaussian_sigma = gaussian_sigma
-        self.midtone_min = midtone_min
-        self.midtone_max = midtone_max
-        self.grad_thr = grad_thr
-        self.min_mask_ratio = min_mask_ratio
-        self.good_sigma = good_sigma
-        self.warn_sigma = warn_sigma
-        self.fallback_mode = fallback_mode
-        self.fallback_score = fallback_score
+        # まずは引数の値で初期化（= デフォルト“保険”）
+        self.downsample_long_edge = int(downsample_long_edge)
+        self.gaussian_sigma = float(gaussian_sigma)
+        self.midtone_min = float(midtone_min)
+        self.midtone_max = float(midtone_max)
+        self.grad_thr = float(grad_thr)
+        self.min_mask_ratio = float(min_mask_ratio)
+        self.good_sigma = float(good_sigma)
+        self.warn_sigma = float(warn_sigma)
+        self.fallback_mode = str(fallback_mode)
+        self.fallback_score = float(fallback_score)
+
+        # config で上書き（統一）
+        cfg = config or {}
+        noise_cfg = cfg.get("noise", {}) if isinstance(cfg, dict) else {}
+        if isinstance(noise_cfg, dict):
+            self._apply_config_overrides(noise_cfg)
+
+        if self.logger is not None:
+            try:
+                self.logger.debug(
+                    "[NoiseEvaluator] config applied: "
+                    f"downsample_long_edge={self.downsample_long_edge}, "
+                    f"gaussian_sigma={self.gaussian_sigma}, "
+                    f"midtone_min={self.midtone_min}, midtone_max={self.midtone_max}, "
+                    f"grad_thr={self.grad_thr}, min_mask_ratio={self.min_mask_ratio}, "
+                    f"good_sigma={self.good_sigma}, warn_sigma={self.warn_sigma}, "
+                    f"fallback_mode={self.fallback_mode}, fallback_score={self.fallback_score}"
+                )
+            except Exception:
+                pass
+
+    def _apply_config_overrides(self, noise_cfg: Dict[str, Any]) -> None:
+        """
+        config["noise"] から各種パラメータを上書きする。
+        変換できない値は無視（事故防止）。
+        """
+        def _set_int(attr: str, key: str) -> None:
+            if key not in noise_cfg:
+                return
+            try:
+                setattr(self, attr, int(noise_cfg[key]))
+            except Exception:
+                return
+
+        def _set_float(attr: str, key: str) -> None:
+            if key not in noise_cfg:
+                return
+            try:
+                setattr(self, attr, float(noise_cfg[key]))
+            except Exception:
+                return
+
+        def _set_str(attr: str, key: str) -> None:
+            if key not in noise_cfg:
+                return
+            try:
+                setattr(self, attr, str(noise_cfg[key]))
+            except Exception:
+                return
+
+        _set_int("downsample_long_edge", "downsample_long_edge")
+        _set_float("gaussian_sigma", "gaussian_sigma")
+        _set_float("midtone_min", "midtone_min")
+        _set_float("midtone_max", "midtone_max")
+        _set_float("grad_thr", "grad_thr")
+        _set_float("min_mask_ratio", "min_mask_ratio")
+
+        _set_float("good_sigma", "good_sigma")
+        _set_float("warn_sigma", "warn_sigma")
+
+        _set_str("fallback_mode", "fallback_mode")
+        _set_float("fallback_score", "fallback_score")
+
+        # guard（最低限の安全）
+        if self.downsample_long_edge <= 0:
+            self.downsample_long_edge = 1024
+        if self.gaussian_sigma <= 0.0:
+            self.gaussian_sigma = 1.2
+        self.midtone_min = float(np.clip(self.midtone_min, 0.0, 1.0))
+        self.midtone_max = float(np.clip(self.midtone_max, 0.0, 1.0))
+        if self.midtone_max < self.midtone_min:
+            self.midtone_min, self.midtone_max = self.midtone_max, self.midtone_min
+        if self.grad_thr <= 0.0:
+            self.grad_thr = 0.08
+        if self.min_mask_ratio < 0.0:
+            self.min_mask_ratio = 0.0
+        if self.min_mask_ratio > 1.0:
+            self.min_mask_ratio = 1.0
+
+        # good/warn は壊れてても _score_discrete でガードするが、ここでも最低限
+        if self.good_sigma < 0.0:
+            self.good_sigma = abs(self.good_sigma)
+        if self.warn_sigma < 0.0:
+            self.warn_sigma = abs(self.warn_sigma)
 
     # ------------------------------------------------------------------
     # public API
@@ -71,15 +164,14 @@ class NoiseEvaluator:
             - noise_sigma_midtone: midtone+低勾配マスク上でのロバストσ（MADベース）
             - noise_sigma_used: 実際にスコア計算に用いたσ
             - noise_mask_ratio: マスクに採用された画素比率
+            - noise_raw: -noise_sigma_used（高いほど良い契約）
             - noise_eval_status: "ok" / "fallback"
             - noise_fallback_reason: フォールバック理由
             - downsampled_size: 評価に使った画像サイズ (h, w)
             - image_dtype: 入力画像のdtype文字列表現
         """
         if not isinstance(image, np.ndarray):
-            raise ValueError(
-                "Invalid input: expected a numpy array representing an image."
-            )
+            raise ValueError("Invalid input: expected a numpy array representing an image.")
         if image.size == 0:
             return self._fallback_result(reason="empty_image")
 
@@ -127,17 +219,19 @@ class NoiseEvaluator:
                 )
 
         # 6. 5段階の離散スコアへ変換
-        noise_score, grade = self._score_discrete(sigma_used)
+        noise_score, grade = self._score_discrete(float(sigma_used))
 
         return {
             # --- 意味スコア（decide_accept で使う想定） ---
-            "noise_score": noise_score,   # 1.0 / 0.75 / 0.5 / 0.25 / 0.0
-            "noise_grade": grade,         # "excellent"〜"bad"
+            "noise_score": float(noise_score),   # 1.0 / 0.75 / 0.5 / 0.25 / 0.0
+            "noise_grade": grade,                # "excellent"〜"bad"
 
             # --- 生値(raw) ---
             "noise_sigma_midtone": float(sigma_midtone) if sigma_midtone is not None and np.isfinite(sigma_midtone) else None,
             "noise_sigma_used": float(sigma_used) if np.isfinite(sigma_used) else None,
             "noise_mask_ratio": mask_ratio,
+
+            # 契約: raw は「高いほど良い」
             "noise_raw": float(-sigma_used) if (sigma_used is not None and np.isfinite(sigma_used)) else None,
 
             # --- メタ情報（フォールバック・条件の追跡用） ---
@@ -237,17 +331,17 @@ class NoiseEvaluator:
         σ が小さいほどノイズが少ない = スコアが高い。
 
         閾値は good_sigma / warn_sigma をベースに自動生成:
-            t1 = 0.6 * good_sigma        → excellent
-            t2 = good_sigma              → good
-            t3 = (good_sigma + warn_sigma) / 2 → fair
-            t4 = warn_sigma              → poor
-            >t4                           → bad
+            t1 = 0.6 * good_sigma                 → excellent
+            t2 = good_sigma                       → good
+            t3 = (good_sigma + warn_sigma) / 2    → fair
+            t4 = warn_sigma                       → poor
+            >t4                                   → bad
 
         good_sigma / warn_sigma の関係がおかしい場合は
         3 段階 ("good"/"warn"/"bad") にフォールバック。
         """
-        g = self.good_sigma
-        w = self.warn_sigma
+        g = float(self.good_sigma)
+        w = float(self.warn_sigma)
 
         # guard: もし設定が変になっていたら旧 3 段階へフォールバック
         if not (g > 0.0 and w > g):

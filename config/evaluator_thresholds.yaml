@@ -1,0 +1,26 @@
+contrast:
+  discretize_thresholds_raw:
+    poor: 17.7
+    fair: 39.2
+    good: 64.5
+    excellent: 91.9
+
+blurriness:
+  discretize_thresholds_raw:
+    bad: 50
+    poor: 100
+    fair: 200
+    good: 400
+
+noise:
+  good_sigma: 0.010
+  warn_sigma: 0.018
+  # optional overrides:
+  # downsample_long_edge: 1024
+  # gaussian_sigma: 1.2
+  # midtone_min: 0.15
+  # midtone_max: 0.75
+  # grad_thr: 0.08
+  # min_mask_ratio: 0.05
+  # fallback_mode: global_mad
+  # fallback_score: 0.5
