@@ -14,34 +14,72 @@ class BlurrinessEvaluator:
     - variance_of_* は解析用の詳細として残す
     """
 
+    DEFAULT_DISCRETIZE_THRESHOLDS_RAW = {
+        # “保険”のデフォルト（実データで調整される前提）
+        "bad": 50.0,
+        "poor": 100.0,
+        "fair": 200.0,
+        "good": 400.0,
+    }
+
     def __init__(
         self,
         grad_weight: float = 0.4,
         lap_weight: float = 0.4,
         diff_weight: float = 0.2,
-        t_bad: float = 50.0,
-        t_poor: float = 100.0,
-        t_fair: float = 200.0,
-        t_good: float = 400.0,
         max_grad: float = 500.0,
         min_size: int = 64,
+        logger=None,
+        config=None,
     ) -> None:
         self.grad_weight = float(grad_weight)
         self.lap_weight = float(lap_weight)
         self.diff_weight = float(diff_weight)
 
-        self.t_bad = float(t_bad)
-        self.t_poor = float(t_poor)
-        self.t_fair = float(t_fair)
-        self.t_good = float(t_good)
-
         self.max_grad = float(max_grad)
         self.min_size = int(min_size)
 
+        self.logger = logger
+
+        cfg = config or {}
+        blur_cfg = cfg.get("blurriness", {}) if isinstance(cfg, dict) else {}
+
+        thresholds = blur_cfg.get("discretize_thresholds_raw", {})
+        if not isinstance(thresholds, dict):
+            thresholds = {}
+
+        def _get(name: str) -> float:
+            v = thresholds.get(name, self.DEFAULT_DISCRETIZE_THRESHOLDS_RAW[name])
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return float(self.DEFAULT_DISCRETIZE_THRESHOLDS_RAW[name])
+
+        # 4境界: bad/poor/fair/good
+        self.t_bad = _get("bad")
+        self.t_poor = _get("poor")
+        self.t_fair = _get("fair")
+        self.t_good = _get("good")
+
+        # 単調性崩れの事故防止（並べ直し）
+        ts = sorted([self.t_bad, self.t_poor, self.t_fair, self.t_good])
+        self.t_bad, self.t_poor, self.t_fair, self.t_good = ts
+
+        if self.logger is not None:
+            try:
+                self.logger.debug(
+                    f"[BlurrinessEvaluator] discretize_thresholds_raw="
+                    f"bad:{self.t_bad}, poor:{self.t_poor}, fair:{self.t_fair}, good:{self.t_good}"
+                )
+            except Exception:
+                pass
+
     def _to_score_and_grade(self, raw: float) -> tuple[float, str]:
-        if raw <= 0:
+        # raw: 大きいほど良い（シャープ）
+        if raw <= 0 or not np.isfinite(raw):
             return 0.0, "very_blurry"
 
+        # 閾値は「境界」なので < で段階を上げていく
         if raw < self.t_bad:
             return 0.0, "very_blurry"
         elif raw < self.t_poor:
