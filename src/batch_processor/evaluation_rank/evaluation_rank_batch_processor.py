@@ -27,6 +27,11 @@ from batch_processor.evaluation_rank.scoring import (
     score01,
 )
 
+from batch_processor.evaluation_rank.analysis.rejected_reason_stats import (
+    RejectedReasonAnalyzer,
+    write_rejected_reason_summary_csv,
+)
+
 # =========================
 # utility
 # =========================
@@ -380,6 +385,39 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                 rows=rows,              # 射影しない（writer側で契約列に正規化）
                 sort_for_ranking=True,
             )
+
+            # --- Phase1: rejected_reason summary ---
+            try:
+                analyzer = RejectedReasonAnalyzer(
+                    alias_map={
+                        # 必要なら最低限だけ。まず空でもOK。
+                        # "blurry": "blur_low",
+                        # "noise": "noise_high",
+                    },
+                    unknown_label="unknown",
+                    keep_unknown_raw=False,
+                )
+                summary, meta = analyzer.analyze(rows)
+
+                # 出力先: ranking CSV と同じ output ディレクトリに寄せる（堅い）
+                out_dir = Path(self.output_dir) if hasattr(self, "output_dir") else Path("output")
+                out_path = out_dir / "rejected_reason_summary.csv"
+
+                write_rejected_reason_summary_csv(summary, out_path)
+
+                # ログ（既存 logger に合わせて置換してOK）
+                self.logger.info(
+                    f"[rejected_reason] wrote: {out_path} "
+                    f"(total_rows={meta['total_rows']}, rejected={meta['total_rejected']}, reasons={meta['unique_reasons']})"
+                )
+                # top3
+                if summary:
+                    top = ", ".join([f"{r.reason}:{r.count}" for r in summary[:3]])
+                    self.logger.info(f"[rejected_reason] top: {top}")
+
+            except Exception as e:
+                # Phase1は「本処理を落とさない」方がデバッグ基盤として強い
+                self.logger.warning(f"[rejected_reason] failed to write summary: {e}")
 
             # 念のため “契約” と一致しているかを最終チェック（運用崩壊防止）
             if list(columns) != list(OUTPUT_COLUMNS):
