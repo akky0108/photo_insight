@@ -1,7 +1,7 @@
 import os
 import yaml
 import time
-from typing import Callable, Optional
+from typing import Callable, Optional, Any, Iterable, Union
 from dotenv import load_dotenv
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -108,6 +108,55 @@ class ConfigManager:
             dict: 現在の設定。
         """
         return self.config
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """
+        dict.get と同じインターフェースで設定値を取得する。
+        例:
+            cfg.get("quality_thresholds_path", "config/quality_thresholds.yaml")
+
+        Args:
+            key: トップレベルキー
+            default: キーが無い場合のデフォルト
+
+        Returns:
+            設定値 or default
+        """
+        try:
+            return (self.config or {}).get(key, default)
+        except Exception:
+            return default
+
+    def get_path(
+        self,
+        path: Union[str, Iterable[str]],
+        default: Any = None,
+        *,
+        sep: str = ".",
+    ) -> Any:
+        """
+        ネストした設定値を取得する。
+        - path が str の場合: "batch.memory_threshold" のようなドット区切りを解釈
+        - path が Iterable[str] の場合: ["batch", "memory_threshold"] のように辿る
+
+        Args:
+            path: ネストキー（str or Iterable[str]）
+            default: 見つからない場合のデフォルト
+            sep: str 指定時の区切り文字（デフォルト "."）
+
+        Returns:
+            設定値 or default
+        """
+        try:
+            keys = path.split(sep) if isinstance(path, str) else list(path)
+            cur: Any = self.config or {}
+            for k in keys:
+                if not isinstance(cur, dict) or k not in cur:
+                    return default
+                cur = cur[k]
+            return cur
+        except Exception:
+            return default
 
     def get_logger(self, logger_name: Optional[str] = None):
         """
