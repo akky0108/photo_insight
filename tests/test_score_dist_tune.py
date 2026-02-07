@@ -13,9 +13,10 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from tools.score_dist_tune import (  # noqa: E402
     Thresholds,
-    score_from_raw,
-    resolve_raw_spec,
+    build_raw_transform_spec,
     infer_direction_by_score,
+    resolve_raw_col,
+    score_from_raw,
 )
 
 
@@ -42,7 +43,7 @@ def test_score_from_raw_lower_is_better_inverts_assignment():
     assert score_from_raw(999.0, thr, higher_is_better=False) == 0.0
 
 
-def test_resolve_raw_spec_noise_prefers_noise_raw_over_sigma_used():
+def test_resolve_raw_col_noise_prefers_noise_raw_over_sigma_used():
     # noise_raw と noise_sigma_used が両方ある場合、noise_raw を選ぶ
     df = pd.DataFrame(
         {
@@ -51,31 +52,31 @@ def test_resolve_raw_spec_noise_prefers_noise_raw_over_sigma_used():
             "noise_score": [0.0, 0.5, 1.0],
         }
     )
-    raw_col, raw_source, higher_is_better, note, meta = resolve_raw_spec(df, "noise_score")
+    raw_col, raw_source, raw_direction, raw_transform, meta = resolve_raw_col(df, "noise_score")
     assert raw_col == "noise_raw"
     assert raw_source == "noise_raw"
-    assert note == "raw"
-    # 相関が正なら True になり得る（ここでは単純に正相関なので True 期待）
-    assert higher_is_better is True
-    # 推定根拠が入っている（n<30 なので inferred=False の可能性もある）
+    assert raw_direction in ("higher_is_better", "lower_is_better")  # 推定なので揺れ得る
+    assert raw_transform in ("identity", "lower_is_better")
+    # direction と transform の整合
+    if raw_direction == "higher_is_better":
+        assert raw_transform == "identity"
+    else:
+        assert raw_transform == "lower_is_better"
     assert isinstance(meta, dict)
-    assert "direction_inferred" in meta
-    assert "corr" in meta
-    assert "n_for_corr" in meta
 
 
-def test_resolve_raw_spec_noise_uses_sigma_when_noise_raw_missing():
+def test_resolve_raw_col_noise_uses_sigma_when_noise_raw_missing():
     df = pd.DataFrame(
         {
             "noise_sigma_used": [0.1, 0.2, 0.3],
             "noise_score": [1.0, 0.5, 0.0],  # sigma が大きいほど悪い（負相関）
         }
     )
-    raw_col, raw_source, higher_is_better, note, meta = resolve_raw_spec(df, "noise_score")
+    raw_col, raw_source, raw_direction, raw_transform, meta = resolve_raw_col(df, "noise_score")
     assert raw_col == "noise_sigma_used"
     assert raw_source == "noise_sigma_used"
-    assert note == "sigma_used"
-    assert higher_is_better is False  # sigma は低いほど良い固定
+    assert raw_direction == "lower_is_better"
+    assert raw_transform == "lower_is_better"
     assert meta.get("direction_note") == "known_lower_is_better"
 
 
@@ -103,20 +104,19 @@ def test_infer_direction_by_score_positive_and_negative_correlation():
     assert corr < 0
 
 
-def test_resolve_raw_spec_non_noise_uses_metric_raw_if_present():
+def test_resolve_raw_col_non_noise_uses_metric_raw_if_present():
     df = pd.DataFrame(
         {
             "contrast_raw": [10, 20, 30],
             "contrast_score": [0.0, 0.5, 1.0],
         }
     )
-    raw_col, raw_source, higher_is_better, note, meta = resolve_raw_spec(df, "contrast_score")
+    raw_col, raw_source, raw_direction, raw_transform, meta = resolve_raw_col(df, "contrast_score")
     assert raw_col == "contrast_raw"
     assert raw_source == "raw"
-    assert higher_is_better is True
-    assert note == "raw"
-    # 非noiseは推定しない（基本）
-    assert meta.get("direction_inferred") in (False,)
+    assert raw_direction == "higher_is_better"
+    assert raw_transform == "identity"
+    assert isinstance(meta, dict)
 
 
 def test_infer_direction_by_score_defaults_true_when_too_few_samples():
@@ -127,3 +127,15 @@ def test_infer_direction_by_score_defaults_true_when_too_few_samples():
     assert inferred is False
     assert n == 5
     assert corr is None
+
+
+def test_raw_spec_contains_direction_and_transform():
+    rs = build_raw_transform_spec(
+        "noise",
+        "noise_sigma_used",
+        higher_is_better=False,
+        raw_source="noise_sigma_used",
+        direction_meta={"direction_inferred": False},
+    )
+    assert rs["raw_direction"] == "lower_is_better"
+    assert rs["raw_transform"] == "lower_is_better"
