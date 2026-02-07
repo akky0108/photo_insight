@@ -49,3 +49,30 @@ def test_contrast_evaluator_config_thresholds_affect_score():
     assert r_b["contrast_eval_status"] == "ok"
     assert r_b["contrast_score"] == 0.75
     assert r_b["contrast_grade"] == "good"
+
+def test_contrast_float01_input_scaled():
+    img = np.zeros((100, 100), dtype=np.float32)
+    img[:, :50] = 0.0
+    img[:, 50:] = 60.0 / 255.0  # float01
+
+    ev = ContrastEvaluator()
+    r = ev.evaluate(img)
+
+    assert r["contrast_raw"] > 20
+
+def test_contrast_thresholds_sorted():
+    cfg = {
+        "contrast": {
+            "discretize_thresholds_raw": {
+                "poor": 50,
+                "fair": 10,
+                "good": 40,
+                "excellent": 20,
+            }
+        }
+    }
+
+    ev = ContrastEvaluator(config=cfg)
+
+    assert ev.t_poor <= ev.t_fair <= ev.t_good <= ev.t_excellent
+
