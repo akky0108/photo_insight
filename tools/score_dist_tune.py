@@ -108,6 +108,8 @@ class Thresholds:
       t1 <= raw < t2 -> 0.5
       t2 <= raw < t3 -> 0.75
       t3 <= raw      -> 1.0
+
+    ※ noise_sigma_used のように「低いほど良い」場合は score_from_raw(..., higher_is_better=False) で反転評価する。
     """
     t0: float
     t1: float
@@ -169,9 +171,29 @@ def round_to_quarter(x: float) -> float:
     return round(x * 4.0) / 4.0
 
 
-def score_from_raw(raw: float, thr: Thresholds) -> float:
+def score_from_raw(raw: float, thr: Thresholds, *, higher_is_better: bool = True) -> float:
+    """
+    raw + thresholds から 5段階離散スコアを算出する。
+
+    - higher_is_better=True : raw が高いほど良い（通常）
+    - higher_is_better=False: raw が低いほど良い（例: noise_sigma_used）
+    """
     if raw is None or (isinstance(raw, float) and math.isnan(raw)):
         return float("nan")
+
+    if not higher_is_better:
+        # 低いほど良い: 閾値に対する割当を逆向きにする（raw値の符号反転はしない）
+        if raw < thr.t0:
+            return 1.0
+        if raw < thr.t1:
+            return 0.75
+        if raw < thr.t2:
+            return 0.5
+        if raw < thr.t3:
+            return 0.25
+        return 0.0
+
+    # 通常（高いほど良い）
     if raw < thr.t0:
         return 0.0
     if raw < thr.t1:
@@ -230,26 +252,60 @@ def in_range_ratio(scores: pd.Series) -> float:
     ok = (s >= -0.001) & (s <= 1.001)
     return float(ok.mean())
 
-def resolve_raw_col(df: pd.DataFrame, score_col: str) -> Tuple[Optional[str], str]:
+
+def infer_direction_by_score(raw_num: pd.Series, score: pd.Series) -> bool:
     """
-    score_col から raw_col を解決する。
-    戻り値: (raw_col or None, note)
+    raw と score の相関から「高いほど良いか」を推定する。
+    将来仕様変更（noise_raw の定義変更等）への耐性用。
+
+    戻り値:
+      True  -> higher_is_better
+      False -> lower_is_better
+    """
+    r = coerce_numeric(raw_num)
+    s = coerce_numeric(score)
+    tmp = pd.DataFrame({"r": r, "s": s}).dropna()
+    if len(tmp) < 30:
+        return True  # デフォルトは「高いほど良い」
+    corr = tmp["r"].corr(tmp["s"])
+    if corr is None or (isinstance(corr, float) and math.isnan(corr)):
+        return True
+    return bool(corr >= 0)
+
+
+def resolve_raw_spec(df: pd.DataFrame, score_col: str) -> Tuple[Optional[str], str, bool, str]:
+    """
+    score_col から raw 解決仕様を返す。
+
+    戻り値:
+      (raw_col or None, raw_source, higher_is_better, note)
+
+    優先順位（noise系 raw 解決仕様）:
+      1) noise_raw（最優先）
+      2) noise_sigma_used
+      3) fallback + 反転（旧データ救済; 本ツールでは原則スキップ）
+
+    ※ raw の「向き（高いほど良い／低いほど良い）」は higher_is_better で表現し、
+       生値を -raw のように反転させるロジックは持ち込まない（反転依存削減）。
     """
     metric = score_col.replace("_score", "")
 
     # 第一候補: xxx_raw
     c1 = f"{metric}_raw"
     if c1 in df.columns:
-        return c1, "raw"
+        higher = True
+        # noise_raw の定義は将来変わり得るので score との相関で推定
+        if metric == "noise":
+            if score_col in df.columns:
+                higher = infer_direction_by_score(df[c1], df[score_col])
+        return c1, ("noise_raw" if metric == "noise" else "raw"), higher, "raw"
 
-    # noise は sigma_used を raw として扱える（noise_raw が無くても動かす）
+    # 第二候補: noise_sigma_used（低いほど良い）
     if metric == "noise" and "noise_sigma_used" in df.columns:
-        return "noise_sigma_used", "fallback:sigma_used"
+        return "noise_sigma_used", "noise_sigma_used", False, "sigma_used"
 
-    if metric == "face_noise" and "face_noise_sigma_used" in df.columns:
-        return "face_noise_sigma_used", "fallback:sigma_used"
-
-    return None, "missing"
+    # それ以外は raw が無い（fallback 扱いだが、このツールの目的上はスキップ推奨）
+    return None, "fallback", True, "missing"
 
 
 def validate_score_column(
@@ -404,6 +460,8 @@ def build_evaluator_config_from_chosen_params(chosen_params_out: Dict[str, Dict]
             noise_sugg["noise_raw_quantiles"] = mapping
             noise_sugg["source"] = spec.get("source")
             noise_sugg["raw_col"] = spec.get("raw_col")
+            noise_sugg["raw_source"] = spec.get("raw_source")
+            noise_sugg["higher_is_better"] = spec.get("higher_is_better")
             continue
 
         out.setdefault(metric, {})
@@ -505,13 +563,14 @@ def main() -> int:
 
     for score_col in TARGET_SCORE_COLS:
         metric = score_col.replace("_score", "")
-        raw_col, raw_note = resolve_raw_col(df, score_col)
+
+        raw_col, raw_source, higher_is_better, raw_note = resolve_raw_spec(df, score_col)
 
         if raw_col is None:
             warn(f"Skip '{metric}': missing required raw column (raw resolve failed)")
             continue
 
-        # 必須カラム存在チェック
+        # 必須カラム存在チェック（raw併存必須）
         ok, reason = validate_score_column(
             df,
             score_col,
@@ -530,13 +589,9 @@ def main() -> int:
         cur_score = df[score_col]
 
         # -----------------------------
-        # raw 数値化 + 向き統一
+        # raw 数値化（符号反転などはしない）
         # -----------------------------
         raw_num = coerce_numeric(raw)
-
-        # noise の fallback:sigma_used は「小さいほど良い」→反転して統一
-        if metric == "noise" and raw_note == "fallback:sigma_used":
-            raw_num = -raw_num
 
         # -----------------------------
         # 現状分布
@@ -574,13 +629,15 @@ def main() -> int:
         # 新スコア計算
         # -----------------------------
         if thr is not None:
-            new_score = raw_num.map(lambda x: score_from_raw(x, thr))
+            new_score = raw_num.map(lambda x: score_from_raw(x, thr, higher_is_better=higher_is_better))
 
             chosen_params_out[metric] = {
                 "raw_col": raw_col,
                 "score_col": score_col,
                 "thresholds": thr.to_list(),
                 "source": thr_source,
+                "raw_source": raw_source,
+                "higher_is_better": higher_is_better,
             }
 
         else:
@@ -591,6 +648,8 @@ def main() -> int:
                 "score_col": score_col,
                 "thresholds": None,
                 "source": thr_source,
+                "raw_source": raw_source,
+                "higher_is_better": higher_is_better,
             }
 
         # -----------------------------
@@ -646,6 +705,8 @@ def main() -> int:
             "type": "tech" if is_tech else ("face" if is_face else "other"),
             "score_col": score_col,
             "raw_col": raw_col,
+            "raw_source": raw_source,
+            "higher_is_better": higher_is_better,
             "threshold_source": thr_source,
             "thresholds": thr.to_list() if thr is not None else "",
             "current_saturation_0plus1": cur_sat,
@@ -673,7 +734,6 @@ def main() -> int:
                 row[f"new_target_flag_{sv}"] = ""
 
         row["raw_resolve"] = raw_note
-
         metric_summary.append(row)
 
         # -----------------------------
@@ -682,7 +742,7 @@ def main() -> int:
         make_plots(
             plots_dir,
             metric,
-            raw_num,       # ★ここ重要（統一後）
+            raw_num,
             cur_score,
             new_score,
         )
@@ -692,15 +752,16 @@ def main() -> int:
         # -----------------------------
         info("-" * 72)
         info(f"[METRIC] {metric}")
-        info(f"  source={thr_source} thresholds={thr.to_list() if thr else None}")
+        info(
+            f"  raw={raw_col} raw_source={raw_source} higher_is_better={higher_is_better} "
+            f"thr_source={thr_source} thresholds={thr.to_list() if thr else None}"
+        )
 
         info("  score : current_ratio -> new_ratio (delta)")
-
         for sv in DISCRETE_SCORES:
             c = cur_ratios.get(sv, 0.0)
             n = new_ratios.get(sv, 0.0)
             d = n - c
-
             info(f"  {sv:>4} : {c:6.3f} -> {n:6.3f} ({d:+6.3f})")
 
         if is_tech:
@@ -737,14 +798,17 @@ def main() -> int:
                 json.dump(cfg, f, ensure_ascii=False, indent=2)
             info(f"  emit-config-json : {out_json}")
 
-
     # save distribution long/wide
     comp_df = pd.DataFrame(comparison_rows)
     long_csv = out_dir / "score_distribution_long.csv"
     comp_df.to_csv(long_csv, index=False)
 
-    cur_df = comp_df[comp_df["which"] == "current"].rename(columns={"count": "current_count", "ratio": "current_ratio"}).drop(columns=["which"])
-    new_df = comp_df[comp_df["which"] == "new"].rename(columns={"count": "new_count", "ratio": "new_ratio"}).drop(columns=["which"])
+    cur_df = comp_df[comp_df["which"] == "current"].rename(
+        columns={"count": "current_count", "ratio": "current_ratio"}
+    ).drop(columns=["which"])
+    new_df = comp_df[comp_df["which"] == "new"].rename(
+        columns={"count": "new_count", "ratio": "new_ratio"}
+    ).drop(columns=["which"])
     wide = pd.merge(cur_df, new_df, on=["metric", "score"], how="outer").fillna(0)
     wide["delta_ratio"] = wide["new_ratio"] - wide["current_ratio"]
     wide_csv = out_dir / "score_distribution_wide.csv"
