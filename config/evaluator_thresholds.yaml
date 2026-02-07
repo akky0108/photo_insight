@@ -18,9 +18,22 @@ contrast:
     excellent: 91.91267204284668
 noise_suggestions:
   noise_raw_quantiles:
-    poor: -0.0045996974486857125
-    fair: -0.002836657707542132
-    good: -0.001664072382613075
-    excellent: -0.0011451903618871625
+    poor: -0.0051004838448017375
+    fair: -0.0015911402306332525
+    good: -0.001176267184675025
+    excellent: -0.0010530509892850751
   source: auto_target_quantiles_12.5_32.5_62.5_87.5
-  raw_col: noise_sigma_used
+  raw_col: noise_raw
+  raw_source: noise_raw
+  higher_is_better: true
+  raw_spec:
+    raw_direction: higher_is_better
+    raw_transform: identity
+    source_raw_col: noise_raw
+    effective_raw_col: noise_raw
+    raw_source: noise_raw
+    higher_is_better: true
+    direction_inferred: true
+    corr: 0.9435739171300667
+    n_for_corr: 150
+    direction_note: corr
