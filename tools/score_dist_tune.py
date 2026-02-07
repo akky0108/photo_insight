@@ -289,20 +289,25 @@ def infer_direction_by_score(raw_num: pd.Series, score: pd.Series) -> Tuple[bool
     return bool(corr >= 0), float(corr), n, True
 
 
-def resolve_raw_spec(df: pd.DataFrame, score_col: str) -> Tuple[Optional[str], str, bool, str, Dict[str, Any]]:
+def resolve_raw_col(df: pd.DataFrame, score_col: str) -> Tuple[Optional[str], str, str, str, Dict[str, Any]]:
     """
-    score_col から raw 解決仕様を返す。
+    score_col から raw 解決仕様を返す（契約版）。
 
     戻り値:
-      (raw_col or None, raw_source, higher_is_better, note, direction_meta)
+      (raw_col or None, raw_source, raw_direction, raw_transform, direction_meta)
+
+    raw_direction:
+      - "higher_is_better"
+      - "lower_is_better"
+
+    raw_transform:
+      - "identity"        : 値変換なし（高いほど良い）
+      - "lower_is_better" : 値変換なし（低いほど良い。閾値割当を逆向きで解釈）
 
     優先順位（noise系 raw 解決仕様）:
       1) noise_raw（最優先）
       2) noise_sigma_used
-      3) fallback + 反転（旧データ救済; 本ツールでは原則スキップ）
-
-    ※ raw の「向き（高いほど良い／低いほど良い）」は higher_is_better で表現し、
-       生値を -raw のように反転させるロジックは持ち込まない（反転依存削減）。
+      3) fallback（本ツールでは原則スキップ）
     """
     metric = score_col.replace("_score", "")
 
@@ -313,13 +318,31 @@ def resolve_raw_spec(df: pd.DataFrame, score_col: str) -> Tuple[Optional[str], s
         "direction_note": "",
     }
 
+    def _direction_to_transform(direction: str) -> str:
+        if direction == "higher_is_better":
+            return "identity"
+        if direction == "lower_is_better":
+            return "lower_is_better"
+        raise ValueError(f"invalid raw_direction: {direction}")
+
     # 第一候補: xxx_raw
     c1 = f"{metric}_raw"
     if c1 in df.columns:
-        higher = True
-        # noise_raw の定義は将来変わり得るので score との相関で推定（根拠も残す）
+        raw_source = "noise_raw" if metric == "noise" else "raw"
+
+        # デフォルトは higher_is_better
+        raw_direction = "higher_is_better"
+
+        # noise_raw は将来変わり得るので推定（ただし transform 適用後に推定する）
         if metric == "noise" and score_col in df.columns:
+            # transform適用後推定:
+            # raw_direction の推定は「raw と 'effective score' の相関」で行う。
+            # identity を仮定した effective score は score そのもの。
+            # lower_is_better を仮定した effective score は (1 - score) と等価。
+            # よって corr(raw, score) の符号で direction を決めれば、
+            # transform適用後の軸に整合した推定になる。
             higher, corr, n, inferred = infer_direction_by_score(df[c1], df[score_col])
+            raw_direction = "higher_is_better" if higher else "lower_is_better"
             direction_meta.update(
                 {
                     "direction_inferred": bool(inferred),
@@ -328,10 +351,15 @@ def resolve_raw_spec(df: pd.DataFrame, score_col: str) -> Tuple[Optional[str], s
                     "direction_note": "corr" if inferred else "default_by_insufficient_samples",
                 }
             )
-        return c1, ("noise_raw" if metric == "noise" else "raw"), higher, "raw", direction_meta
+
+        raw_transform = _direction_to_transform(raw_direction)
+        return c1, raw_source, raw_direction, raw_transform, direction_meta
 
     # 第二候補: noise_sigma_used（低いほど良い）
     if metric == "noise" and "noise_sigma_used" in df.columns:
+        raw_source = "noise_sigma_used"
+        raw_direction = "lower_is_better"
+        raw_transform = _direction_to_transform(raw_direction)
         direction_meta.update(
             {
                 "direction_inferred": False,
@@ -340,10 +368,9 @@ def resolve_raw_spec(df: pd.DataFrame, score_col: str) -> Tuple[Optional[str], s
                 "direction_note": "known_lower_is_better",
             }
         )
-        return "noise_sigma_used", "noise_sigma_used", False, "sigma_used", direction_meta
+        return "noise_sigma_used", raw_source, raw_direction, raw_transform, direction_meta
 
-    # それ以外は raw が無い（fallback 扱いだが、このツールの目的上はスキップ推奨）
-    return None, "fallback", True, "missing", direction_meta
+    return None, "fallback", "higher_is_better", "identity", direction_meta
 
 
 def build_raw_transform_spec(
@@ -361,25 +388,29 @@ def build_raw_transform_spec(
     score_from_raw の割当ロジックで higher_is_better を表現する。
     そのため raw_transform は「値変換」ではなく「解釈方式」を表す。
     """
-    if higher_is_better:
-        raw_transform = "identity"
-    else:
-        # 低いほど良い: 閾値割当を逆向きで評価（値は変換しない）
-        raw_transform = "lower_is_better"
+    raw_direction = "higher_is_better" if higher_is_better else "lower_is_better"
+    raw_transform = "identity" if higher_is_better else "lower_is_better"
 
     if raw_transform not in RAW_TRANSFORM_ENUM:
         raise ValueError(f"invalid raw_transform: {raw_transform}")
 
-    # “effective_raw_col” は論理名（実列である必要はない）
-    effective_raw_col = f"{metric}_raw_effective"
+    # 値変換しない設計なので、effective_raw_col は実列名に寄せる（混乱防止）
+    effective_raw_col = source_raw_col
 
     dm = direction_meta or {}
     return {
+        # 契約: 必須
+        "raw_direction": raw_direction,
+        "raw_transform": raw_transform,
+
+        # 追跡性: 必須に近い（SSOT）
         "source_raw_col": source_raw_col,
         "effective_raw_col": effective_raw_col,
-        "raw_transform": raw_transform,
         "raw_source": raw_source,
+
+        # 互換: 既存利用がある前提で残す（将来deprecated可）
         "higher_is_better": higher_is_better,
+
         # 推定根拠（主に noise_raw でのみ有用）
         "direction_inferred": dm.get("direction_inferred", False),
         "corr": dm.get("corr", None),
@@ -647,7 +678,9 @@ def main() -> int:
     for score_col in TARGET_SCORE_COLS:
         metric = score_col.replace("_score", "")
 
-        raw_col, raw_source, higher_is_better, raw_note, direction_meta = resolve_raw_spec(df, score_col)
+        raw_col, raw_source, raw_direction, raw_transform, direction_meta = resolve_raw_col(df, score_col)
+        higher_is_better = (raw_direction == "higher_is_better")
+        raw_note = raw_source  # 互換（必要なら別文字列でもOK）
 
         if raw_col is None:
             warn(f"Skip '{metric}': missing required raw column (raw resolve failed)")
