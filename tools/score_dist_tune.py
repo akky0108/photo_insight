@@ -70,6 +70,15 @@ except Exception:
 DISCRETE_SCORES = [0.0, 0.25, 0.5, 0.75, 1.0]
 DISCRETE_SET = set(DISCRETE_SCORES)
 
+# raw_transform の列挙（将来拡張しても互換が壊れにくいように固定）
+RAW_TRANSFORM_ENUM = {
+    "identity",         # 値はそのまま（高いほど良い）
+    "lower_is_better",  # 値は変えず、score割当ロジックを逆向きにする
+    "negate",           # effective = -raw（将来導入する場合）
+    "affine",           # effective = a*raw + b（将来導入する場合）
+    "clip",             # effective = clip(raw, lo, hi)（将来導入する場合）
+}
+
 # 対象固定（score_col -> raw_col を自動派生）
 TARGET_SCORE_COLS = [
     "sharpness_score",
@@ -253,32 +262,39 @@ def in_range_ratio(scores: pd.Series) -> float:
     return float(ok.mean())
 
 
-def infer_direction_by_score(raw_num: pd.Series, score: pd.Series) -> bool:
+def infer_direction_by_score(raw_num: pd.Series, score: pd.Series) -> Tuple[bool, Optional[float], int, bool]:
     """
-    raw と score の相関から「高いほど良いか」を推定する。
+    raw と score の相関から「高いほど良いか」を推定する（根拠付き）。
     将来仕様変更（noise_raw の定義変更等）への耐性用。
 
     戻り値:
-      True  -> higher_is_better
-      False -> lower_is_better
+      (higher_is_better, corr, n_for_corr, direction_inferred)
+
+    direction_inferred:
+      True  -> 相関を計算して推定した
+      False -> サンプル不足等で推定せずデフォルトにした
     """
     r = coerce_numeric(raw_num)
     s = coerce_numeric(score)
     tmp = pd.DataFrame({"r": r, "s": s}).dropna()
-    if len(tmp) < 30:
-        return True  # デフォルトは「高いほど良い」
+    n = int(len(tmp))
+
+    if n < 30:
+        return True, None, n, False  # デフォルトは「高いほど良い」（推定はしていない）
+
     corr = tmp["r"].corr(tmp["s"])
     if corr is None or (isinstance(corr, float) and math.isnan(corr)):
-        return True
-    return bool(corr >= 0)
+        return True, None, n, True  # 計算は試みたが corr が無効
+
+    return bool(corr >= 0), float(corr), n, True
 
 
-def resolve_raw_spec(df: pd.DataFrame, score_col: str) -> Tuple[Optional[str], str, bool, str]:
+def resolve_raw_spec(df: pd.DataFrame, score_col: str) -> Tuple[Optional[str], str, bool, str, Dict[str, Any]]:
     """
     score_col から raw 解決仕様を返す。
 
     戻り値:
-      (raw_col or None, raw_source, higher_is_better, note)
+      (raw_col or None, raw_source, higher_is_better, note, direction_meta)
 
     優先順位（noise系 raw 解決仕様）:
       1) noise_raw（最優先）
@@ -290,22 +306,86 @@ def resolve_raw_spec(df: pd.DataFrame, score_col: str) -> Tuple[Optional[str], s
     """
     metric = score_col.replace("_score", "")
 
+    direction_meta: Dict[str, Any] = {
+        "direction_inferred": False,
+        "corr": None,
+        "n_for_corr": 0,
+        "direction_note": "",
+    }
+
     # 第一候補: xxx_raw
     c1 = f"{metric}_raw"
     if c1 in df.columns:
         higher = True
-        # noise_raw の定義は将来変わり得るので score との相関で推定
-        if metric == "noise":
-            if score_col in df.columns:
-                higher = infer_direction_by_score(df[c1], df[score_col])
-        return c1, ("noise_raw" if metric == "noise" else "raw"), higher, "raw"
+        # noise_raw の定義は将来変わり得るので score との相関で推定（根拠も残す）
+        if metric == "noise" and score_col in df.columns:
+            higher, corr, n, inferred = infer_direction_by_score(df[c1], df[score_col])
+            direction_meta.update(
+                {
+                    "direction_inferred": bool(inferred),
+                    "corr": corr,
+                    "n_for_corr": int(n),
+                    "direction_note": "corr" if inferred else "default_by_insufficient_samples",
+                }
+            )
+        return c1, ("noise_raw" if metric == "noise" else "raw"), higher, "raw", direction_meta
 
     # 第二候補: noise_sigma_used（低いほど良い）
     if metric == "noise" and "noise_sigma_used" in df.columns:
-        return "noise_sigma_used", "noise_sigma_used", False, "sigma_used"
+        direction_meta.update(
+            {
+                "direction_inferred": False,
+                "corr": None,
+                "n_for_corr": 0,
+                "direction_note": "known_lower_is_better",
+            }
+        )
+        return "noise_sigma_used", "noise_sigma_used", False, "sigma_used", direction_meta
 
     # それ以外は raw が無い（fallback 扱いだが、このツールの目的上はスキップ推奨）
-    return None, "fallback", True, "missing"
+    return None, "fallback", True, "missing", direction_meta
+
+
+def build_raw_transform_spec(
+    metric: str,
+    source_raw_col: str,
+    *,
+    higher_is_better: bool,
+    raw_source: str,
+    direction_meta: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    raw の '変換仕様' を JSON に明示するためのメタ情報（raw_spec）。
+
+    本ツールは raw の符号反転（-raw）を行わず、
+    score_from_raw の割当ロジックで higher_is_better を表現する。
+    そのため raw_transform は「値変換」ではなく「解釈方式」を表す。
+    """
+    if higher_is_better:
+        raw_transform = "identity"
+    else:
+        # 低いほど良い: 閾値割当を逆向きで評価（値は変換しない）
+        raw_transform = "lower_is_better"
+
+    if raw_transform not in RAW_TRANSFORM_ENUM:
+        raise ValueError(f"invalid raw_transform: {raw_transform}")
+
+    # “effective_raw_col” は論理名（実列である必要はない）
+    effective_raw_col = f"{metric}_raw_effective"
+
+    dm = direction_meta or {}
+    return {
+        "source_raw_col": source_raw_col,
+        "effective_raw_col": effective_raw_col,
+        "raw_transform": raw_transform,
+        "raw_source": raw_source,
+        "higher_is_better": higher_is_better,
+        # 推定根拠（主に noise_raw でのみ有用）
+        "direction_inferred": dm.get("direction_inferred", False),
+        "corr": dm.get("corr", None),
+        "n_for_corr": dm.get("n_for_corr", 0),
+        "direction_note": dm.get("direction_note", ""),
+    }
 
 
 def validate_score_column(
@@ -456,12 +536,15 @@ def build_evaluator_config_from_chosen_params(chosen_params_out: Dict[str, Dict]
             continue
 
         if metric == "noise":
+            rs = spec.get("raw_spec", {})
             noise_sugg.setdefault("noise_raw_quantiles", {})
             noise_sugg["noise_raw_quantiles"] = mapping
             noise_sugg["source"] = spec.get("source")
-            noise_sugg["raw_col"] = spec.get("raw_col")
-            noise_sugg["raw_source"] = spec.get("raw_source")
-            noise_sugg["higher_is_better"] = spec.get("higher_is_better")
+            noise_sugg["raw_col"] = spec.get("raw_col")          # 互換
+            noise_sugg["raw_source"] = spec.get("raw_source")    # 互換
+            noise_sugg["higher_is_better"] = spec.get("higher_is_better")  # 互換
+            if rs:
+                noise_sugg["raw_spec"] = rs                      # 新: 追跡性
             continue
 
         out.setdefault(metric, {})
@@ -564,7 +647,7 @@ def main() -> int:
     for score_col in TARGET_SCORE_COLS:
         metric = score_col.replace("_score", "")
 
-        raw_col, raw_source, higher_is_better, raw_note = resolve_raw_spec(df, score_col)
+        raw_col, raw_source, higher_is_better, raw_note, direction_meta = resolve_raw_spec(df, score_col)
 
         if raw_col is None:
             warn(f"Skip '{metric}': missing required raw column (raw resolve failed)")
@@ -625,32 +708,38 @@ def main() -> int:
                 thr = None
                 thr_source = "skip_auto"
 
+        # raw_spec は新旧どちらの分岐でも出す（追跡性を常に確保）
+        raw_spec = build_raw_transform_spec(
+            metric,
+            raw_col,
+            higher_is_better=higher_is_better,
+            raw_source=raw_source,
+            direction_meta=direction_meta,
+        )
+
         # -----------------------------
         # 新スコア計算
         # -----------------------------
         if thr is not None:
             new_score = raw_num.map(lambda x: score_from_raw(x, thr, higher_is_better=higher_is_better))
-
-            chosen_params_out[metric] = {
-                "raw_col": raw_col,
-                "score_col": score_col,
-                "thresholds": thr.to_list(),
-                "source": thr_source,
-                "raw_source": raw_source,
-                "higher_is_better": higher_is_better,
-            }
-
+            thresholds_out: Optional[List[float]] = thr.to_list()
         else:
             new_score = coerce_numeric(cur_score)
+            thresholds_out = None
 
-            chosen_params_out[metric] = {
-                "raw_col": raw_col,
-                "score_col": score_col,
-                "thresholds": None,
-                "source": thr_source,
-                "raw_source": raw_source,
-                "higher_is_better": higher_is_better,
-            }
+        # chosen_params_out は互換キーを残しつつ raw_spec をネスト
+        chosen_params_out[metric] = {
+            # 互換キー（既存利用がある前提で残す）
+            "raw_col": raw_col,
+            "score_col": score_col,
+            "thresholds": thresholds_out,
+            "source": thr_source,
+            "raw_source": raw_source,
+            "higher_is_better": higher_is_better,
+
+            # 新: 将来拡張しやすいネスト
+            "raw_spec": raw_spec,
+        }
 
         # -----------------------------
         # 新分布
@@ -715,6 +804,16 @@ def main() -> int:
             "new_discrete_ratio": float(discrete_ratio(new_score)),
             "current_in_range_ratio": float(in_range_ratio(cur_score)),
             "new_in_range_ratio": float(in_range_ratio(new_score)),
+            "raw_resolve": raw_note,
+
+            # 将来の追跡用（主に noise で有効）
+            "direction_inferred": raw_spec.get("direction_inferred", False),
+            "direction_corr": raw_spec.get("corr", ""),
+            "direction_n_for_corr": raw_spec.get("n_for_corr", 0),
+            "direction_note": raw_spec.get("direction_note", ""),
+            "raw_transform": raw_spec.get("raw_transform", ""),
+            "effective_raw_col": raw_spec.get("effective_raw_col", ""),
+            "source_raw_col": raw_spec.get("source_raw_col", ""),
         }
 
         if is_tech:
@@ -733,7 +832,6 @@ def main() -> int:
                 row[f"current_target_flag_{sv}"] = ""
                 row[f"new_target_flag_{sv}"] = ""
 
-        row["raw_resolve"] = raw_note
         metric_summary.append(row)
 
         # -----------------------------
@@ -766,6 +864,14 @@ def main() -> int:
 
         if is_tech:
             info(f"  tech_target_l1: {cur_l1:.6f} -> {new_l1:.6f}")
+
+        # noise の場合は推定根拠も出すとデバッグが楽
+        if metric == "noise":
+            info(
+                f"  noise_direction: inferred={raw_spec.get('direction_inferred')} "
+                f"corr={raw_spec.get('corr')} n={raw_spec.get('n_for_corr')} "
+                f"note={raw_spec.get('direction_note')}"
+            )
 
     if not comparison_rows:
         warn("No valid metrics produced outputs (all skipped by checks).")

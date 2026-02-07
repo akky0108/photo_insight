@@ -51,12 +51,17 @@ def test_resolve_raw_spec_noise_prefers_noise_raw_over_sigma_used():
             "noise_score": [0.0, 0.5, 1.0],
         }
     )
-    raw_col, raw_source, higher_is_better, note = resolve_raw_spec(df, "noise_score")
+    raw_col, raw_source, higher_is_better, note, meta = resolve_raw_spec(df, "noise_score")
     assert raw_col == "noise_raw"
     assert raw_source == "noise_raw"
     assert note == "raw"
-    # 相関が正なら True になり得る（ここでは単純に正相関に近いので True 期待）
+    # 相関が正なら True になり得る（ここでは単純に正相関なので True 期待）
     assert higher_is_better is True
+    # 推定根拠が入っている（n<30 なので inferred=False の可能性もある）
+    assert isinstance(meta, dict)
+    assert "direction_inferred" in meta
+    assert "corr" in meta
+    assert "n_for_corr" in meta
 
 
 def test_resolve_raw_spec_noise_uses_sigma_when_noise_raw_missing():
@@ -66,25 +71,36 @@ def test_resolve_raw_spec_noise_uses_sigma_when_noise_raw_missing():
             "noise_score": [1.0, 0.5, 0.0],  # sigma が大きいほど悪い（負相関）
         }
     )
-    raw_col, raw_source, higher_is_better, note = resolve_raw_spec(df, "noise_score")
+    raw_col, raw_source, higher_is_better, note, meta = resolve_raw_spec(df, "noise_score")
     assert raw_col == "noise_sigma_used"
     assert raw_source == "noise_sigma_used"
     assert note == "sigma_used"
     assert higher_is_better is False  # sigma は低いほど良い固定
+    assert meta.get("direction_note") == "known_lower_is_better"
 
 
 def test_infer_direction_by_score_positive_and_negative_correlation():
-    # 30点以上にして、infer_direction_by_score のデフォルト分岐(len<30)を回避する
+    # 30点以上にして、infer_direction_by_score のデフォルト分岐(n<30)を回避する
     n = 60
     raw = pd.Series(np.arange(n, dtype=float))
 
     # 正相関 → True
     score_pos = pd.Series(np.linspace(0.0, 1.0, n), dtype=float)
-    assert infer_direction_by_score(raw, score_pos) is True
+    higher, corr, nn, inferred = infer_direction_by_score(raw, score_pos)
+    assert higher is True
+    assert inferred is True
+    assert nn == n
+    assert corr is not None
+    assert corr > 0
 
     # 負相関 → False
     score_neg = pd.Series(np.linspace(1.0, 0.0, n), dtype=float)
-    assert infer_direction_by_score(raw, score_neg) is False
+    higher, corr, nn, inferred = infer_direction_by_score(raw, score_neg)
+    assert higher is False
+    assert inferred is True
+    assert nn == n
+    assert corr is not None
+    assert corr < 0
 
 
 def test_resolve_raw_spec_non_noise_uses_metric_raw_if_present():
@@ -94,14 +110,20 @@ def test_resolve_raw_spec_non_noise_uses_metric_raw_if_present():
             "contrast_score": [0.0, 0.5, 1.0],
         }
     )
-    raw_col, raw_source, higher_is_better, note = resolve_raw_spec(df, "contrast_score")
+    raw_col, raw_source, higher_is_better, note, meta = resolve_raw_spec(df, "contrast_score")
     assert raw_col == "contrast_raw"
     assert raw_source == "raw"
     assert higher_is_better is True
     assert note == "raw"
+    # 非noiseは推定しない（基本）
+    assert meta.get("direction_inferred") in (False,)
 
 
 def test_infer_direction_by_score_defaults_true_when_too_few_samples():
     raw = pd.Series([1, 2, 3, 4, 5], dtype=float)
     score_neg = pd.Series([1.0, 0.75, 0.5, 0.25, 0.0], dtype=float)
-    assert infer_direction_by_score(raw, score_neg) is True
+    higher, corr, n, inferred = infer_direction_by_score(raw, score_neg)
+    assert higher is True
+    assert inferred is False
+    assert n == 5
+    assert corr is None
