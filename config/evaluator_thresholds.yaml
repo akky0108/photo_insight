@@ -1,26 +1,26 @@
-contrast:
+sharpness:
   discretize_thresholds_raw:
-    poor: 17.7
-    fair: 39.2
-    good: 64.5
-    excellent: 91.9
-
+    poor: 76.24773207673628
+    fair: 201.04996981213955
+    good: 615.0379506461996
+    excellent: 2312.230796348447
 blurriness:
   discretize_thresholds_raw:
-    bad: 50
-    poor: 100
-    fair: 200
-    good: 400
-
-noise:
-  good_sigma: 0.010
-  warn_sigma: 0.018
-  # optional overrides:
-  # downsample_long_edge: 1024
-  # gaussian_sigma: 1.2
-  # midtone_min: 0.15
-  # midtone_max: 0.75
-  # grad_thr: 0.08
-  # min_mask_ratio: 0.05
-  # fallback_mode: global_mad
-  # fallback_score: 0.5
+    bad: 1700.5037249024206
+    poor: 5089.232859428371
+    fair: 16317.690483627226
+    good: 57463.61820005016
+contrast:
+  discretize_thresholds_raw:
+    poor: 17.762808799743652
+    fair: 39.18968133926393
+    good: 64.45336723327637
+    excellent: 91.91267204284668
+noise_suggestions:
+  noise_raw_quantiles:
+    poor: -0.0045996974486857125
+    fair: -0.002836657707542132
+    good: -0.001664072382613075
+    excellent: -0.0011451903618871625
+  source: auto_target_quantiles_12.5_32.5_62.5_87.5
+  raw_col: noise_sigma_used
