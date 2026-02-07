@@ -58,3 +58,6 @@ batch:
 
 debug:
   log_summary_detail: true
+
+quality_thresholds_path: config/evaluator_thresholds.yaml
+quality_profile: portrait

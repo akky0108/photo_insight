@@ -53,7 +53,7 @@ import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 
 import pandas as pd
 
@@ -62,7 +62,10 @@ matplotlib.use("Agg")   # ★ headless環境対応
 
 import matplotlib.pyplot as plt
 
-
+try:
+    import yaml
+except Exception:
+    yaml = None
 
 DISCRETE_SCORES = [0.0, 0.25, 0.5, 0.75, 1.0]
 DISCRETE_SET = set(DISCRETE_SCORES)
@@ -349,6 +352,98 @@ def make_plots(
     plt.close()
 
 
+def thresholds_list_to_mapping(metric: str, ts: List[float]) -> Optional[Dict[str, float]]:
+    """
+    metricごとの config 用 dict に変換する。
+    ts = [t0,t1,t2,t3]
+    """
+    if len(ts) != 4:
+        return None
+
+    t0, t1, t2, t3 = [float(x) for x in ts]
+
+    if metric in ("sharpness", "contrast"):
+        return {"poor": t0, "fair": t1, "good": t2, "excellent": t3}
+
+    if metric == "blurriness":
+        return {"bad": t0, "poor": t1, "fair": t2, "good": t3}
+
+    # noise は本適用しない（suggestionsへ）
+    if metric == "noise":
+        return {"poor": t0, "fair": t1, "good": t2, "excellent": t3}
+
+    return None
+
+
+def build_evaluator_config_from_chosen_params(chosen_params_out: Dict[str, Dict]) -> Dict[str, Dict]:
+    """
+    chosen_params_out（new_params_used.json 相当）から evaluator config（YAML用dict）を組み立てる。
+
+    方針:
+    - face_* は基本スキップ（同一 evaluator を使っているため）
+    - noise は suggestions にのみ出す（good_sigma/warn_sigma 方式を尊重）
+    """
+    out: Dict[str, Dict] = {}
+    noise_sugg: Dict[str, Any] = {}
+
+    for metric, spec in chosen_params_out.items():
+        ts = spec.get("thresholds")
+        if not ts:
+            continue
+
+        # face_* は混乱回避でスキップ
+        if metric.startswith("face_"):
+            continue
+
+        mapping = thresholds_list_to_mapping(metric, ts)
+        if mapping is None:
+            continue
+
+        if metric == "noise":
+            noise_sugg.setdefault("noise_raw_quantiles", {})
+            noise_sugg["noise_raw_quantiles"] = mapping
+            noise_sugg["source"] = spec.get("source")
+            noise_sugg["raw_col"] = spec.get("raw_col")
+            continue
+
+        out.setdefault(metric, {})
+        out[metric]["discretize_thresholds_raw"] = mapping
+
+    if noise_sugg:
+        out["noise_suggestions"] = noise_sugg
+
+    return out
+
+
+def dump_yaml_like(data: Dict[str, Any]) -> str:
+    """
+    PyYAMLが無い環境でも落ちない簡易YAML（この用途に十分）。
+    """
+    def _emit(obj, indent=0):
+        sp = "  " * indent
+        if isinstance(obj, dict):
+            lines = []
+            for k, v in obj.items():
+                if isinstance(v, (dict, list)):
+                    lines.append(f"{sp}{k}:")
+                    lines.extend(_emit(v, indent + 1))
+                else:
+                    lines.append(f"{sp}{k}: {v}")
+            return lines
+        if isinstance(obj, list):
+            lines = []
+            for v in obj:
+                if isinstance(v, (dict, list)):
+                    lines.append(f"{sp}-")
+                    lines.extend(_emit(v, indent + 1))
+                else:
+                    lines.append(f"{sp}- {v}")
+            return lines
+        return [f"{sp}{obj}"]
+
+    return "\n".join(_emit(data)) + "\n"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--input-glob", default="temp/evaluation_results_*.csv")
@@ -367,6 +462,11 @@ def main() -> int:
                     help="face系にも自動閾値提案を適用する（デフォルトはOFF推奨）")
     ap.add_argument("--face-saturation-warn", type=float, default=0.80,
                     help="face系で(0+1)飽和率がこの値を超えたら警告")
+
+    ap.add_argument("--emit-config-yaml", default="",
+                    help="evaluator_thresholds.yaml 形式で出力するパス（例: temp/evaluator_thresholds.yaml）")
+    ap.add_argument("--emit-config-json", default="",
+                    help="同内容を JSON でも出力するパス（任意）")
 
     args = ap.parse_args()
 
@@ -614,6 +714,29 @@ def main() -> int:
     params_path = out_dir / "new_params_used.json"
     with params_path.open("w", encoding="utf-8") as f:
         json.dump(chosen_params_out, f, ensure_ascii=False, indent=2)
+
+    # ---- emit evaluator config (yaml/json) ----
+    if args.emit_config_yaml or args.emit_config_json:
+        cfg = build_evaluator_config_from_chosen_params(chosen_params_out)
+
+        if args.emit_config_yaml:
+            out_yaml = Path(args.emit_config_yaml)
+            out_yaml.parent.mkdir(parents=True, exist_ok=True)
+            if yaml is not None:
+                with out_yaml.open("w", encoding="utf-8") as f:
+                    yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
+            else:
+                with out_yaml.open("w", encoding="utf-8") as f:
+                    f.write(dump_yaml_like(cfg))
+            info(f"  emit-config-yaml : {out_yaml}")
+
+        if args.emit_config_json:
+            out_json = Path(args.emit_config_json)
+            out_json.parent.mkdir(parents=True, exist_ok=True)
+            with out_json.open("w", encoding="utf-8") as f:
+                json.dump(cfg, f, ensure_ascii=False, indent=2)
+            info(f"  emit-config-json : {out_json}")
+
 
     # save distribution long/wide
     comp_df = pd.DataFrame(comparison_rows)

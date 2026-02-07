@@ -287,7 +287,15 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
         try:
             image = self.image_loader.load_image(file_name, orientation, bit_depth)
-            evaluator = PortraitQualityEvaluator(image, False, self.logger, file_name)
+            evaluator = PortraitQualityEvaluator(
+                image_input=image,
+                is_raw=False,
+                logger=self.logger,
+                file_name=file_name,
+                config_manager=self.config_manager,
+                quality_profile=self.config.get("quality_profile", "portrait"),
+                thresholds_path=self.config.get("evaluator_thresholds_path"),  # 任意：直指定したい場合
+            )
             eval_result = evaluator.evaluate()
             del image
             del evaluator
