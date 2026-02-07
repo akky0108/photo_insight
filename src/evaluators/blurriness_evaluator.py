@@ -6,13 +6,25 @@ from utils.image_utils import ImageUtils
 class BlurrinessEvaluator:
     """
     ぼやけ具合を評価するクラス（複数のアルゴリズムを使用）
-    - blurriness_raw: 連続値。大きいほどシャープ（ピントが合っている）
-    - blurriness_score: 0,0.25,0.5,0.75,1.0 の5段階
-    - blurriness_grade: "very_blurry" 〜 "excellent" のラベル
-    - blurriness_eval_status: "ok" / "fallback" / "invalid"
-    - blurriness_fallback_reason: fallback/invalid の理由（ok は ""）
-    - variance_of_* は解析用の詳細として残す
+
+    Contract (fixed):
+      - blurriness_raw: 連続値。大きいほどシャープ（ピントが合っている）= higher is better
+      - blurriness_raw_direction: "higher_is_better" 固定（欠損しない）
+      - blurriness_raw_transform: "identity" 固定（欠損しない）
+      - blurriness_higher_is_better: True 固定（欠損しない）
+
+    Backward compatible outputs:
+      - blurriness_score: 0,0.25,0.5,0.75,1.0 の5段階
+      - blurriness_grade: "very_blurry" 〜 "excellent"
+      - blurriness_eval_status: "ok" / "fallback" / "invalid"
+      - blurriness_fallback_reason: fallback/invalid の理由（ok は ""）
+      - variance_of_* は解析用の詳細として残す
     """
+
+    # ---- contract constants ----
+    RAW_DIRECTION = "higher_is_better"
+    RAW_TRANSFORM = "identity"
+    HIGHER_IS_BETTER = True
 
     DEFAULT_DISCRETIZE_THRESHOLDS_RAW = {
         # “保険”のデフォルト（実データで調整される前提）
@@ -68,8 +80,12 @@ class BlurrinessEvaluator:
         if self.logger is not None:
             try:
                 self.logger.debug(
-                    f"[BlurrinessEvaluator] discretize_thresholds_raw="
+                    "[BlurrinessEvaluator] discretize_thresholds_raw="
                     f"bad:{self.t_bad}, poor:{self.t_poor}, fair:{self.t_fair}, good:{self.t_good}"
+                )
+                self.logger.debug(
+                    "[BlurrinessEvaluator] raw_contract="
+                    f"direction:{self.RAW_DIRECTION}, transform:{self.RAW_TRANSFORM}, higher_is_better:{self.HIGHER_IS_BETTER}"
                 )
             except Exception:
                 pass
@@ -99,6 +115,10 @@ class BlurrinessEvaluator:
             "blurriness_grade": "very_blurry",
             "blurriness_eval_status": "invalid",
             "blurriness_fallback_reason": "",
+            # ---- contract keys (ALWAYS present) ----
+            "blurriness_raw_direction": self.RAW_DIRECTION,
+            "blurriness_raw_transform": self.RAW_TRANSFORM,
+            "blurriness_higher_is_better": self.HIGHER_IS_BETTER,
             # 解析用詳細（残す）
             "variance_of_gradient": 0.0,
             "variance_of_laplacian": 0.0,
@@ -157,6 +177,7 @@ class BlurrinessEvaluator:
             if not np.isfinite(blurriness_raw):
                 result["blurriness_eval_status"] = "fallback"
                 result["blurriness_fallback_reason"] = "non_finite_raw"
+                # contract keys は result_base により既に揃っている
                 return result
 
             blurriness_score, blurriness_grade = self._to_score_and_grade(float(blurriness_raw))
@@ -172,6 +193,10 @@ class BlurrinessEvaluator:
                     "variance_of_gradient": float(variance_of_gradient),
                     "variance_of_laplacian": float(variance_of_laplacian),
                     "variance_of_difference": float(variance_of_difference),
+                    # contract keys 念押し（外部が上書きしても戻す目的）
+                    "blurriness_raw_direction": self.RAW_DIRECTION,
+                    "blurriness_raw_transform": self.RAW_TRANSFORM,
+                    "blurriness_higher_is_better": self.HIGHER_IS_BETTER,
                 }
             )
             return result
@@ -180,4 +205,5 @@ class BlurrinessEvaluator:
             # “悪い評価”ではなく“測定不確実”
             result["blurriness_eval_status"] = "fallback"
             result["blurriness_fallback_reason"] = f"exception:{type(e).__name__}"
+            # contract keys は result_base により既に揃っている
             return result
