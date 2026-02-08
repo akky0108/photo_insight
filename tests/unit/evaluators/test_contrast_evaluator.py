@@ -76,3 +76,42 @@ def test_contrast_thresholds_sorted():
 
     assert ev.t_poor <= ev.t_fair <= ev.t_good <= ev.t_excellent
 
+
+def test_contrast_evaluator_metric_key_changes_threshold_source():
+    """
+    metric_key によって参照する閾値が変わることを保証する（#153）。
+    """
+    img = np.zeros((100, 100), dtype=np.uint8)
+    img[:, :50] = 0
+    img[:, 50:] = 60  # std = 30
+
+    cfg = {
+        "contrast": {
+            "discretize_thresholds_raw": {
+                "poor": 10.0,
+                "fair": 20.0,
+                "good": 40.0,
+                "excellent": 80.0,
+            }
+        },
+        "face_contrast": {
+            "discretize_thresholds_raw": {
+                "poor": 5.0,
+                "fair": 10.0,
+                "good": 20.0,
+                "excellent": 100.0,
+            }
+        },
+    }
+
+    ev_global = ContrastEvaluator(config=cfg, metric_key="contrast")
+    ev_face = ContrastEvaluator(config=cfg, metric_key="face_contrast")
+
+    r_g = ev_global.evaluate(img)
+    r_f = ev_face.evaluate(img)
+
+    assert r_g["contrast_eval_status"] == "ok"
+    assert r_f["contrast_eval_status"] == "ok"
+
+    assert r_g["contrast_score"] == 0.5     # 30 は fair
+    assert r_f["contrast_score"] == 0.75    # 30 は good
