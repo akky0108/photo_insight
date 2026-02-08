@@ -10,6 +10,12 @@ blurriness:
     poor: 0.001041
     fair: 0.002492
     good: 0.004098
+face_blurriness:
+  discretize_thresholds_raw:
+    bad: 0.000211
+    poor: 0.000306
+    fair: 0.000421
+    good: 0.000612
 contrast:
   discretize_thresholds_raw:
     poor: 17.762808799743652
