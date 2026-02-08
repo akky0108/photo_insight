@@ -1,65 +1,84 @@
 from __future__ import annotations
 
-from typing import Any, Mapping
-
+from typing import Any, Dict, Iterable, Tuple
 import numpy as np
 
 
 def ensure_gray255(gray: np.ndarray) -> np.ndarray:
     """
-    Convert grayscale image to float32 in [0, 255] scale.
+    グレースケール画像を float32 の 0..255 スケールに揃える。
 
-    Accepts:
+    入力想定:
       - uint8: 0..255
       - uint16: 0..65535
-      - float: 0..1 or 0..255 (heuristic by max)
+      - float: 0..1 もしくは 0..255（混在対策で推定）
 
-    This is the critical part to keep Contrast thresholds consistent.
+    返却:
+      - float32, 0..255 目安（クリップ済み）
     """
     if not isinstance(gray, np.ndarray):
-        raise TypeError("gray_not_ndarray")
-    if gray.size == 0:
-        raise ValueError("gray_empty")
+        raise TypeError("ensure_gray255 expects numpy.ndarray")
 
+    x = gray.astype(np.float32)
+
+    # uint16 相当（RAW後処理や 16bit グレイが来るケース）
+    if gray.dtype == np.uint16:
+        x = x / 65535.0 * 255.0
+        return np.clip(x, 0.0, 255.0)
+
+    # uint8 はそのまま 0..255
     if gray.dtype == np.uint8:
-        out = gray.astype(np.float32)
-    elif gray.dtype == np.uint16:
-        out = gray.astype(np.float32) / 65535.0 * 255.0
-    else:
-        f = gray.astype(np.float32)
-        mx = float(np.nanmax(f)) if f.size else 0.0
-        # if it looks like 0..1 floats, scale up
-        if mx <= 1.5:
-            out = f * 255.0
-        else:
-            out = f
+        return np.clip(x, 0.0, 255.0)
 
-    return np.clip(out, 0.0, 255.0)
+    # float / その他：推定
+    # - max <= 1.5 なら 0..1 とみなす
+    # - それ以外は 0..255 とみなす（ただし極端に大きい値はクリップ）
+    mx = float(np.nanmax(x)) if x.size else 0.0
+    if np.isfinite(mx) and mx <= 1.5:
+        x = x * 255.0
+
+    return np.clip(x, 0.0, 255.0)
 
 
 def load_thresholds_sorted(
-    config: Mapping[str, Any] | None,
-    *,
+    config: Any,
     metric_key: str,
-    defaults: Mapping[str, float],
-    names_in_order: tuple[str, ...],
-) -> dict[str, float]:
+    defaults: Dict[str, float],
+    names_in_order: Tuple[str, ...] | Iterable[str],
+) -> Dict[str, float]:
     """
-    Read config[metric_key]['discretize_thresholds_raw'] with fallback, and enforce monotone increasing.
+    config[metric_key]["discretize_thresholds_raw"] から閾値を読み、
+    - defaults で補完
+    - float変換
+    - 単調増加になるようにソートして返す（事故防止）
+
+    返却は {name: float, ...} で names_in_order と同じキーを必ず含む。
     """
-    cfg = config or {}
-    metric_cfg = cfg.get(metric_key, {}) if isinstance(cfg, dict) else {}
+    key = str(metric_key or "")
+
+    # config の正規化
+    cfg = config if isinstance(config, dict) else {}
+    metric_cfg = cfg.get(key, {}) if isinstance(cfg, dict) else {}
     thr = metric_cfg.get("discretize_thresholds_raw", {}) if isinstance(metric_cfg, dict) else {}
     if not isinstance(thr, dict):
         thr = {}
 
-    vals = []
-    for k in names_in_order:
-        v = thr.get(k, defaults[k])
-        try:
-            vals.append(float(v))
-        except (TypeError, ValueError):
-            vals.append(float(defaults[k]))
+    names = tuple(names_in_order)
 
-    vals = sorted(vals)
-    return {k: float(v) for k, v in zip(names_in_order, vals)}
+    # 値の取り出し（defaults fallback + float化）
+    vals = []
+    for n in names:
+        v = thr.get(n, defaults.get(n))
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            fv = float(defaults.get(n))
+        vals.append(fv)
+
+    # 単調性保証（ソート）
+    vals_sorted = sorted(vals)
+
+    out: Dict[str, float] = {}
+    for n, v in zip(names, vals_sorted):
+        out[n] = float(v)
+    return out

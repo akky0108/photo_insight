@@ -158,7 +158,7 @@ class PortraitQualityEvaluator:
             "blurriness": BlurrinessEvaluator(logger=self.logger, config=self.eval_config),
             "contrast": ContrastEvaluator(logger=self.logger, config=self.eval_config),
             "noise": NoiseEvaluator(
-                max_noise_value=max_noise_value,  # 互換で残してOK
+                max_noise_value=max_noise_value,
                 logger=self.logger,
                 config=self.eval_config,
             ),
@@ -569,6 +569,8 @@ class PortraitQualityEvaluator:
     # =========================
     def _eval_metrics(self, image: np.ndarray, metrics, prefix: str, tag: str, evaluators_dict) -> Dict[str, Any]:
         out: Dict[str, Any] = {}
+        evs = self.face_evaluators if tag == "face" else self.evaluators
+
         for name in metrics:
             evaluator = evaluators_dict.get(name)
             if evaluator is None:
@@ -576,6 +578,8 @@ class PortraitQualityEvaluator:
             r = self._try_eval(evaluator, image, name=f"{tag}:{name}")
             out.update(self.mapper.map(name, r, prefix=prefix))
         return out
+
+
 
     def _ensure_result_schema(self, results: Dict[str, Any]) -> None:
         """
