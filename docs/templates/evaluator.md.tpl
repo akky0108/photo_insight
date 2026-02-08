@@ -36,31 +36,37 @@
 
 ---
 
-## 6. Fallback Policy
+## 6. Tuning Integration
+
+{{ tuning_integration }}
+
+---
+
+## 7. Fallback Policy
 
 {{ fallback }}
 
 ---
 
-## 7. Testing
+## 8. Testing
 
 {{ testing }}
 
 ---
 
-## 8. Future Plans
+## 9. Future Plans
 
 {{ future }}
 
 ---
 
-## 9. Design Philosophy
+## 10. Design Philosophy
 
 {{ philosophy }}
 
 ---
 
-## 10. Change History
+## 11. Change History
 
 | Date | Change | Author |
 |------|--------|--------|
