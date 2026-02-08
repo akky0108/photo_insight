@@ -551,7 +551,7 @@ class PortraitQualityEvaluator:
         """
         out: Dict[str, Any] = {}
         for name in FACE_REGION_METRICS:
-            evaluator = self.evaluators.get(name)
+            evaluator = self.face_evaluators.get(name)
             if evaluator is None:
                 continue
             r = self._try_eval(evaluator, face_crop_bgr_u8, name=f"face:{name}")
