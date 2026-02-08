@@ -48,3 +48,4 @@ pytest_cache/
 *.egg-info/
 dist/
 build/
+*.bak
