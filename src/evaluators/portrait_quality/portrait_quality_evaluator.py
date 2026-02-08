@@ -137,7 +137,7 @@ class PortraitQualityEvaluator:
             "blurriness": BlurrinessEvaluator(logger=self.logger, config=self.eval_config),
             "contrast": ContrastEvaluator(logger=self.logger, config=self.eval_config),
             "noise": NoiseEvaluator(
-                max_noise_value=max_noise_value,  # 互換で残してOK
+                max_noise_value=max_noise_value,
                 logger=self.logger,
                 config=self.eval_config,
             ),
@@ -147,6 +147,13 @@ class PortraitQualityEvaluator:
             "color_balance": ColorBalanceEvaluator(),
         }
 
+        # ★追加：顔用 evaluators（contrast だけ face_contrast の閾値で評価）
+        self.face_evaluators = dict(self.evaluators)
+        self.face_evaluators["contrast"] = ContrastEvaluator(
+            logger=self.logger,
+            config=self.eval_config,
+            metric_key="face_contrast",
+        )
 
         self.body_detector = FullBodyDetector()
         self.mapper = MetricResultMapper()
@@ -544,7 +551,7 @@ class PortraitQualityEvaluator:
         """
         out: Dict[str, Any] = {}
         for name in FACE_REGION_METRICS:
-            evaluator = self.evaluators.get(name)
+            evaluator = self.face_evaluators.get(name)
             if evaluator is None:
                 continue
             r = self._try_eval(evaluator, face_crop_bgr_u8, name=f"face:{name}")
@@ -558,13 +565,16 @@ class PortraitQualityEvaluator:
 
     def _eval_metrics(self, image: np.ndarray, metrics, prefix: str, tag: str) -> Dict[str, Any]:
         out: Dict[str, Any] = {}
+        evs = self.face_evaluators if tag == "face" else self.evaluators
+
         for name in metrics:
-            evaluator = self.evaluators.get(name)
+            evaluator = evs.get(name)
             if evaluator is None:
                 continue
             r = self._try_eval(evaluator, image, name=f"{tag}:{name}")
             out.update(self.mapper.map(name, r, prefix=prefix))
         return out
+
 
 
     def _ensure_result_schema(self, results: Dict[str, Any]) -> None:

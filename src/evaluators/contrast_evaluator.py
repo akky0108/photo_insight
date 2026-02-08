@@ -26,13 +26,19 @@ class ContrastEvaluator:
     RAW_DIRECTION = "higher_is_better"
     RAW_TRANSFORM = "identity"
 
-    def __init__(self, logger=None, config=None) -> None:
+    def __init__(self, logger=None, config=None, metric_key: str = "contrast") -> None:
+        """
+        metric_key:
+          - "contrast" (default)
+          - "face_contrast" (for face region thresholds separation)
+        """
         self.logger = logger
+        self.metric_key = str(metric_key or "contrast")
 
         # ★ 共通化：閾値のロードと単調性保証
         ts = load_thresholds_sorted(
-            config,
-            metric_key="contrast",
+            config=config,
+            metric_key=self.metric_key,
             defaults=self.DEFAULT_DISCRETIZE_THRESHOLDS_RAW,
             names_in_order=("poor", "fair", "good", "excellent"),
         )
@@ -44,7 +50,7 @@ class ContrastEvaluator:
         if self.logger is not None:
             try:
                 self.logger.debug(
-                    "[ContrastEvaluator] discretize_thresholds_raw="
+                    f"[ContrastEvaluator:{self.metric_key}] discretize_thresholds_raw="
                     f"poor:{self.t_poor}, fair:{self.t_fair}, good:{self.t_good}, excellent:{self.t_excellent}"
                 )
             except Exception:
@@ -67,6 +73,8 @@ class ContrastEvaluator:
                 "good": float(self.t_good),
                 "excellent": float(self.t_excellent),
             },
+            # 追跡しやすいように（必要なければ削ってOK）
+            "contrast_thresholds_metric_key": self.metric_key,
         }
 
     def evaluate(self, image: np.ndarray) -> dict:
