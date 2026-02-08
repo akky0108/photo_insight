@@ -290,25 +290,6 @@ def infer_direction_by_score(raw_num: pd.Series, score: pd.Series) -> Tuple[bool
 
 
 def resolve_raw_col(df: pd.DataFrame, score_col: str) -> Tuple[Optional[str], str, str, str, Dict[str, Any]]:
-    """
-    score_col から raw 解決仕様を返す（契約版）。
-
-    戻り値:
-      (raw_col or None, raw_source, raw_direction, raw_transform, direction_meta)
-
-    raw_direction:
-      - "higher_is_better"
-      - "lower_is_better"
-
-    raw_transform:
-      - "identity"        : 値変換なし（高いほど良い）
-      - "lower_is_better" : 値変換なし（低いほど良い。閾値割当を逆向きで解釈）
-
-    優先順位（noise系 raw 解決仕様）:
-      1) noise_raw（最優先）
-      2) noise_sigma_used
-      3) fallback（本ツールでは原則スキップ）
-    """
     metric = score_col.replace("_score", "")
 
     direction_meta: Dict[str, Any] = {
@@ -325,50 +306,34 @@ def resolve_raw_col(df: pd.DataFrame, score_col: str) -> Tuple[Optional[str], st
             return "lower_is_better"
         raise ValueError(f"invalid raw_direction: {direction}")
 
-    # 第一候補: xxx_raw
-    c1 = f"{metric}_raw"
-    if c1 in df.columns:
-        raw_source = "noise_raw" if metric == "noise" else "raw"
+    # =========================
+    # ★ noise は sigma 優先
+    # =========================
+    if metric == "noise":
+        if "noise_sigma_used" in df.columns:
+            raw_source = "noise_sigma_used"
+            raw_direction = "lower_is_better"
+            raw_transform = _direction_to_transform(raw_direction)
 
-        # デフォルトは higher_is_better
-        raw_direction = "higher_is_better"
-
-        # noise_raw は将来変わり得るので推定（ただし transform 適用後に推定する）
-        if metric == "noise" and score_col in df.columns:
-            # transform適用後推定:
-            # raw_direction の推定は「raw と 'effective score' の相関」で行う。
-            # identity を仮定した effective score は score そのもの。
-            # lower_is_better を仮定した effective score は (1 - score) と等価。
-            # よって corr(raw, score) の符号で direction を決めれば、
-            # transform適用後の軸に整合した推定になる。
-            higher, corr, n, inferred = infer_direction_by_score(df[c1], df[score_col])
-            raw_direction = "higher_is_better" if higher else "lower_is_better"
-            direction_meta.update(
-                {
-                    "direction_inferred": bool(inferred),
-                    "corr": corr,
-                    "n_for_corr": int(n),
-                    "direction_note": "corr" if inferred else "default_by_insufficient_samples",
-                }
-            )
-
-        raw_transform = _direction_to_transform(raw_direction)
-        return c1, raw_source, raw_direction, raw_transform, direction_meta
-
-    # 第二候補: noise_sigma_used（低いほど良い）
-    if metric == "noise" and "noise_sigma_used" in df.columns:
-        raw_source = "noise_sigma_used"
-        raw_direction = "lower_is_better"
-        raw_transform = _direction_to_transform(raw_direction)
-        direction_meta.update(
-            {
+            direction_meta.update({
                 "direction_inferred": False,
                 "corr": None,
                 "n_for_corr": 0,
-                "direction_note": "known_lower_is_better",
-            }
-        )
-        return "noise_sigma_used", raw_source, raw_direction, raw_transform, direction_meta
+                "direction_note": "sigma_axis",
+            })
+
+            return "noise_sigma_used", raw_source, raw_direction, raw_transform, direction_meta
+
+    # =========================
+    # 通常系: xxx_raw
+    # =========================
+    c1 = f"{metric}_raw"
+    if c1 in df.columns:
+        raw_source = "raw"
+        raw_direction = "higher_is_better"
+
+        raw_transform = _direction_to_transform(raw_direction)
+        return c1, raw_source, raw_direction, raw_transform, direction_meta
 
     return None, "fallback", "higher_is_better", "identity", direction_meta
 
@@ -520,10 +485,6 @@ def make_plots(
 
 
 def thresholds_list_to_mapping(metric: str, ts: List[float]) -> Optional[Dict[str, float]]:
-    """
-    metricごとの config 用 dict に変換する。
-    ts = [t0,t1,t2,t3]
-    """
     if len(ts) != 4:
         return None
 
@@ -535,9 +496,9 @@ def thresholds_list_to_mapping(metric: str, ts: List[float]) -> Optional[Dict[st
     if metric == "blurriness":
         return {"bad": t0, "poor": t1, "fair": t2, "good": t3}
 
-    # noise は本適用しない（suggestionsへ）
+    # noise は mapping 化しない（suggestions に “材料” として保存する）
     if metric == "noise":
-        return {"poor": t0, "fair": t1, "good": t2, "excellent": t3}
+        return None
 
     return None
 
@@ -562,20 +523,27 @@ def build_evaluator_config_from_chosen_params(chosen_params_out: Dict[str, Dict]
         if metric.startswith("face_"):
             continue
 
-        mapping = thresholds_list_to_mapping(metric, ts)
-        if mapping is None:
-            continue
-
+        # ★ noise は mapping 判定より前に処理する
         if metric == "noise":
             rs = spec.get("raw_spec", {})
-            noise_sugg.setdefault("noise_raw_quantiles", {})
-            noise_sugg["noise_raw_quantiles"] = mapping
-            noise_sugg["source"] = spec.get("source")
-            noise_sugg["raw_col"] = spec.get("raw_col")          # 互換
-            noise_sugg["raw_source"] = spec.get("raw_source")    # 互換
-            noise_sugg["higher_is_better"] = spec.get("higher_is_better")  # 互換
-            if rs:
-                noise_sugg["raw_spec"] = rs                      # 新: 追跡性
+
+            noise_sugg.setdefault("noise", {})
+            noise_sugg["noise"] = {
+                "axis": "sigma",
+                "thresholds_5bin": ts,
+                "good_sigma_suggestion": ts[1] if len(ts) == 4 else None,
+                "warn_sigma_suggestion": ts[3] if len(ts) == 4 else None,
+                "threshold_source": spec.get("source"),
+                "score_col": spec.get("score_col"),
+                "raw_col": spec.get("raw_col"),
+                "raw_source": spec.get("raw_source"),
+                "raw_spec": rs,
+                "note": "suggestion only; apply tool converts to config.noise.good_sigma/warn_sigma",
+            }
+            continue
+
+        mapping = thresholds_list_to_mapping(metric, ts)
+        if mapping is None:
             continue
 
         out.setdefault(metric, {})
@@ -760,6 +728,10 @@ def main() -> int:
             new_score = coerce_numeric(cur_score)
             thresholds_out = None
 
+        note = ""
+        if metric == "noise":
+            note = "noise thresholds here are suggestions only; apply tool converts them to good_sigma/warn_sigma"
+
         # chosen_params_out は互換キーを残しつつ raw_spec をネスト
         chosen_params_out[metric] = {
             # 互換キー（既存利用がある前提で残す）
@@ -772,6 +744,8 @@ def main() -> int:
 
             # 新: 将来拡張しやすいネスト
             "raw_spec": raw_spec,
+
+            **({"note": note} if note else {}),
         }
 
         # -----------------------------

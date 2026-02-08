@@ -17,6 +17,7 @@ from tools.score_dist_tune import (  # noqa: E402
     infer_direction_by_score,
     resolve_raw_col,
     score_from_raw,
+    build_evaluator_config_from_chosen_params,
 )
 
 
@@ -43,8 +44,8 @@ def test_score_from_raw_lower_is_better_inverts_assignment():
     assert score_from_raw(999.0, thr, higher_is_better=False) == 0.0
 
 
-def test_resolve_raw_col_noise_prefers_noise_raw_over_sigma_used():
-    # noise_raw と noise_sigma_used が両方ある場合、noise_raw を選ぶ
+def test_resolve_raw_col_noise_prefers_sigma_used_over_noise_raw():
+    # noise_raw と noise_sigma_used が両方ある場合、sigma_used を選ぶ（axis=sigma）
     df = pd.DataFrame(
         {
             "noise_raw": [1.0, 2.0, 3.0],
@@ -53,15 +54,11 @@ def test_resolve_raw_col_noise_prefers_noise_raw_over_sigma_used():
         }
     )
     raw_col, raw_source, raw_direction, raw_transform, meta = resolve_raw_col(df, "noise_score")
-    assert raw_col == "noise_raw"
-    assert raw_source == "noise_raw"
-    assert raw_direction in ("higher_is_better", "lower_is_better")  # 推定なので揺れ得る
-    assert raw_transform in ("identity", "lower_is_better")
-    # direction と transform の整合
-    if raw_direction == "higher_is_better":
-        assert raw_transform == "identity"
-    else:
-        assert raw_transform == "lower_is_better"
+    assert raw_col == "noise_sigma_used"
+    assert raw_source == "noise_sigma_used"
+    assert raw_direction == "lower_is_better"
+    assert raw_transform == "lower_is_better"
+    assert meta.get("direction_note") == "sigma_axis"
     assert isinstance(meta, dict)
 
 
@@ -69,7 +66,7 @@ def test_resolve_raw_col_noise_uses_sigma_when_noise_raw_missing():
     df = pd.DataFrame(
         {
             "noise_sigma_used": [0.1, 0.2, 0.3],
-            "noise_score": [1.0, 0.5, 0.0],  # sigma が大きいほど悪い（負相関）
+            "noise_score": [1.0, 0.5, 0.0],
         }
     )
     raw_col, raw_source, raw_direction, raw_transform, meta = resolve_raw_col(df, "noise_score")
@@ -77,7 +74,7 @@ def test_resolve_raw_col_noise_uses_sigma_when_noise_raw_missing():
     assert raw_source == "noise_sigma_used"
     assert raw_direction == "lower_is_better"
     assert raw_transform == "lower_is_better"
-    assert meta.get("direction_note") == "known_lower_is_better"
+    assert meta.get("direction_note") == "sigma_axis"
 
 
 def test_infer_direction_by_score_positive_and_negative_correlation():
@@ -139,3 +136,49 @@ def test_raw_spec_contains_direction_and_transform():
     )
     assert rs["raw_direction"] == "lower_is_better"
     assert rs["raw_transform"] == "lower_is_better"
+
+
+def test_build_evaluator_config_emits_noise_suggestions_only():
+    chosen = {
+        "noise": {
+            "thresholds": [0.1, 0.2, 0.3, 0.4],
+            "source": "auto",
+            "score_col": "noise_score",
+            "raw_col": "noise_sigma_used",
+            "raw_source": "noise_sigma_used",
+            "higher_is_better": False,
+            "raw_spec": {
+                "raw_direction": "lower_is_better",
+                "raw_transform": "lower_is_better",
+                "source_raw_col": "noise_sigma_used",
+                "effective_raw_col": "noise_sigma_used",
+                "raw_source": "noise_sigma_used",
+                "higher_is_better": False,
+                "direction_inferred": False,
+                "corr": None,
+                "n_for_corr": 0,
+                "direction_note": "sigma_axis",
+            },
+        },
+        "contrast": {
+            "thresholds": [1, 2, 3, 4],
+            "source": "auto",
+            "score_col": "contrast_score",
+            "raw_col": "contrast_raw",
+            "raw_source": "raw",
+            "higher_is_better": True,
+            "raw_spec": {"raw_direction": "higher_is_better", "raw_transform": "identity"},
+        },
+    }
+
+    cfg = build_evaluator_config_from_chosen_params(chosen)
+
+    # noise は SSOT に出さない
+    assert "noise" not in cfg
+    assert "noise_suggestions" in cfg
+
+    ns = cfg["noise_suggestions"]["noise"]
+    assert ns["axis"] == "sigma"
+    assert ns["thresholds_5bin"] == [0.1, 0.2, 0.3, 0.4]
+    assert ns["good_sigma_suggestion"] == 0.2
+    assert ns["warn_sigma_suggestion"] == 0.4
