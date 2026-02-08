@@ -6,10 +6,10 @@ sharpness:
     excellent: 2312.230796348447
 blurriness:
   discretize_thresholds_raw:
-    bad: 1700.5037249024206
-    poor: 5089.232859428371
-    fair: 16317.690483627226
-    good: 57463.61820005016
+    bad: 0.000683
+    poor: 0.001041
+    fair: 0.002492
+    good: 0.004098
 contrast:
   discretize_thresholds_raw:
     poor: 17.762808799743652
