@@ -37,6 +37,3 @@ noise_suggestions:
     corr: 0.9435739171300667
     n_for_corr: 150
     direction_note: corr
-noise:
-  good_sigma: 0.00155100143824231
-  warn_sigma: 0.0045996974486857125
