@@ -156,7 +156,7 @@ class PortraitQualityEvaluator:
             "face": self.face_evaluator,
             "sharpness": SharpnessEvaluator(logger=self.logger, config=self.eval_config),
             "blurriness": BlurrinessEvaluator(logger=self.logger, config=self.eval_config),
-            "contrast": ContrastEvaluator(logger=self.logger, config=self.eval_config),
+            "contrast": ContrastEvaluator(logger=self.logger, config=self.eval_config, metric_key="contrast"),
             "noise": NoiseEvaluator(
                 max_noise_value=max_noise_value,  # 互換で残してOK
                 logger=self.logger,
@@ -174,7 +174,7 @@ class PortraitQualityEvaluator:
             "face": self.face_evaluator,
             "sharpness": SharpnessEvaluator(logger=self.logger, config=_subcfg("face_sharpness")),
             "blurriness": BlurrinessEvaluator(logger=self.logger, config=_subcfg("face_blurriness")),
-            "contrast": ContrastEvaluator(logger=self.logger, config=_subcfg("face_contrast")),
+            "contrast": ContrastEvaluator(logger=self.logger, config=_subcfg("face_contrast"), metric_key="contrast"),
             "noise": NoiseEvaluator(
                 max_noise_value=max_noise_value,
                 logger=self.logger,

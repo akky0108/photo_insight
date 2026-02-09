@@ -1,6 +1,26 @@
+import pytest
 import numpy as np
 
 from evaluators.contrast_evaluator import ContrastEvaluator
+
+
+def _make_std30_gray_u8() -> np.ndarray:
+    """
+    0 と 60 を半分ずつ: mean=30, diff=±30 -> std=30
+    """
+    img = np.zeros((100, 100), dtype=np.uint8)
+    img[:, :50] = 0
+    img[:, 50:] = 60
+    return img
+
+
+def _inject_face_cfg(eval_cfg: dict) -> dict:
+    """
+    PortraitQualityEvaluator の _subcfg("face_contrast") 相当:
+      {"contrast": cfg["face_contrast"]}
+    """
+    spec = (eval_cfg or {}).get("face_contrast")
+    return {"contrast": spec} if isinstance(spec, dict) else {}
 
 
 def test_contrast_evaluator_config_thresholds_affect_score():
@@ -8,10 +28,7 @@ def test_contrast_evaluator_config_thresholds_affect_score():
     config の discretize_thresholds_raw により score/grade が変わることを保証する。
     std が約30になる画像を作って判定を安定化する。
     """
-    # 0 と 60 を半分ずHookり：平均との差が ±30 → std=30
-    img = np.zeros((100, 100), dtype=np.uint8)
-    img[:, :50] = 0
-    img[:, 50:] = 60
+    img = _make_std30_gray_u8()
 
     # A: 30 は fair(0.5)
     cfg_a = {
@@ -50,7 +67,12 @@ def test_contrast_evaluator_config_thresholds_affect_score():
     assert r_b["contrast_score"] == 0.75
     assert r_b["contrast_grade"] == "good"
 
-def test_contrast_float01_input_scaled():
+
+def test_contrast_float01_input_scaled_to_gray255():
+    """
+    float01 入力でも ensure_gray255 により 0..255 に吸収され、
+    raw(stddev) が uint8 と同等になることを保証する。
+    """
     img = np.zeros((100, 100), dtype=np.float32)
     img[:, :50] = 0.0
     img[:, 50:] = 60.0 / 255.0  # float01
@@ -58,9 +80,15 @@ def test_contrast_float01_input_scaled():
     ev = ContrastEvaluator()
     r = ev.evaluate(img)
 
-    assert r["contrast_raw"] > 20
+    # std(0,60)=30 のはず（許容つき）
+    assert 29.0 < r["contrast_raw"] < 31.0
+    assert r["contrast_eval_status"] == "ok"
+
 
 def test_contrast_thresholds_sorted():
+    """
+    load_thresholds_sorted の単調性保証（並び替え）が効いていることをテストする。
+    """
     cfg = {
         "contrast": {
             "discretize_thresholds_raw": {
@@ -71,74 +99,16 @@ def test_contrast_thresholds_sorted():
             }
         }
     }
-
     ev = ContrastEvaluator(config=cfg)
 
     assert ev.t_poor <= ev.t_fair <= ev.t_good <= ev.t_excellent
 
 
-def _make_std30_gray_u8() -> np.ndarray:
+def test_face_contrast_thresholds_are_separated_by_injection():
     """
-    0 と 60 を半分ずつ: mean=30, diff=±30 -> std=30
-    """
-    img = np.zeros((100, 100), dtype=np.uint8)
-    img[:, :50] = 0
-    img[:, 50:] = 60
-    return img
-
-
-def test_contrast_evaluator_metric_key_changes_threshold_source():
-    """
-    metric_key によって参照する閾値が変わることを保証する（#153）。
-    """
-    img = np.zeros((100, 100), dtype=np.uint8)
-    img[:, :50] = 0
-    img[:, 50:] = 60  # std ~ 30
-
-    cfg = {
-        "contrast": {
-            "discretize_thresholds_raw": {
-                "poor": 10.0,
-                "fair": 20.0,
-                "good": 40.0,
-                "excellent": 80.0,
-            }
-        },
-        "face_contrast": {
-            "discretize_thresholds_raw": {
-                "poor": 5.0,
-                "fair": 10.0,
-                "good": 20.0,
-                "excellent": 100.0,
-            }
-        },
-    }
-
-    ev_global = ContrastEvaluator(config=cfg, metric_key="contrast")
-    ev_face = ContrastEvaluator(config=cfg, metric_key="face_contrast")
-
-    r_g = ev_global.evaluate(img)
-    r_f = ev_face.evaluate(img)
-
-    assert r_g["contrast_eval_status"] == "ok"
-    assert r_f["face_contrast_eval_status"] == "ok"
-
-    # 閾値参照先が metric_key で切り替わっていること（追跡キー）
-    assert r_g.get("contrast_thresholds_metric_key") == "contrast"
-    assert r_f.get("face_contrast_thresholds_metric_key") == "face_contrast"
-
-    # 同じ入力でも、閾値が違うので score/grade が変わり得る（ここでは差が出る想定）
-    # std=30: global -> fair(0.5), face -> good(0.75)
-    assert r_g["contrast_score"] == 0.5
-    assert r_g["contrast_grade"] == "fair"
-    assert r_f["face_contrast_score"] == 0.75
-    assert r_f["face_contrast_grade"] == "good"
-
-
-def test_contrast_evaluator_metric_key_face_contrast_uses_separate_thresholds():
-    """
-    face_contrast の discretize_thresholds_raw が
-    global contrast と独立して効くことを保証する。
+    face_contrast の閾値分離は evaluator の metric_key 切替ではなく、
+    外側での config 注入（{"contrast": cfg["face_contrast"]}）で実現する設計。
+    その注入で score/grade が変わることを保証する。
     """
     img = _make_std30_gray_u8()
 
@@ -151,7 +121,7 @@ def test_contrast_evaluator_metric_key_face_contrast_uses_separate_thresholds():
                 "excellent": 80.0,
             }
         },
-        "face_contrast": {  # face: 30 => good(0.75)
+        "face_contrast": {  # face: 30 => good(0.75) にしたい
             "discretize_thresholds_raw": {
                 "poor": 5.0,
                 "fair": 10.0,
@@ -161,6 +131,7 @@ def test_contrast_evaluator_metric_key_face_contrast_uses_separate_thresholds():
         },
     }
 
+    # global
     ev_global = ContrastEvaluator(config=cfg, metric_key="contrast")
     r_g = ev_global.evaluate(img)
     assert r_g["contrast_eval_status"] == "ok"
@@ -168,11 +139,33 @@ def test_contrast_evaluator_metric_key_face_contrast_uses_separate_thresholds():
     assert r_g["contrast_grade"] == "fair"
     assert r_g.get("contrast_thresholds_metric_key") == "contrast"
 
-    ev_face = ContrastEvaluator(config=cfg, metric_key="face_contrast")
+    # face (injection)
+    face_cfg = _inject_face_cfg(cfg)
+    ev_face = ContrastEvaluator(config=face_cfg, metric_key="contrast")
     r_f = ev_face.evaluate(img)
 
-    assert r_f["face_contrast_eval_status"] == "ok"
-    assert r_f["face_contrast_score"] == 0.75
-    assert r_f["face_contrast_grade"] == "good"
-    assert r_f.get("face_contrast_thresholds_metric_key") == "face_contrast"
+    # 出力キーは contrast_* のまま（prefix付与は mapper の責務）
+    assert r_f["contrast_eval_status"] == "ok"
+    assert r_f["contrast_score"] == 0.75
+    assert r_f["contrast_grade"] == "good"
+    assert r_f.get("contrast_thresholds_metric_key") == "contrast"
 
+
+def test_contrast_empty_returns_invalid():
+    ev = ContrastEvaluator()
+    img = np.zeros((0, 0), dtype=np.uint8)
+
+    r = ev.evaluate(img)
+
+    assert r["contrast_eval_status"] in ("invalid", "invalid_input")
+    assert r.get("success") in (False, 0, None)  # 実装差の吸収
+    assert r["contrast_score"] == 0.0
+    assert r["contrast_grade"] == "bad"
+
+
+def test_contrast_includes_thresholds_payload():
+    img = _make_std30_gray_u8()
+    ev = ContrastEvaluator()
+    r = ev.evaluate(img)
+    assert "contrast_thresholds_raw" in r
+    assert set(r["contrast_thresholds_raw"].keys()) == {"poor","fair","good","excellent"}

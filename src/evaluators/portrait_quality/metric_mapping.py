@@ -19,39 +19,30 @@ class MetricResultMapper:
         # Noise
         # -------------------------
         if name == "noise":
-            if prefix:
-                out[f"{prefix}noise_score"] = r.get("noise_score", 0.5)
-                for k in (
-                    "noise_raw",
-                    "noise_grade",
-                    "noise_sigma_midtone",
-                    "noise_sigma_used",
-                    "noise_mask_ratio",
-                    "noise_eval_status",
-                    "noise_fallback_reason",
-                    "noise_score_brightness_adjusted",
-                ):
-                    if k in r:
-                        out[f"{prefix}{k}"] = r.get(k)
+            # score は常に出す（欠損時ニュートラル）
+            out[f"{prefix}noise_score"] = r.get("noise_score", 0.5)
 
-                # 保険：NoiseEvaluator が noise_raw を返してない場合だけ補完
-                if f"{prefix}noise_raw" not in out:
-                    sigma_used = r.get("noise_sigma_used")
-                    try:
-                        out[f"{prefix}noise_raw"] = -float(sigma_used) if sigma_used is not None else None
-                    except (TypeError, ValueError):
-                        out[f"{prefix}noise_raw"] = None
+            # 必要な列だけ拾う（globalでもfaceでも同じ挙動に統一）
+            for k in (
+                "noise_raw",
+                "noise_grade",
+                "noise_sigma_midtone",
+                "noise_sigma_used",
+                "noise_mask_ratio",
+                "noise_eval_status",
+                "noise_fallback_reason",
+                "noise_score_brightness_adjusted",
+            ):
+                if k in r:
+                    out[f"{prefix}{k}"] = r.get(k)
 
-            else:
-                out.update(r)
-
-                # 保険：noise_raw が無い場合だけ補完
-                if "noise_raw" not in out:
-                    sigma_used = r.get("noise_sigma_used")
-                    try:
-                        out["noise_raw"] = -float(sigma_used) if sigma_used is not None else None
-                    except (TypeError, ValueError):
-                        out["noise_raw"] = None
+            # 保険：NoiseEvaluator が noise_raw を返してない場合だけ補完
+            if f"{prefix}noise_raw" not in out:
+                sigma_used = r.get("noise_sigma_used")
+                try:
+                    out[f"{prefix}noise_raw"] = -float(sigma_used) if sigma_used is not None else None
+                except (TypeError, ValueError):
+                    out[f"{prefix}noise_raw"] = None
 
             return out
 
@@ -77,11 +68,19 @@ class MetricResultMapper:
                 out[f"{prefix}contrast_raw"] = r.get("contrast_raw")
             if "contrast_grade" in r:
                 out[f"{prefix}contrast_grade"] = r.get("contrast_grade")
-            # ★追加: eval_status / fallback_reason を拾う
             if "contrast_eval_status" in r:
                 out[f"{prefix}contrast_eval_status"] = r.get("contrast_eval_status")
             if "contrast_fallback_reason" in r:
                 out[f"{prefix}contrast_fallback_reason"] = r.get("contrast_fallback_reason")
+
+            # （任意）追跡性を上げたいなら最低限これだけ拾う
+            if "contrast_raw_direction" in r:
+                out[f"{prefix}contrast_raw_direction"] = r.get("contrast_raw_direction")
+            if "contrast_raw_transform" in r:
+                out[f"{prefix}contrast_raw_transform"] = r.get("contrast_raw_transform")
+            if "contrast_thresholds_metric_key" in r:
+                out[f"{prefix}contrast_thresholds_metric_key"] = r.get("contrast_thresholds_metric_key")
+
             return out
 
         # -------------------------
@@ -93,7 +92,6 @@ class MetricResultMapper:
                 out[f"{prefix}blurriness_raw"] = r.get("blurriness_raw")
             if "blurriness_grade" in r:
                 out[f"{prefix}blurriness_grade"] = r.get("blurriness_grade")
-            # ★追加: eval_status / fallback_reason / brightness_adjusted を拾う
             if "blurriness_eval_status" in r:
                 out[f"{prefix}blurriness_eval_status"] = r.get("blurriness_eval_status")
             if "blurriness_fallback_reason" in r:
@@ -126,7 +124,6 @@ class MetricResultMapper:
         # -------------------------
         if name in ("local_sharpness", "local_contrast"):
             out[f"{prefix}{name}_score"] = r.get(f"{name}_score", 0)
-            # ★追加: raw/std/status/fallback を拾う（CSV互換）
             if f"{name}_raw" in r:
                 out[f"{prefix}{name}_raw"] = r.get(f"{name}_raw")
             if f"{name}_std" in r:
