@@ -29,6 +29,8 @@ from evaluators.quality_thresholds import QualityThresholds
 from evaluators.portrait_accept_rules import decide_accept
 from evaluators.portrait_quality.metric_mapping import MetricResultMapper
 
+from evaluators.common.grade_contract import STATUS_NOT_COMPUTED
+
 
 GLOBAL_METRICS = (
     "sharpness",
@@ -628,7 +630,7 @@ class PortraitQualityEvaluator:
         }
 
         if not face_detected:
-            status = "not_computed_with_default"
+            status = STATUS_NOT_COMPUTED
             reason = "no_face"
 
             for m in face_metrics:
