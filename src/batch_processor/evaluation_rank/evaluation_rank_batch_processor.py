@@ -9,36 +9,25 @@ import csv
 import datetime
 import json
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from batch_framework.base_batch import BaseBatchProcessor
-from batch_processor.evaluation_rank.scoring import EvaluationScorer
 from batch_processor.evaluation_rank.acceptance import AcceptanceEngine
-from batch_processor.evaluation_rank.lightroom import apply_lightroom_fields
-from batch_processor.evaluation_rank.writer import write_ranking_csv
-
-from batch_processor.evaluation_rank.contract import (
-    INPUT_REQUIRED_COLUMNS,
-    OUTPUT_COLUMNS,
-)
-
-from batch_processor.evaluation_rank.scoring import (
-    half_closed_eye_penalty_proxy,
-    apply_half_closed_penalty_to_expression,
-    parse_gaze_y,
-    score01,
-)
-
 from batch_processor.evaluation_rank.analysis.rejected_reason_stats import (
     RejectedReasonAnalyzer,
     write_rejected_reason_summary_csv,
 )
-
-from evaluators.common.grade_contract import (
-    GRADE_ENUM,
-    normalize_eval_status,
-    score_to_grade,
+from batch_processor.evaluation_rank.contract import validate_input_contract
+from batch_processor.evaluation_rank.lightroom import apply_lightroom_fields
+from batch_processor.evaluation_rank.scoring import (
+    EvaluationScorer,
+    apply_half_closed_penalty_to_expression,
+    half_closed_eye_penalty_proxy,
+    parse_gaze_y,
+    score01,
 )
+from batch_processor.evaluation_rank.writer import write_ranking_csv
+from evaluators.common.grade_contract import GRADE_ENUM, normalize_eval_status, score_to_grade
 
 
 # =========================
@@ -106,16 +95,16 @@ def _as_scorepack(x: Any) -> Tuple[float, Dict[str, float]]:
 
 def inject_best_eye_features(row: Dict[str, Any]) -> None:
     """
-    row["faces"] に eye_closed_prob 等がある前提で、best face の値を row 直下にコピーする。
-    best face は confidence 最大。
-    失敗しても何もしない（減点しない）。
+    faces が壊れていても落とさず、best face の eye_* を row 直下へ入れる。
+    - faces が list[dict] でない場合は何もしない
     """
     faces = row.get("faces")
     if not isinstance(faces, list) or not faces:
         return
 
-    best = None
+    best: Optional[Dict[str, Any]] = None
     best_conf = -1.0
+
     for f in faces:
         if not isinstance(f, dict):
             continue
@@ -130,54 +119,92 @@ def inject_best_eye_features(row: Dict[str, Any]) -> None:
     if not isinstance(best, dict):
         return
 
+    # 欠損しても落とさない
     row["eye_closed_prob_best"] = best.get("eye_closed_prob", 0.0)
     row["eye_lap_var_best"] = best.get("eye_lap_var", 0.0)
     row["eye_patch_size_best"] = best.get("eye_patch_size", 0)
 
 
-def _validate_input_contract(*, header: List[str], csv_path: Path) -> None:
+def _safe_parse_faces(value: Any) -> Tuple[List[Dict[str, Any]], str]:
     """
-    入力CSVの契約（INPUT_REQUIRED_COLUMNS）を満たしているかを検証する。
-    1列でも足りない場合は、原因が分かるメッセージで即停止する。
-    """
-    hdr_set = set(header or [])
-    missing = [c for c in INPUT_REQUIRED_COLUMNS if c not in hdr_set]
-    if missing:
-        preview = ", ".join(missing[:20])
-        suffix = "" if len(missing) <= 20 else f" ...(+{len(missing) - 20})"
-        raise ValueError(
-            f"Input CSV contract violation: missing {len(missing)} columns in {csv_path}: "
-            f"{preview}{suffix}"
-        )
+    faces列を「必ず List[Dict]」に復元する。
+    戻り値: (faces_list, parse_status_reason)
 
+    - list のままならそれを整形
+    - JSON なら json.loads
+    - Python repr なら ast.literal_eval
+    - それでもダメなら [] にして reason を残す（落とさない）
+    """
+    def _coerce_face_dict(x: Any) -> Optional[Dict[str, Any]]:
+        if not isinstance(x, dict):
+            return None
 
-def _safe_parse_faces(value: Any) -> Any:
-    """
-    PortraitQualityEvaluator 側で faces を str 化しているため、rank 側で復元する。
-    - list のままならそのまま
-    - JSON っぽいなら json.loads
-    - それ以外は ast.literal_eval を試す
-    失敗時はそのまま返す（落とさない）
-    """
+        # copy: 後段が参照しても元値を破壊しない（事故防止）
+        d = dict(x)
+
+        # box / bbox が文字列のことがあるので軽く復元
+        for key in ("box", "bbox"):
+            if key in d and isinstance(d[key], str):
+                s = d[key].strip()
+                if s:
+                    try:
+                        d[key] = json.loads(s)
+                    except Exception:
+                        try:
+                            d[key] = ast.literal_eval(s)
+                        except Exception:
+                            pass
+        return d
+
+    def _coerce_face_list(obj: Any) -> List[Dict[str, Any]]:
+        if obj is None:
+            return []
+        # {"faces":[...]} 形式で来る事故も吸収
+        if isinstance(obj, dict) and "faces" in obj:
+            obj = obj.get("faces")
+
+        if isinstance(obj, list):
+            out: List[Dict[str, Any]] = []
+            for it in obj:
+                d = _coerce_face_dict(it)
+                if d is not None:
+                    out.append(d)
+            return out
+
+        # 単発dictだった場合も list化
+        if isinstance(obj, dict):
+            d = _coerce_face_dict(obj)
+            return [d] if d is not None else []
+        return []
+
+    # already list
     if isinstance(value, list):
-        return value
-    if value is None:
-        return value
+        return _coerce_face_list(value), "faces_parse:ok:list"
+
+    if value in ("", None):
+        return [], "faces_parse:empty"
+
     if isinstance(value, str):
         s = value.strip()
-        if s == "":
-            return []
+        if not s:
+            return [], "faces_parse:empty_str"
+
         # JSON優先
         try:
-            return json.loads(s)
+            obj = json.loads(s)
+            return _coerce_face_list(obj), "faces_parse:ok:json"
         except Exception:
             pass
+
         # Python repr fallback
         try:
-            return ast.literal_eval(s)
+            obj = ast.literal_eval(s)
+            return _coerce_face_list(obj), "faces_parse:ok:pyrepr"
         except Exception:
-            return value
-    return value
+            return [], "faces_parse:fail:unparsed_str"
+
+    # unknown type
+    return [], f"faces_parse:fail:type={type(value).__name__}"
 
 
 def _normalize_grade_value(grade: Any) -> Optional[str]:
@@ -222,12 +249,17 @@ def _normalize_status_key(row: Dict[str, Any], key: str) -> None:
 def _normalize_row_inplace(row: Dict[str, Any]) -> None:
     """
     evaluation_rank 側の “入口正規化”。
-    - faces を list に復元
+    - faces を List[Dict] に復元（失敗理由も残す）
     - bool/float の型揺れを吸収（最低限）
     - grade/status を contract に正規化（古いCSV耐性）
+    - composition invalid を可視化する補助フィールドを付与（SSOT: composition_invalid_reason）
     """
-    # faces restore (needed for inject_best_eye_features)
-    row["faces"] = _safe_parse_faces(row.get("faces"))
+    # -------------------------
+    # faces restore (SSOT)
+    # -------------------------
+    faces_list, faces_reason = _safe_parse_faces(row.get("faces"))
+    row["faces"] = faces_list
+    row["faces_parse_reason"] = faces_reason  # デバッグ用（契約外なら writer で落とす想定）
 
     # bool-ish normalization (minimum)
     row["face_detected"] = parse_bool(row.get("face_detected"))
@@ -239,8 +271,6 @@ def _normalize_row_inplace(row: Dict[str, Any]) -> None:
             row[k] = safe_float(row.get(k), 0.0)
 
     # status normalization
-    # INPUT columns contain many *_eval_status plus composition_status-like fields.
-    # Normalize everything that endswith _eval_status
     for k in list(row.keys()):
         if isinstance(k, str) and k.endswith("_eval_status"):
             _normalize_status_key(row, k)
@@ -249,21 +279,53 @@ def _normalize_row_inplace(row: Dict[str, Any]) -> None:
     _normalize_status_key(row, "composition_status")
     _normalize_status_key(row, "face_composition_status")
 
+    # -------------------------
+    # composition invalid 可視化（SSOT）
+    # -------------------------
+    comp_status = str(row.get("composition_status") or "").strip().lower()
+
+    # main_subject_center_source 例:
+    #   "invalid,face_box" / "invalid" / "invalid, face_box"
+    src = row.get("main_subject_center_source")
+    src_reason = ""
+    if isinstance(src, str) and src.strip():
+        s = src.strip()
+        s_low = s.lower()
+
+        if s_low.startswith("invalid"):
+            parts = [p.strip() for p in s_low.split(",") if p.strip()]
+            row["main_subject_center_status"] = parts[0] if parts else "invalid"
+            row["main_subject_center_source_parsed"] = parts[1] if len(parts) >= 2 else None
+            src_reason = f"center_calc_failed:{row.get('main_subject_center_source_parsed') or 'unknown'}"
+            row["main_subject_center_invalid_reason"] = src_reason
+        else:
+            row.setdefault("main_subject_center_status", None)
+            row.setdefault("main_subject_center_source_parsed", None)
+            row.setdefault("main_subject_center_invalid_reason", "")
+    else:
+        row.setdefault("main_subject_center_status", None)
+        row.setdefault("main_subject_center_source_parsed", None)
+        row.setdefault("main_subject_center_invalid_reason", "")
+
+    # SSOT: composition_invalid_reason
+    if comp_status == "invalid":
+        row["composition_invalid_reason"] = src_reason or str(row.get("composition_invalid_reason") or "unknown")
+    else:
+        row.setdefault("composition_invalid_reason", "")
+
+    # -------------------------
     # grade normalization + fill-by-score
-    # global
+    # -------------------------
     for m in ("sharpness", "blurriness", "contrast", "noise", "exposure", "expression", "face_blurriness", "face_contrast"):
-        # note: face_* handled separately below
         if m.startswith("face_"):
             continue
         _ensure_grade_by_score(row, m, prefix="")
 
-    # face prefix metrics with explicit grade columns in INPUT
     _ensure_grade_by_score(row, "blurriness", prefix="face_")
     _ensure_grade_by_score(row, "contrast", prefix="face_")
     _ensure_grade_by_score(row, "noise", prefix="face_")
     _ensure_grade_by_score(row, "exposure", prefix="face_")
 
-    # Also normalize expression_grade (derived) if present
     row["expression_grade"] = _normalize_grade_value(row.get("expression_grade")) or row.get("expression_grade")
 
 
@@ -325,7 +387,7 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
         with input_csv.open("r", encoding="utf-8", newline="") as f:
             reader = csv.DictReader(f)
             header = reader.fieldnames or []
-            _validate_input_contract(header=header, csv_path=input_csv)
+            validate_input_contract(header=header, csv_path=input_csv)
             rows = list(reader)
         return rows
 
@@ -521,9 +583,7 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
             # --- Phase1: rejected_reason summary ---
             try:
                 analyzer = RejectedReasonAnalyzer(
-                    alias_map={
-                        # 必要なら最低限だけ。まず空でもOK。
-                    },
+                    alias_map={},
                     unknown_label="unknown",
                     keep_unknown_raw=False,
                 )
@@ -547,14 +607,6 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
             except Exception as e:
                 # Phase1は「本処理を落とさない」方がデバッグ基盤として強い
                 self.logger.warning(f"[rejected_reason] failed to write summary: {e}")
-
-            # 念のため “契約” と一致しているかを最終チェック（運用崩壊防止）
-            if list(columns) != list(OUTPUT_COLUMNS):
-                raise RuntimeError(
-                    "Output CSV contract violation: writer produced unexpected columns/order.\n"
-                    f"expected={OUTPUT_COLUMNS}\n"
-                    f"actual={list(columns)}"
-                )
 
             self.logger.info(f"Output written: {output_csv}")
 

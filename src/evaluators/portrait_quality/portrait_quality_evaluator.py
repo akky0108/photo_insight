@@ -1,3 +1,6 @@
+# src/evaluators/portrait_quality/portrait_quality_evaluator.py
+# -*- coding: utf-8 -*-
+
 import cv2
 import gc
 import numpy as np
@@ -638,11 +641,35 @@ class PortraitQualityEvaluator:
                 results.setdefault(f"face_{m}_eval_status", STATUS_OK)
 
     def _normalize_for_csv(self, results: Dict[str, Any]) -> None:
+        """
+        CSVに書く前の正規化。
+        faces などの複合オブジェクトは「Python repr」ではなく「JSON文字列」で保存する。
+
+        これにより後段で json.loads() が安定し、
+        "faces が str のまま" という型不一致を防ぎやすくなる。
+        """
+        import json
+
+        def _to_json_str(v) -> str:
+            try:
+                return json.dumps(v, ensure_ascii=False)
+            except Exception:
+                # 最後の砦: それでもダメなら文字列化（ただしJSONでない可能性あり）
+                return str(v)
+
         faces = results.get("faces", [])
         if isinstance(faces, (list, dict)):
-            results["faces"] = str(faces)
+            results["faces"] = _to_json_str(faces)
         else:
+            # すでに文字列なら、そのままJSONとして解釈できる可能性があるので保持
+            # （ただしPython reprが来る可能性もある）
             results["faces"] = str(faces)
+
+        # もし他にも dict/list をCSVに入れてる列があればここに追加してOK
+        # 例: results["gaze"] が list のままなら JSON にするなど
+        gaze = results.get("gaze")
+        if isinstance(gaze, (list, dict)):
+            results["gaze"] = _to_json_str(gaze)
 
     def _calc_lead_room_score(self, image: np.ndarray, best_face: Dict[str, Any], yaw: float) -> float:
         h, W = image.shape[:2]

@@ -453,8 +453,32 @@ class EvaluationScorer:
         if st in {"full_body", "seated"} or full_body:
             score *= 1.02
 
-        comp_ok = is_ok_status(row.get("composition_status"))
-        score *= (1.0 if comp_ok else 0.75)
+        # -------------------------
+        # reliability gate (contract-first)
+        # -------------------------
+        # 新契約: composition_eval_status = ok / fallback_used / invalid
+        ev = str(row.get("composition_eval_status") or "").strip().lower()
+
+        if ev == "ok":
+            score *= 1.0
+        elif ev == "fallback_used":
+            # 「分からないので0.5」系は、悪いと断定しないが少しだけ縮退
+            score *= 0.85
+        elif ev == "invalid":
+            score *= 0.75
+        else:
+            # 互換: 古いCSVは composition_status しか無いので、状態文字列として扱う
+            # ok相当: face_only/body_only/face_and_body/... は “計算できた” なので 1.0
+            cs = str(row.get("composition_status") or "").strip().lower()
+            if cs in {"face_only", "body_only", "face_and_body", "rule_of_thirds_only"} or ("_and_" in cs):
+                score *= 1.0
+            elif cs in {"not_computed", "not_computed_with_default"}:
+                score *= 0.85
+            elif cs in {"invalid"}:
+                score *= 0.75
+            else:
+                # 何も分からない場合はニュートラルに軽く縮退
+                score *= 0.90
 
         score = clamp100(score)
         bd01 = {k: clamp01(float(v)) for k, v in bd.items()}
