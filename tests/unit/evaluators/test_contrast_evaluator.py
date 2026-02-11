@@ -1,9 +1,33 @@
 import pytest
 import numpy as np
 
-from evaluators.contrast_evaluator import ContrastEvaluator
-from src.evaluators.common.grade_contract import normalize_eval_status
+# -------------------------
+# Robust imports (repo layout drift friendly)
+# -------------------------
+try:
+    # preferred (if src/ is on PYTHONPATH)
+    from src.evaluators.contrast_evaluator import ContrastEvaluator  # type: ignore
+except Exception:
+    from evaluators.contrast_evaluator import ContrastEvaluator  # type: ignore
 
+try:
+    from src.evaluators.common.grade_contract import (  # type: ignore
+        normalize_eval_status,
+        GRADE_ENUM,
+        EVAL_STATUS_ENUM,
+        STATUS_INVALID,
+        STATUS_OK,
+        score_to_grade,
+    )
+except Exception:
+    from evaluators.common.grade_contract import (  # type: ignore
+        normalize_eval_status,
+        GRADE_ENUM,
+        EVAL_STATUS_ENUM,
+        STATUS_INVALID,
+        STATUS_OK,
+        score_to_grade,
+    )
 
 
 def _make_std30_gray_u8() -> np.ndarray:
@@ -25,49 +49,75 @@ def _inject_face_cfg(eval_cfg: dict) -> dict:
     return {"contrast": spec} if isinstance(spec, dict) else {}
 
 
-def test_contrast_evaluator_config_thresholds_affect_score():
+def _assert_contract_for_contrast_result(r: dict) -> None:
+    """
+    ④: CSV契約テスト（最小版）
+      - grade ∈ GRADE_ENUM ∪ {None}
+      - eval_status ∈ EVAL_STATUS_ENUM
+    """
+    assert "contrast_eval_status" in r
+    assert normalize_eval_status(r.get("contrast_eval_status")) in EVAL_STATUS_ENUM
+
+    # grade は None 許容（評価失敗・未計算等）
+    assert "contrast_grade" in r
+    g = r.get("contrast_grade")
+    assert (g is None) or (g in GRADE_ENUM)
+
+    # score があるなら grade と整合する（score_to_grade がSSOT）
+    if "contrast_score" in r and r.get("contrast_score") is not None:
+        assert r.get("contrast_grade") in (None, score_to_grade(r.get("contrast_score")))
+
+
+@pytest.mark.parametrize(
+    "cfg, expected_score, expected_grade",
+    [
+        # A: 30 は fair(0.5)
+        (
+            {
+                "contrast": {
+                    "discretize_thresholds_raw": {
+                        "poor": 10.0,
+                        "fair": 20.0,
+                        "good": 40.0,
+                        "excellent": 80.0,
+                    }
+                }
+            },
+            0.5,
+            "fair",
+        ),
+        # B: 30 は good(0.75)
+        (
+            {
+                "contrast": {
+                    "discretize_thresholds_raw": {
+                        "poor": 5.0,
+                        "fair": 10.0,
+                        "good": 20.0,
+                        "excellent": 100.0,
+                    }
+                }
+            },
+            0.75,
+            "good",
+        ),
+    ],
+)
+def test_contrast_evaluator_config_thresholds_affect_score(cfg, expected_score, expected_grade):
     """
     config の discretize_thresholds_raw により score/grade が変わることを保証する。
     std が約30になる画像を作って判定を安定化する。
     """
     img = _make_std30_gray_u8()
+    ev = ContrastEvaluator(config=cfg)
+    r = ev.evaluate(img)
 
-    # A: 30 は fair(0.5)
-    cfg_a = {
-        "contrast": {
-            "discretize_thresholds_raw": {
-                "poor": 10.0,
-                "fair": 20.0,
-                "good": 40.0,
-                "excellent": 80.0,
-            }
-        }
-    }
-    ev_a = ContrastEvaluator(config=cfg_a)
-    r_a = ev_a.evaluate(img)
+    assert normalize_eval_status(r.get("contrast_eval_status")) == STATUS_OK
+    assert r["contrast_score"] == expected_score
+    assert r["contrast_grade"] == expected_grade
+    assert r["contrast_raw"] is not None
 
-    assert r_a["contrast_eval_status"] == "ok"
-    assert r_a["contrast_score"] == 0.5
-    assert r_a["contrast_grade"] == "fair"
-    assert r_a["contrast_raw"] is not None
-
-    # B: 30 は good(0.75)
-    cfg_b = {
-        "contrast": {
-            "discretize_thresholds_raw": {
-                "poor": 5.0,
-                "fair": 10.0,
-                "good": 20.0,
-                "excellent": 100.0,
-            }
-        }
-    }
-    ev_b = ContrastEvaluator(config=cfg_b)
-    r_b = ev_b.evaluate(img)
-
-    assert r_b["contrast_eval_status"] == "ok"
-    assert r_b["contrast_score"] == 0.75
-    assert r_b["contrast_grade"] == "good"
+    _assert_contract_for_contrast_result(r)
 
 
 def test_contrast_float01_input_scaled_to_gray255():
@@ -83,8 +133,10 @@ def test_contrast_float01_input_scaled_to_gray255():
     r = ev.evaluate(img)
 
     # std(0,60)=30 のはず（許容つき）
-    assert 29.0 < r["contrast_raw"] < 31.0
-    assert r["contrast_eval_status"] == "ok"
+    assert 29.0 < float(r["contrast_raw"]) < 31.0
+    assert normalize_eval_status(r.get("contrast_eval_status")) == STATUS_OK
+
+    _assert_contract_for_contrast_result(r)
 
 
 def test_contrast_thresholds_sorted():
@@ -123,7 +175,7 @@ def test_face_contrast_thresholds_are_separated_by_injection():
                 "excellent": 80.0,
             }
         },
-        "face_contrast": {  # face: 30 => good(0.75) にしたい
+        "face_contrast": {  # face: 30 => good(0.75)
             "discretize_thresholds_raw": {
                 "poor": 5.0,
                 "fair": 10.0,
@@ -136,10 +188,11 @@ def test_face_contrast_thresholds_are_separated_by_injection():
     # global
     ev_global = ContrastEvaluator(config=cfg, metric_key="contrast")
     r_g = ev_global.evaluate(img)
-    assert r_g["contrast_eval_status"] == "ok"
+    assert normalize_eval_status(r_g.get("contrast_eval_status")) == STATUS_OK
     assert r_g["contrast_score"] == 0.5
     assert r_g["contrast_grade"] == "fair"
     assert r_g.get("contrast_thresholds_metric_key") == "contrast"
+    _assert_contract_for_contrast_result(r_g)
 
     # face (injection)
     face_cfg = _inject_face_cfg(cfg)
@@ -147,10 +200,11 @@ def test_face_contrast_thresholds_are_separated_by_injection():
     r_f = ev_face.evaluate(img)
 
     # 出力キーは contrast_* のまま（prefix付与は mapper の責務）
-    assert r_f["contrast_eval_status"] == "ok"
+    assert normalize_eval_status(r_f.get("contrast_eval_status")) == STATUS_OK
     assert r_f["contrast_score"] == 0.75
     assert r_f["contrast_grade"] == "good"
     assert r_f.get("contrast_thresholds_metric_key") == "contrast"
+    _assert_contract_for_contrast_result(r_f)
 
 
 def test_contrast_empty_returns_invalid():
@@ -159,18 +213,26 @@ def test_contrast_empty_returns_invalid():
 
     r = ev.evaluate(img)
 
-    assert r["contrast_eval_status"] in ("invalid", "invalid_input")
+    # 実装揺れ（invalid_input等）があっても contract SSOT で正規化して見る
+    assert normalize_eval_status(r.get("contrast_eval_status")) == STATUS_INVALID
     assert r.get("success") in (False, 0, None)  # 実装差の吸収
     assert r["contrast_score"] == 0.0
     assert r["contrast_grade"] == "bad"
+
+    _assert_contract_for_contrast_result(r)
 
 
 def test_contrast_includes_thresholds_payload():
     img = _make_std30_gray_u8()
     ev = ContrastEvaluator()
     r = ev.evaluate(img)
+
     assert "contrast_thresholds_raw" in r
-    assert set(r["contrast_thresholds_raw"].keys()) == {"poor","fair","good","excellent"}
+    payload = r["contrast_thresholds_raw"]
+    assert isinstance(payload, dict)
+    assert set(payload.keys()) == {"poor", "fair", "good", "excellent"}
+
+    _assert_contract_for_contrast_result(r)
 
 
 def test_normalize_eval_status_fallback_used_is_fallback():
