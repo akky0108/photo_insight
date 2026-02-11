@@ -101,7 +101,6 @@ def _normalize_row_for_output(row: Dict[str, Any], columns: Sequence[str]) -> Di
     """
     out: Dict[str, Any] = {}
 
-    # まずは contract で要求される列を必ず揃える
     for c in columns:
         v = row.get(c, "")
 
@@ -112,7 +111,6 @@ def _normalize_row_for_output(row: Dict[str, Any], columns: Sequence[str]) -> Di
         if v is None:
             v = ""
 
-        # フラグはここで統一してしまう
         if c in ("flag", "accepted_flag", "secondary_accept_flag"):
             v = safe_int_flag(v)
 
@@ -126,14 +124,20 @@ def write_csv_contract(path: Path, rows: List[Dict[str, Any]], columns: Sequence
     Contract(列順・列数) を完全に守って CSV を書く。
     """
     path.parent.mkdir(parents=True, exist_ok=True)
+
+    # rows が空でもヘッダだけは出す（運用上の事故防止）
+    rows = rows or []
+
     with path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(
             f,
             fieldnames=list(columns),
-            extrasaction="ignore",  # 念のため（ここでは contract 以外のキーを渡さないが保険）
+            extrasaction="ignore",
         )
         writer.writeheader()
         for r in rows:
+            if not isinstance(r, dict):
+                continue
             writer.writerow(_normalize_row_for_output(r, columns))
 
 
@@ -150,15 +154,26 @@ def write_ranking_csv(
     重要:
     - OUTPUT_COLUMNS（contract.py）を単一の正として使う（列順も契約）
     - base_columns は後方互換のため残しているが、基本は無視する
-      （※将来、base_columns と OUTPUT_COLUMNS の整合チェックを入れたい場合の余地）
 
     return: 実際に書いた columns（= OUTPUT_COLUMNS）
     """
-    # SSOT: 出力列は常に contract に固定
     columns = list(OUTPUT_COLUMNS)
+
+    # base_columns が渡されても SSOT 優先。将来の移行確認用に、差分を「返さず」静かに無視する。
+    # （必要ならここで assert / warning を入れるが、運用を落とさない方針で今回は何もしない）
+    _ = base_columns
 
     if sort_for_ranking:
         rows = sort_rows_for_ranking(rows)
 
     write_csv_contract(output_csv, rows, columns)
+
+    # ★ ここで最終保証（将来の改修で writer が壊れても即検知）
+    if columns != list(OUTPUT_COLUMNS):
+        raise RuntimeError(
+            "Output CSV contract violation: writer produced unexpected columns/order.\n"
+            f"expected={OUTPUT_COLUMNS}\n"
+            f"actual={columns}"
+        )
+
     return columns

@@ -2,6 +2,12 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+# contract.py
+from __future__ import annotations
+
+from pathlib import Path
+from typing import List, Sequence
+
 # =========================
 # INPUT / OUTPUT Contract
 # =========================
@@ -119,6 +125,22 @@ INPUT_REQUIRED_COLUMNS = [
     "accepted_flag",
     "accepted_reason",
 ]
+
+def validate_input_contract(*, header: Sequence[str], csv_path: Path) -> None:
+    """
+    入力CSVの契約（INPUT_REQUIRED_COLUMNS）を満たしているかを検証する。
+    1列でも足りない場合は、原因が分かるメッセージで即停止する。
+    """
+    hdr_set = set(header or [])
+    missing = [c for c in INPUT_REQUIRED_COLUMNS if c not in hdr_set]
+    if missing:
+        preview = ", ".join(missing[:20])
+        suffix = "" if len(missing) <= 20 else f" ...(+{len(missing) - 20})"
+        raise ValueError(
+            f"Input CSV contract violation: missing {len(missing)} columns in {csv_path}: "
+            f"{preview}{suffix}"
+        )
+
 
 # ランキングCSV（evaluation_ranking_YYYY-MM-DD.csv）の出力列（順序も契約）
 OUTPUT_COLUMNS = [
