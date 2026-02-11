@@ -1,48 +1,59 @@
 sharpness:
   discretize_thresholds_raw:
-    poor: 76.24773207673628
-    fair: 201.04996981213955
-    good: 615.0379506461996
-    excellent: 2312.230796348447
+    poor: 84.17657407055563
+    fair: 144.41781629291646
+    good: 244.89456706581032
+    excellent: 310.3742257780687
+
 blurriness:
   discretize_thresholds_raw:
     bad: 0.000683
     poor: 0.001041
     fair: 0.002492
     good: 0.004098
+
 face_blurriness:
   discretize_thresholds_raw:
     bad: 0.000211
     poor: 0.000306
     fair: 0.000421
     good: 0.000612
+
 contrast:
   discretize_thresholds_raw:
-    poor: 17.762808799743652
-    fair: 39.18968133926393
-    good: 64.45336723327637
-    excellent: 91.91267204284668
+    poor: 11.570584535598753
+    fair: 14.720850968360901
+    good: 18.88336730003357
+    excellent: 22.505969762802124
+
 noise_suggestions:
-  noise_raw_quantiles:
-    poor: -0.0051004838448017375
-    fair: -0.0015911402306332525
-    good: -0.001176267184675025
-    excellent: -0.0010530509892850751
-  source: auto_target_quantiles_12.5_32.5_62.5_87.5
-  raw_col: noise_raw
-  raw_source: noise_raw
-  higher_is_better: true
-  raw_spec:
-    raw_direction: higher_is_better
-    raw_transform: identity
-    source_raw_col: noise_raw
-    effective_raw_col: noise_raw
-    raw_source: noise_raw
-    higher_is_better: true
-    direction_inferred: true
-    corr: 0.9435739171300667
-    n_for_corr: 150
-    direction_note: corr
+  noise:
+    axis: sigma
+    thresholds_5bin:
+      - 0.0010530509892850751
+      - 0.00116243463277814
+      - 0.0014443719998001624
+      - 0.0051004838448017375
+    good_sigma_suggestion: 0.00116243463277814
+    warn_sigma_suggestion: 0.0051004838448017375
+    threshold_source: auto_target_quantiles_12.5_32.5_62.5_87.5
+    score_col: noise_score
+    raw_col: noise_sigma_used
+    raw_source: noise_sigma_used
+    raw_spec:
+      raw_direction: lower_is_better
+      raw_transform: lower_is_better
+      source_raw_col: noise_sigma_used
+      effective_raw_col: noise_sigma_used
+      raw_source: noise_sigma_used
+      higher_is_better: false
+      direction_inferred: false
+      corr: null
+      n_for_corr: 0
+      direction_note: sigma_axis
+    note: suggestion only; apply tool converts to config.noise.good_sigma/warn_sigma
+
 noise:
-  good_sigma: 0.00155100143824231
-  warn_sigma: 0.0045996974486857125
+  good_sigma: 0.00116243463277814
+  warn_sigma: 0.0051004838448017375
+

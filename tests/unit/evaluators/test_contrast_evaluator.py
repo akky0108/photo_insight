@@ -2,6 +2,8 @@ import pytest
 import numpy as np
 
 from evaluators.contrast_evaluator import ContrastEvaluator
+from src.evaluators.common.grade_contract import normalize_eval_status
+
 
 
 def _make_std30_gray_u8() -> np.ndarray:
@@ -169,3 +171,8 @@ def test_contrast_includes_thresholds_payload():
     r = ev.evaluate(img)
     assert "contrast_thresholds_raw" in r
     assert set(r["contrast_thresholds_raw"].keys()) == {"poor","fair","good","excellent"}
+
+
+def test_normalize_eval_status_fallback_used_is_fallback():
+    assert normalize_eval_status("fallback_used") == "fallback"
+    assert normalize_eval_status("fallback_used_with_default") == "fallback"
