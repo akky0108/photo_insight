@@ -1,10 +1,12 @@
+# src/evaluators/portrait_quality/metric_mapping.py
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any, Dict, Iterable, Tuple
 
 from evaluators.common.grade_contract import (
     normalize_eval_status,
+    normalize_grade,
     score_to_grade,
 )
 
@@ -16,11 +18,18 @@ class MetricResultMapper:
     prefix="" -> global
     prefix="face_" -> face region
 
-      - eval_status を contract に正規化（invalid_input -> invalid 等）
-      - grade が無い場合は score から補完
+    - eval_status を contract に正規化（invalid_input -> invalid 等）
+    - grade が無い場合は score から補完
+    - grade がある場合も contract に正規化（揺れ吸収）
     """
 
-    def _put_if_exists(self, out: Dict[str, Any], prefix: str, r: Dict[str, Any], keys) -> None:
+    def _put_if_exists(
+        self,
+        out: Dict[str, Any],
+        prefix: str,
+        r: Dict[str, Any],
+        keys: Iterable[str],
+    ) -> None:
         for k in keys:
             if k in r:
                 out[f"{prefix}{k}"] = r.get(k)
@@ -34,14 +43,37 @@ class MetricResultMapper:
         if k in out:
             out[k] = normalize_eval_status(out.get(k))
 
+    def _normalize_grade_in_out(self, out: Dict[str, Any], prefix: str, metric: str) -> None:
+        """
+        out に入った {metric}_grade を contract に正規化する。
+        無ければ何もしない（score補完の前提）
+        """
+        k = f"{prefix}{metric}_grade"
+        if k in out:
+            out[k] = normalize_grade(out.get(k))
+
     def _ensure_grade(self, out: Dict[str, Any], prefix: str, metric: str) -> None:
         """
-        grade が無い場合のみ、score から補完する。
+        grade が無い/正規化で None になった場合のみ、score から補完する。
         """
         score_k = f"{prefix}{metric}_score"
         grade_k = f"{prefix}{metric}_grade"
-        if grade_k not in out and score_k in out:
+
+        # まず既存gradeを正規化（あれば）
+        if grade_k in out:
+            out[grade_k] = normalize_grade(out.get(grade_k))
+
+        # 無い or 不明値で None になった場合は score から補完
+        if (grade_k not in out or out.get(grade_k) is None) and score_k in out:
             out[grade_k] = score_to_grade(out.get(score_k))
+
+    def _finalize_metric(self, out: Dict[str, Any], prefix: str, metric: str, *, ensure_grade: bool) -> None:
+        """
+        共通後処理：status 正規化 + (必要なら) grade 正規化/補完
+        """
+        self._normalize_status_in_out(out, prefix, metric)
+        if ensure_grade:
+            self._ensure_grade(out, prefix, metric)
 
     def map(self, name: str, result: Dict[str, Any], prefix: str = "") -> Dict[str, Any]:
         r = result or {}
@@ -51,6 +83,8 @@ class MetricResultMapper:
         # Noise（特殊：既存互換を維持）
         # -------------------------
         if name == "noise":
+            metric = "noise"
+
             if prefix:
                 out[f"{prefix}noise_score"] = r.get("noise_score", 0.5)
                 self._put_if_exists(
@@ -89,14 +123,14 @@ class MetricResultMapper:
                         out["noise_raw"] = None
 
             # Step B: status/grade 正規化（noise_grade が無ければ score から補完）
-            self._normalize_status_in_out(out, prefix, "noise")
-            self._ensure_grade(out, prefix, "noise")
+            self._finalize_metric(out, prefix, metric, ensure_grade=True)
             return out
 
         # -------------------------
         # Sharpness
         # -------------------------
         if name == "sharpness":
+            metric = "sharpness"
             out[f"{prefix}sharpness_score"] = r.get("sharpness_score", 0.5)
             self._put_if_exists(
                 out,
@@ -109,14 +143,14 @@ class MetricResultMapper:
                     "sharpness_grade",
                 ),
             )
-            self._normalize_status_in_out(out, prefix, "sharpness")
-            self._ensure_grade(out, prefix, "sharpness")
+            self._finalize_metric(out, prefix, metric, ensure_grade=True)
             return out
 
         # -------------------------
         # Contrast
         # -------------------------
         if name == "contrast":
+            metric = "contrast"
             out[f"{prefix}contrast_score"] = r.get("contrast_score", 0.5)
             self._put_if_exists(
                 out,
@@ -129,14 +163,14 @@ class MetricResultMapper:
                     "contrast_fallback_reason",
                 ),
             )
-            self._normalize_status_in_out(out, prefix, "contrast")
-            self._ensure_grade(out, prefix, "contrast")
+            self._finalize_metric(out, prefix, metric, ensure_grade=True)
             return out
 
         # -------------------------
         # Blurriness
         # -------------------------
         if name == "blurriness":
+            metric = "blurriness"
             out[f"{prefix}blurriness_score"] = r.get("blurriness_score", 0.5)
             self._put_if_exists(
                 out,
@@ -150,14 +184,14 @@ class MetricResultMapper:
                     "blurriness_score_brightness_adjusted",
                 ),
             )
-            self._normalize_status_in_out(out, prefix, "blurriness")
-            self._ensure_grade(out, prefix, "blurriness")
+            self._finalize_metric(out, prefix, metric, ensure_grade=True)
             return out
 
         # -------------------------
         # Exposure
         # -------------------------
         if name == "exposure":
+            metric = "exposure"
             out[f"{prefix}exposure_score"] = r.get("exposure_score", 0.5)
             self._put_if_exists(
                 out,
@@ -171,14 +205,14 @@ class MetricResultMapper:
                     "exposure_fallback_reason",
                 ),
             )
-            self._normalize_status_in_out(out, prefix, "exposure")
-            self._ensure_grade(out, prefix, "exposure")
+            self._finalize_metric(out, prefix, metric, ensure_grade=True)
             return out
 
         # -------------------------
         # local_sharpness / local_contrast
         # -------------------------
         if name in ("local_sharpness", "local_contrast"):
+            metric = name
             out[f"{prefix}{name}_score"] = r.get(f"{name}_score", 0)
             self._put_if_exists(
                 out,
@@ -192,7 +226,7 @@ class MetricResultMapper:
                 ),
             )
             # local系は grade を持たない設計でOK（補完しない）
-            self._normalize_status_in_out(out, prefix, name)
+            self._finalize_metric(out, prefix, metric, ensure_grade=False)
             return out
 
         # -------------------------
