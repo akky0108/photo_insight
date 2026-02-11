@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import csv
 import datetime
+import json
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 
@@ -31,6 +33,13 @@ from batch_processor.evaluation_rank.analysis.rejected_reason_stats import (
     RejectedReasonAnalyzer,
     write_rejected_reason_summary_csv,
 )
+
+from evaluators.common.grade_contract import (
+    GRADE_ENUM,
+    normalize_eval_status,
+    score_to_grade,
+)
+
 
 # =========================
 # utility
@@ -142,6 +151,122 @@ def _validate_input_contract(*, header: List[str], csv_path: Path) -> None:
         )
 
 
+def _safe_parse_faces(value: Any) -> Any:
+    """
+    PortraitQualityEvaluator 側で faces を str 化しているため、rank 側で復元する。
+    - list のままならそのまま
+    - JSON っぽいなら json.loads
+    - それ以外は ast.literal_eval を試す
+    失敗時はそのまま返す（落とさない）
+    """
+    if isinstance(value, list):
+        return value
+    if value is None:
+        return value
+    if isinstance(value, str):
+        s = value.strip()
+        if s == "":
+            return []
+        # JSON優先
+        try:
+            return json.loads(s)
+        except Exception:
+            pass
+        # Python repr fallback
+        try:
+            return ast.literal_eval(s)
+        except Exception:
+            return value
+    return value
+
+
+def _normalize_grade_value(grade: Any) -> Optional[str]:
+    """
+    grade を contract に寄せる（最低限の揺れ吸収）。
+    - None/空は None
+    - 文字列なら lower/strip
+    - GRADE_ENUM に含まれなければ None
+    """
+    if grade in ("", None):
+        return None
+    s = str(grade).strip().lower()
+    return s if s in GRADE_ENUM else None
+
+
+def _ensure_grade_by_score(row: Dict[str, Any], metric: str, *, prefix: str = "") -> None:
+    """
+    {metric}_grade が欠損/不正な場合のみ、{metric}_score から grade を補完する。
+    """
+    gk = f"{prefix}{metric}_grade"
+    sk = f"{prefix}{metric}_score"
+
+    g = _normalize_grade_value(row.get(gk))
+    if g is not None:
+        row[gk] = g
+        return
+
+    if sk in row:
+        row[gk] = score_to_grade(row.get(sk))
+    else:
+        row[gk] = None
+
+
+def _normalize_status_key(row: Dict[str, Any], key: str) -> None:
+    """
+    eval_status / *_status を grade_contract に正規化する（key が無いなら何もしない）。
+    """
+    if key in row:
+        row[key] = normalize_eval_status(row.get(key))
+
+
+def _normalize_row_inplace(row: Dict[str, Any]) -> None:
+    """
+    evaluation_rank 側の “入口正規化”。
+    - faces を list に復元
+    - bool/float の型揺れを吸収（最低限）
+    - grade/status を contract に正規化（古いCSV耐性）
+    """
+    # faces restore (needed for inject_best_eye_features)
+    row["faces"] = _safe_parse_faces(row.get("faces"))
+
+    # bool-ish normalization (minimum)
+    row["face_detected"] = parse_bool(row.get("face_detected"))
+    row["full_body_detected"] = parse_bool(row.get("full_body_detected"))
+
+    # numeric normalization (minimum critical)
+    for k in ("pose_score", "full_body_cut_risk"):
+        if k in row:
+            row[k] = safe_float(row.get(k), 0.0)
+
+    # status normalization
+    # INPUT columns contain many *_eval_status plus composition_status-like fields.
+    # Normalize everything that endswith _eval_status
+    for k in list(row.keys()):
+        if isinstance(k, str) and k.endswith("_eval_status"):
+            _normalize_status_key(row, k)
+
+    # composition statuses (not *_eval_status naming)
+    _normalize_status_key(row, "composition_status")
+    _normalize_status_key(row, "face_composition_status")
+
+    # grade normalization + fill-by-score
+    # global
+    for m in ("sharpness", "blurriness", "contrast", "noise", "exposure", "expression", "face_blurriness", "face_contrast"):
+        # note: face_* handled separately below
+        if m.startswith("face_"):
+            continue
+        _ensure_grade_by_score(row, m, prefix="")
+
+    # face prefix metrics with explicit grade columns in INPUT
+    _ensure_grade_by_score(row, "blurriness", prefix="face_")
+    _ensure_grade_by_score(row, "contrast", prefix="face_")
+    _ensure_grade_by_score(row, "noise", prefix="face_")
+    _ensure_grade_by_score(row, "exposure", prefix="face_")
+
+    # Also normalize expression_grade (derived) if present
+    row["expression_grade"] = _normalize_grade_value(row.get("expression_grade")) or row.get("expression_grade")
+
+
 # =========================
 # processor
 # =========================
@@ -208,7 +333,16 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
         """
         データロード後の副作用（calibration構築）をここに寄せる。
         scorer 側に build_calibration が無い場合でも落とさない（将来/旧版互換）。
+        ついでに入力行を “入口正規化” して、後段の scorer/acceptance を安定させる。
         """
+        # normalize rows in-place (faces restore / status / grade etc)
+        try:
+            for row in data:
+                if isinstance(row, dict):
+                    _normalize_row_inplace(row)
+        except Exception:
+            self.logger.exception("Row normalization failed in after_data_loaded (continue).")
+
         if hasattr(self.scorer, "build_calibration"):
             try:
                 self.scorer.build_calibration(data)
@@ -240,7 +374,11 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
 
         for row in batch:
             try:
-                out = dict(row)
+                # start from a copy so we can safely normalize/mutate
+                out = dict(row) if isinstance(row, dict) else {}
+
+                # 入口正規化（after_data_loadedを通っていない経路にも耐える）
+                _normalize_row_inplace(out)
 
                 # debug値は先に必ず初期化（例外が起きても参照できるように）
                 debug_pitch = 0.0
@@ -250,37 +388,27 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                 half_pen = 0.0
                 expr_eff = 0.0
 
-                # normalize（この後の scorer/acceptance が安定する）
-                face_detected = parse_bool(row.get("face_detected"))
-                full_body_detected = parse_bool(row.get("full_body_detected"))
-                pose_score = safe_float(row.get("pose_score"))
-                full_body_cut_risk = safe_float(row.get("full_body_cut_risk"))
-
                 # --- scorer ---
-                tech_sp = self.scorer.technical_score(row)
-                face_sp = self.scorer.face_score(row)
-                comp_sp = self.scorer.composition_score(row)
+                # IMPORTANT: normalized out is the single source of truth
+                tech_sp = self.scorer.technical_score(out)
+                face_sp = self.scorer.face_score(out)
+                comp_sp = self.scorer.composition_score(out)
 
                 tech_score, tech_bd = _as_scorepack(tech_sp)
                 face_score, face_bd = _as_scorepack(face_sp)
                 comp_score, comp_bd = _as_scorepack(comp_sp)
 
-                overall = self.scorer.overall_score(row, tech_sp, face_sp, comp_sp)
-
-                out["face_detected"] = face_detected
-                out["full_body_detected"] = full_body_detected
-                out["pose_score"] = pose_score
-                out["full_body_cut_risk"] = full_body_cut_risk
+                overall = self.scorer.overall_score(out, tech_sp, face_sp, comp_sp)
 
                 # --- debug (half-closed eyes proxy) ---
                 try:
-                    debug_pitch = safe_float(row.get("pitch"), 0.0)
-                    debug_gaze_y = parse_gaze_y(row.get("gaze"))
-                    debug_eye = score01(row, "eye_contact_score", default=0.0)
-                    debug_expr = score01(row, "expression_score", default=0.0)
+                    debug_pitch = safe_float(out.get("pitch"), 0.0)
+                    debug_gaze_y = parse_gaze_y(out.get("gaze"))
+                    debug_eye = score01(out, "eye_contact_score", default=0.0)
+                    debug_expr = score01(out, "expression_score", default=0.0)
 
-                    expr = score01(row, "expression_score", default=0.0)
-                    half_pen = float(half_closed_eye_penalty_proxy(row))
+                    expr = score01(out, "expression_score", default=0.0)
+                    half_pen = float(half_closed_eye_penalty_proxy(out))
                     expr_eff = float(apply_half_closed_penalty_to_expression(expr, half_pen))
                 except Exception:
                     pass
@@ -349,6 +477,10 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                 self.logger.warning("No successful rows to output.")
                 return
 
+            # 念のため：cleanup時点でも正規化（途中で別経路が混ざっても壊れないように）
+            for r in rows:
+                _normalize_row_inplace(r)
+
             # faces -> row直下へ転記（acceptanceのeye_state_policyが拾える）
             for r in rows:
                 inject_best_eye_features(r)
@@ -391,26 +523,23 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                 analyzer = RejectedReasonAnalyzer(
                     alias_map={
                         # 必要なら最低限だけ。まず空でもOK。
-                        # "blurry": "blur_low",
-                        # "noise": "noise_high",
                     },
                     unknown_label="unknown",
                     keep_unknown_raw=False,
                 )
                 summary, meta = analyzer.analyze(rows)
 
-                # 出力先: ranking CSV と同じ output ディレクトリに寄せる（堅い）
-                out_dir = Path(self.output_dir) if hasattr(self, "output_dir") else Path("output")
+                # 出力先: ranking CSV と同じ output ディレクトリに寄せる（SSOT）
+                out_dir = Path(self.paths["output_data_dir"])
+                out_dir.mkdir(parents=True, exist_ok=True)
                 out_path = out_dir / "rejected_reason_summary.csv"
 
                 write_rejected_reason_summary_csv(summary, out_path)
 
-                # ログ（既存 logger に合わせて置換してOK）
                 self.logger.info(
                     f"[rejected_reason] wrote: {out_path} "
                     f"(total_rows={meta['total_rows']}, rejected={meta['total_rejected']}, reasons={meta['unique_reasons']})"
                 )
-                # top3
                 if summary:
                     top = ", ".join([f"{r.reason}:{r.count}" for r in summary[:3]])
                     self.logger.info(f"[rejected_reason] top: {top}")

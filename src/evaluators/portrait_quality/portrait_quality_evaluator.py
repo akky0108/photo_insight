@@ -29,6 +29,13 @@ from evaluators.quality_thresholds import QualityThresholds
 from evaluators.portrait_accept_rules import decide_accept
 from evaluators.portrait_quality.metric_mapping import MetricResultMapper
 
+from evaluators.common.grade_contract import (
+    STATUS_NOT_COMPUTED,
+    STATUS_FALLBACK,
+    STATUS_OK,
+    normalize_eval_status,
+)
+
 
 GLOBAL_METRICS = (
     "sharpness",
@@ -156,7 +163,7 @@ class PortraitQualityEvaluator:
             "face": self.face_evaluator,
             "sharpness": SharpnessEvaluator(logger=self.logger, config=self.eval_config),
             "blurriness": BlurrinessEvaluator(logger=self.logger, config=self.eval_config),
-            "contrast": ContrastEvaluator(logger=self.logger, config=self.eval_config),
+            "contrast": ContrastEvaluator(logger=self.logger, config=self.eval_config, metric_key="contrast"),
             "noise": NoiseEvaluator(
                 max_noise_value=max_noise_value,  # 互換で残してOK
                 logger=self.logger,
@@ -174,7 +181,7 @@ class PortraitQualityEvaluator:
             "face": self.face_evaluator,
             "sharpness": SharpnessEvaluator(logger=self.logger, config=_subcfg("face_sharpness")),
             "blurriness": BlurrinessEvaluator(logger=self.logger, config=_subcfg("face_blurriness")),
-            "contrast": ContrastEvaluator(logger=self.logger, config=_subcfg("face_contrast")),
+            "contrast": ContrastEvaluator(logger=self.logger, config=_subcfg("face_contrast"), metric_key="contrast"),
             "noise": NoiseEvaluator(
                 max_noise_value=max_noise_value,
                 logger=self.logger,
@@ -437,53 +444,53 @@ class PortraitQualityEvaluator:
     ) -> Dict[str, Any]:
         """
         顔と全身情報を基に構図の評価を実施する。
-
-        引数:
-            image (np.ndarray): 評価対象の画像（RGB形式）
-            face_boxes (list): 顔のバウンディングボックスリスト
-            body_keypoints (list): 全身のキーポイントリスト
-        戻り値:
-            Dict[str, Any]: 構図に関する各種スコアとグループID情報
         """
+        def _empty_payload(status: str) -> Dict[str, Any]:
+            return {
+                "composition_rule_based_score": 0.0,
+                "face_position_score": 0.0,
+                "framing_score": 0.0,
+                "face_direction_score": 0.0,
+                "eye_contact_score": 0.0,
+                "face_composition_raw": None,
+                "face_composition_score": 0.5,  # ニュートラル
+                "body_composition_raw": None,
+                "body_composition_score": 0.5,
+                "composition_raw": None,
+                "composition_score": 0.5,
+                # ★ SSOT
+                "composition_status": status,
+                "main_subject_center_source": None,
+                "main_subject_center_x": None,
+                "main_subject_center_y": None,
+                "rule_of_thirds_raw": None,
+                "rule_of_thirds_score": None,
+                "contrib_comp_composition_rule_based_score": None,
+                "contrib_comp_face_position_score": None,
+                "contrib_comp_framing_score": None,
+                "contrib_comp_lead_room_score": None,
+                "contrib_comp_body_composition_score": None,
+                "contrib_comp_rule_of_thirds_score": None,
+                "group_id": "unclassified",
+                "subgroup_id": -1,
+            }
+
         try:
             # 顔も全身も情報が全く無ければスキップ
             if not face_boxes and not body_keypoints:
                 self.logger.warning("構図評価スキップ：face_boxes も body_keypoints も空です。")
-                return {
-                    "composition_rule_based_score": 0.0,
-                    "face_position_score": 0.0,
-                    "framing_score": 0.0,
-                    "face_direction_score": 0.0,
-                    "eye_contact_score": 0.0,
-                    "face_composition_raw": None,
-                    "face_composition_score": 0.5,  # ニュートラル
-                    "body_composition_raw": None,
-                    "body_composition_score": 0.5,
-                    "composition_raw": None,
-                    "composition_score": 0.5,
-                    "composition_status": "not_computed_with_default",
-                    "main_subject_center_source": None,
-                    "main_subject_center_x": None,
-                    "main_subject_center_y": None,
-                    "rule_of_thirds_raw": None,
-                    "rule_of_thirds_score": None,
-                    "contrib_comp_composition_rule_based_score": None,
-                    "contrib_comp_face_position_score": None,
-                    "contrib_comp_framing_score": None,
-                    "contrib_comp_lead_room_score": None,
-                    "contrib_comp_body_composition_score": None,
-                    "contrib_comp_rule_of_thirds_score": None,
-                    "group_id": "unclassified",
-                    "subgroup_id": -1,
-                }
+                return _empty_payload(status=STATUS_NOT_COMPUTED)
 
             # CompositeCompositionEvaluator に丸投げ
             result = self.composition_evaluator.evaluate(
                 image=image,
                 face_boxes=face_boxes,
                 body_keypoints=body_keypoints,
-            )
+            ) or {}
             self.logger.info(f"構図評価結果: {result}")
+
+            # ここで出てくる status も SSOT に寄せておく（未知値の揺れ防止）
+            status = normalize_eval_status(result.get("composition_status", STATUS_OK))
 
             return {
                 "composition_rule_based_score": result.get("composition_rule_based_score", 0.0),
@@ -500,7 +507,7 @@ class PortraitQualityEvaluator:
 
                 "composition_raw": result.get("composition_raw"),
                 "composition_score": result.get("composition_score"),
-                "composition_status": result.get("composition_status", "ok"),
+                "composition_status": status,
 
                 "main_subject_center_source": result.get("main_subject_center_source"),
                 "main_subject_center_x": result.get("main_subject_center_x"),
@@ -522,34 +529,7 @@ class PortraitQualityEvaluator:
 
         except Exception as e:
             self.logger.warning(f"構図評価中にエラー: {str(e)}")
-            return {
-                "composition_rule_based_score": 0.0,
-                "face_position_score": 0.0,
-                "framing_score": 0.0,
-                "face_direction_score": 0.0,
-                "eye_contact_score": 0.0,
-                "face_composition_raw": None,
-                "face_composition_score": 0.5,
-                "body_composition_raw": None,
-                "body_composition_score": 0.5,
-                "composition_raw": None,
-                "composition_score": 0.5,
-                "composition_status": "error_fallback",
-                "main_subject_center_source": None,
-                "main_subject_center_x": None,
-                "main_subject_center_y": None,
-                "rule_of_thirds_raw": None,
-                "rule_of_thirds_score": None,
-                "contrib_comp_composition_rule_based_score": None,
-                "contrib_comp_face_position_score": None,
-                "contrib_comp_framing_score": None,
-                "contrib_comp_lead_room_score": None,
-                "contrib_comp_body_composition_score": None,
-                "contrib_comp_rule_of_thirds_score": None,
-                "contrib_comp_rule_of_thirds_score": None,
-                "group_id": "unclassified",
-                "subgroup_id": -1,
-            }
+            return _empty_payload(status=STATUS_FALLBACK)
 
     def _evaluate_face_region(self, face_crop_bgr_u8: np.ndarray) -> Dict[str, Any]:
         """
@@ -628,7 +608,7 @@ class PortraitQualityEvaluator:
         }
 
         if not face_detected:
-            status = "not_computed_with_default"
+            status = STATUS_NOT_COMPUTED
             reason = "no_face"
 
             for m in face_metrics:
@@ -654,7 +634,8 @@ class PortraitQualityEvaluator:
         else:
             for m in face_metrics:
                 results.setdefault(f"face_{m}_score", default_score.get(m, 0.0))
-                results.setdefault(f"face_{m}_eval_status", "ok")
+                # 直書き "ok" でも良いが SSOT を使う
+                results.setdefault(f"face_{m}_eval_status", STATUS_OK)
 
     def _normalize_for_csv(self, results: Dict[str, Any]) -> None:
         faces = results.get("faces", [])

@@ -100,19 +100,31 @@ def reliability_score(row: Row) -> float:
     """
     コントラクトに基づく「測定信頼度」(0..5)。
     score は落とさず主指標として使い、同点付近の tie-break に使う。
+
+    改善①:
+      blurriness は旧フラグ群より、現行契約の blurriness_eval_status == "ok" を優先して拾う。
+      （旧互換フラグも残す）
     """
     s = 0.0
+
+    # 主に eval_status を見る（現行契約）
     for k in ("noise_eval_status", "exposure_eval_status", "sharpness_eval_status", "contrast_eval_status"):
         if str(row.get(k, "")).strip().lower() == "ok":
             s += 1.0
 
-    blur_ok = (
+    # --- blurriness: contract-first ---
+    blur_status = str(row.get("blurriness_eval_status", "")).strip().lower()
+    blur_ok_contract = (blur_status == "ok")
+
+    # 旧互換（過去CSV/過去実装のフラグ群）
+    blur_ok_legacy = (
         _bool(row.get("success"))
         or _bool(row.get("blurriness_success"))
         or _bool(row.get("blurriness_ok"))
         or _bool(row.get("blurriness_eval_ok"))
     )
-    if blur_ok:
+
+    if blur_ok_contract or blur_ok_legacy:
         s += 1.0
 
     return s
@@ -150,6 +162,9 @@ def apply_eye_state_policy(
     期待する入力:
       row 直下に 'eye_closed_prob_best','eye_patch_size_best' が入っている
       （無ければ何もしない）
+
+    改善②:
+      category 未設定/空でも破綻しない（portrait判定をより堅く）。
     """
 
     def _to_float(v: Any, default: Optional[float] = 0.0) -> Optional[float]:
@@ -169,7 +184,8 @@ def apply_eye_state_policy(
             return default
 
     for r in rows:
-        if str(r.get("category")) != "portrait":
+        cat = str(r.get("category") or "").strip().lower()
+        if cat != "portrait":
             continue
         if not _bool(r.get("face_detected")):
             continue
@@ -477,17 +493,13 @@ class AcceptanceEngine:
         if str(r.get("category")) != "portrait":
             return True
 
-        # ★最低限の床（A=40/40を落としつつ、72/49は通す）
         face = safe_float(r.get("score_face"))
         comp = safe_float(r.get("score_composition"))
         overall = safe_float(r.get("overall_score"))
 
-        # まず顔スコアが一定以上
         if face >= 60.0 and comp >= 45.0:
             return True
 
-        # 例外：overallが高くても顔が低すぎるものは拾わない
-        # （Aの90点でも face40 は落とす）
         if overall >= 85.0 and face >= 55.0 and comp >= 45.0:
             return True
 
@@ -573,6 +585,7 @@ class AcceptanceEngine:
     # accepted_flag（Green）
     # --------------------------
     def apply_accepted_flags(self, rows: List[Row]) -> Dict[str, float]:
+        # まずはカテゴリ付与（必須）
         self.assign_category(rows)
 
         for r in rows:
@@ -604,14 +617,12 @@ class AcceptanceEngine:
                 max_tags=3,
             )
             if fill_tag:
-                # strictはsuffix無し。埋めは "FILL_*" を付ける（テスト要件）
                 rr["accepted_reason"] = f"{base} | {fill_tag}"
             else:
                 rr["accepted_reason"] = base
 
         # --------------------------
         # ★Per-group quota fill（偏り防止）
-        #   ここでは「quotaを目標に試みる」が、埋まらない分は全体backfillに回す
         # --------------------------
         if bool(self.rules.green_per_group_enabled) and green_total > 0:
             group_rows: Dict[str, List[Row]] = {}
@@ -643,9 +654,7 @@ class AcceptanceEngine:
                         _mark_green(rr, fill_tag=fill_tag)
                         q -= 1
 
-                # strictはsuffix無し（＝FILLが混ざらない）
                 _take_from_group(self._green_policy_ok, fill_tag="")
-                # relaxed/forced は “埋め” なので FILL を付与
                 _take_from_group(self._green_policy_relaxed_ok, fill_tag="FILL_RELAX")
                 _take_from_group(self._green_policy_forced_ok, fill_tag="FILL_FORCED")
 
@@ -698,6 +707,9 @@ class AcceptanceEngine:
                     f"c={format_score(safe_float(r.get('score_composition')))}"
                 )
                 r["accepted_reason"] = str(r.get("secondary_accept_reason") or "")
+
+        # ---- 改善②: 念のため、eye policy 前に category を再付与（将来の混入経路対策）----
+        self.assign_category(rows)
 
         # ---- 目状態ポリシー（half=強制NG / closed=注意）を最後に適用 ----
         apply_eye_state_policy(
