@@ -40,31 +40,37 @@ Scale-invariant normalization using robust range: robust_range = p95(gray) - p05
 
 ---
 
-## 6. Fallback Policy
+## 6. Tuning Integration
+
+
+
+---
+
+## 7. Fallback Policy
 
 有効ブロック不足・robust_range 異常・nonfinite 発生時は global_std/robust_range を用いてフォールバックし、必ず理由を記録する。robust_range 自体が作れない場合は最終手段として global_std のみで簡易正規化する。
 
 ---
 
-## 7. Testing
+## 8. Testing
 
 入力スケール不変性（uint8 vs float01）・フォールバック安全性・異常入力耐性をユニットテストで保証する。
 
 ---
 
-## 8. Future Plans
+## 9. Future Plans
 
 撮影条件別プロファイル対応、被写体領域（顔/肌/背景）別の重み付け、バッチ分布を用いた自動正規化への拡張を予定。
 
 ---
 
-## 9. Design Philosophy
+## 10. Design Philosophy
 
 Rawは診断用、Scoreは運用用として分離し、静かな失敗を許容しない。
 
 ---
 
-## 10. Change History
+## 11. Change History
 
 | Date | Change | Author |
 |------|--------|--------|

@@ -1,3 +1,4 @@
+#src/evaluators/local_contrast_evaluator.py
 # -*- coding: utf-8 -*-
 
 from __future__ import annotations
@@ -74,9 +75,11 @@ class LocalContrastEvaluator:
     # =====================================================
 
     def evaluate(self, image: np.ndarray) -> Dict[str, Any]:
-
         if not isinstance(image, np.ndarray):
             return self._invalid("invalid_input:type_not_ndarray")
+
+        if image.size == 0:
+            return self._invalid("invalid_input:empty_image")
 
         # --- grayscale ---
         try:
@@ -94,6 +97,10 @@ class LocalContrastEvaluator:
         except Exception as e:
             return self._invalid(f"invalid_input:astype_failed:{type(e).__name__}")
 
+        # safety: reject all-nonfinite early
+        if not np.isfinite(gray_f).any():
+            return self._invalid("invalid_input:all_nonfinite")
+
         h, w = gray_f.shape[:2]
         bs = self.params.block_size
 
@@ -108,19 +115,31 @@ class LocalContrastEvaluator:
             )
 
         # robust winsorize
-        ratios_robust = self._winsorize(ratios, self.params.robust_p_low, self.params.robust_p_high)
+        ratios_robust = self._winsorize(
+            ratios, self.params.robust_p_low, self.params.robust_p_high
+        )
 
         local_raw = float(np.median(ratios_robust))
         local_std = float(np.std(ratios_robust))
 
         if (not np.isfinite(local_raw)) or local_raw <= 0.0:
-            return self._fallback_to_global_ratio(gray_f, "nonfinite_or_nonpositive_local_raw")
+            return self._fallback_to_global_ratio(
+                gray_f, "nonfinite_or_nonpositive_local_raw"
+            )
 
         # raw -> [0,1] + gamma
         norm = self._normalize_01(local_raw, self.params.raw_floor, self.params.raw_ceil)
-        norm = float(norm ** self.params.gamma)
+        norm = float(norm**self.params.gamma)
 
         score, grade = self._to_discrete_score(norm)
+
+        # optional debug fields (non-breaking; useful for QA/analysis)
+        try:
+            p_lo = float(np.percentile(ratios, self.params.robust_p_low))
+            p_hi = float(np.percentile(ratios, self.params.robust_p_high))
+        except Exception:
+            p_lo = 0.0
+            p_hi = 0.0
 
         return {
             "local_contrast_raw": local_raw,
@@ -130,6 +149,9 @@ class LocalContrastEvaluator:
             "local_contrast_fallback_reason": "",
             "success": True,
             "local_contrast_grade": grade,
+            "local_contrast_n_blocks": int(ratios.size),
+            "local_contrast_raw_p_low": p_lo,
+            "local_contrast_raw_p_high": p_hi,
         }
 
     # =====================================================
@@ -139,11 +161,15 @@ class LocalContrastEvaluator:
     def _compute_block_contrast_ratios(self, gray_f: np.ndarray) -> np.ndarray:
         """
         ブロックごとに raw_ratio = std / mean を計算して返す（スケール非依存）
+
+        注意:
+        - ブロック内に NaN/inf が混入していても評価が破綻しないよう finite のみで統計を取る
+        - mean が 0 近傍だと ratio が発散するため除外する（abs(mean) <= eps）
         """
         h, w = gray_f.shape[:2]
         bs = self.params.block_size
 
-        vals = []
+        vals: list[float] = []
 
         for y in range(0, h, bs):
             y2 = y + bs
@@ -159,31 +185,42 @@ class LocalContrastEvaluator:
                 if block.size == 0:
                     continue
 
-                bmax = float(np.max(block))
-                if not np.isfinite(bmax) or bmax <= 0.0:
+                # finite-only stats (avoid NaN poisoning)
+                finite = np.isfinite(block)
+                if not finite.any():
                     continue
 
-                bmin = float(np.min(block))
-                if not np.isfinite(bmin):
+                bf = block[finite]
+                if bf.size == 0:
+                    continue
+
+                bmax = float(np.max(bf))
+                bmin = float(np.min(bf))
+                if (not np.isfinite(bmax)) or (not np.isfinite(bmin)):
+                    continue
+
+                # if everything is ~0, std/mean becomes unstable; treat as uninformative block.
+                if abs(bmax) <= self.params.eps and abs(bmin) <= self.params.eps:
                     continue
 
                 if self.params.ignore_low_dynamic_blocks:
-                    # 比率で判定（max が極小の時も除外済み）
-                    dyn_ratio = (bmax - bmin) / max(bmax, self.params.eps)
+                    # ratio-based dynamic range check
+                    denom = max(abs(bmax), self.params.eps)
+                    dyn_ratio = (bmax - bmin) / denom
                     if dyn_ratio < self.params.low_dynamic_threshold:
                         continue
 
-                bmean = float(np.mean(block))
-                if (not np.isfinite(bmean)) or bmean <= self.params.eps:
+                bmean = float(np.mean(bf))
+                if (not np.isfinite(bmean)) or abs(bmean) <= self.params.eps:
                     continue
 
-                bstd = float(np.std(block))
+                bstd = float(np.std(bf))
                 if (not np.isfinite(bstd)) or bstd <= 0.0:
                     continue
 
-                ratio = bstd / max(bmean, self.params.eps)
+                ratio = bstd / max(abs(bmean), self.params.eps)
                 if np.isfinite(ratio) and ratio > 0.0:
-                    vals.append(ratio)
+                    vals.append(float(ratio))
 
         if not vals:
             return np.asarray([], dtype=np.float32)
@@ -241,29 +278,40 @@ class LocalContrastEvaluator:
             "local_contrast_eval_status": "invalid_input",
             "local_contrast_fallback_reason": reason,
             "success": False,
+            "local_contrast_grade": "bad",
+            "local_contrast_n_blocks": 0,
         }
 
     def _fallback_to_global_ratio(self, gray_f: np.ndarray, reason: str) -> Dict[str, Any]:
         """
         ブロック計算できない場合のフォールバック：
         グローバル std/mean を raw として扱う（スケール非依存）
+
+        注意:
+        - NaN/inf 混入に耐性を持たせるため finite のみで統計を取る
+        - mean が 0 近傍だと ratio が発散するため invalid に落とす
         """
         try:
-            mean = float(np.mean(gray_f))
-            std = float(np.std(gray_f))
+            finite = np.isfinite(gray_f)
+            if not finite.any():
+                return self._invalid("fallback_failed:all_nonfinite")
+
+            gf = gray_f[finite]
+            mean = float(np.mean(gf))
+            std = float(np.std(gf))
         except Exception as e:
             return self._invalid(f"fallback_failed:{type(e).__name__}")
 
-        if (not np.isfinite(mean)) or mean <= self.params.eps:
+        if (not np.isfinite(mean)) or abs(mean) <= self.params.eps:
             return self._invalid("fallback_failed:nonfinite_or_nonpositive_mean")
 
         if (not np.isfinite(std)) or std <= 0.0:
             return self._invalid("fallback_failed:nonfinite_or_nonpositive_std")
 
-        raw = std / max(mean, self.params.eps)
+        raw = std / max(abs(mean), self.params.eps)
 
         norm = self._normalize_01(raw, self.params.raw_floor, self.params.raw_ceil)
-        norm = float(norm ** self.params.gamma)
+        norm = float(norm**self.params.gamma)
         score, grade = self._to_discrete_score(norm)
 
         return {
@@ -274,4 +322,5 @@ class LocalContrastEvaluator:
             "local_contrast_fallback_reason": reason,
             "success": True,
             "local_contrast_grade": grade,
+            "local_contrast_n_blocks": 0,
         }
