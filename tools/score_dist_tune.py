@@ -716,6 +716,35 @@ def main() -> int:
                 thr = None
                 thr_source = "skip_auto"
 
+        # -----------------------------
+        # direction sanity check (detect only)
+        # -----------------------------
+        inferred_hib, corr, n_corr, inferred = infer_direction_by_score(raw_num, cur_score)
+
+        # 期待方向（resolve_raw_col の決定）と推定が矛盾したら警告
+        if inferred and (inferred_hib != higher_is_better):
+            tag = "CONTRACT" if metric == "blurriness" else "WARN"
+            warn(
+                f"[{tag}] direction mismatch: metric={metric} "
+                f"expected_higher_is_better={higher_is_better} inferred_higher_is_better={inferred_hib} "
+                f"corr={corr} n={n_corr}"
+            )
+
+        # raw_spec に推定情報を載せる（追跡性）
+        direction_meta = dict(direction_meta) if isinstance(direction_meta, dict) else {}
+        direction_meta.update(
+            {
+                "direction_inferred": bool(inferred),
+                "corr": corr,
+                "n_for_corr": int(n_corr),
+                "direction_note": (
+                    "corr_check_mismatch" if (inferred and (inferred_hib != higher_is_better)) else "corr_check"
+                )
+                if inferred
+                else "corr_check_skipped",
+            }
+        )
+
         # raw_spec は新旧どちらの分岐でも出す（追跡性を常に確保）
         raw_spec = build_raw_transform_spec(
             metric,

@@ -207,3 +207,22 @@ def test_build_evaluator_config_emits_local_contrast_thresholds():
     assert m["fair"] == 0.02
     assert m["good"] == 0.03
     assert m["excellent"] == 0.04
+
+def test_build_raw_spec_direction_meta_is_updatable():
+    # direction_meta を後段で update して raw_spec に反映する運用を前提にする
+    rs = build_raw_transform_spec(
+        "blurriness",
+        "blurriness_raw",
+        higher_is_better=True,
+        raw_source="raw",
+        direction_meta={
+            "direction_inferred": True,
+            "corr": -0.5,
+            "n_for_corr": 60,
+            "direction_note": "corr_check_mismatch",
+        },
+    )
+    assert rs["direction_inferred"] is True
+    assert rs["corr"] == -0.5
+    assert rs["n_for_corr"] == 60
+    assert rs["direction_note"] == "corr_check_mismatch"
