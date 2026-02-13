@@ -17,9 +17,9 @@ score_dist_tune.py
     - 満たさない metric はスキップ＋警告
 
 対象メトリクス（固定）:
-- 技術系: sharpness, blurriness, contrast, noise
+- 技術系: sharpness, blurriness, contrast, noise, local_contrast
 - face系: face_sharpness, face_blurriness, face_contrast
-※ "local_*" や body_composition は対象外（誤認混入を避ける）
+※ local_contrast 以外の "local_*" や body_composition は対象外（誤認混入を避ける）
 
 目標分布（技術系）:
 - 1.0: 5-10%, 0.75: 20-30%, 0.5: 25-35%, 0.25: 15-25%, 0.0: 10-15%
@@ -85,12 +85,19 @@ TARGET_SCORE_COLS = [
     "blurriness_score",
     "contrast_score",
     "noise_score",
+    "local_contrast_score",
     "face_sharpness_score",
     "face_blurriness_score",
     "face_contrast_score",
 ]
 
-TECH_SCORE_COLS = {"sharpness_score", "blurriness_score", "contrast_score", "noise_score"}
+TECH_SCORE_COLS = {
+    "sharpness_score",
+    "blurriness_score",
+    "contrast_score",
+    "noise_score",
+    "local_contrast_score",
+}
 FACE_SCORE_COLS = {"face_sharpness_score", "face_blurriness_score", "face_contrast_score"}
 
 # 技術系の目標分布レンジ（割合）
@@ -490,7 +497,7 @@ def thresholds_list_to_mapping(metric: str, ts: List[float]) -> Optional[Dict[st
 
     t0, t1, t2, t3 = [float(x) for x in ts]
 
-    if metric in ("sharpness", "contrast"):
+    if metric in ("sharpness", "contrast", "local_contrast"):
         return {"poor": t0, "fair": t1, "good": t2, "excellent": t3}
 
     if metric == "blurriness":

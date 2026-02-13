@@ -182,3 +182,28 @@ def test_build_evaluator_config_emits_noise_suggestions_only():
     assert ns["thresholds_5bin"] == [0.1, 0.2, 0.3, 0.4]
     assert ns["good_sigma_suggestion"] == 0.2
     assert ns["warn_sigma_suggestion"] == 0.4
+
+def test_build_evaluator_config_emits_local_contrast_thresholds():
+    chosen = {
+        "local_contrast": {
+            "thresholds": [0.01, 0.02, 0.03, 0.04],
+            "source": "auto",
+            "score_col": "local_contrast_score",
+            "raw_col": "local_contrast_raw",
+            "raw_source": "raw",
+            "higher_is_better": True,
+            "raw_spec": {"raw_direction": "higher_is_better", "raw_transform": "identity"},
+        }
+    }
+
+    cfg = build_evaluator_config_from_chosen_params(chosen)
+
+    assert "local_contrast" in cfg
+    assert "discretize_thresholds_raw" in cfg["local_contrast"]
+
+    m = cfg["local_contrast"]["discretize_thresholds_raw"]
+    assert set(m.keys()) == {"poor", "fair", "good", "excellent"}
+    assert m["poor"] == 0.01
+    assert m["fair"] == 0.02
+    assert m["good"] == 0.03
+    assert m["excellent"] == 0.04
