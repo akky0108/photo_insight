@@ -16,6 +16,14 @@ score_dist_tune.py
     - *_raw 併存必須
     - 満たさない metric はスキップ＋警告
 
+追加（退行検知・健全性チェック強化）:
+- metric_summary.csv に以下を追加
+    - current_accepted_ratio（ranking CSV から算出）
+    - direction_final（conflict/unknown を含む最終判定）
+    - current/new_target_match_ratio（target_flag_* の集約）
+    - delta_saturation_0plus1 / delta_tech_target_l1
+- validate_metric_summary.py で CI 向けに失敗/警告を判定可能にする
+
 対象メトリクス（固定）:
 - 技術系: sharpness, blurriness, contrast, noise, local_contrast
 - face系: face_sharpness, face_blurriness, face_contrast
@@ -35,7 +43,7 @@ face系:
 - out_dir/new_params_used.json        (採用した閾値)
 - out_dir/score_distribution_long.csv (long形式 current/new)
 - out_dir/score_distribution_wide.csv (wide形式 + delta)
-- out_dir/metric_summary.csv          (metricごとの要約：飽和率・目標差など)
+- out_dir/metric_summary.csv          (metricごとの要約：飽和率・目標差など + 追加項目)
 - out_dir/plots/*_raw_hist.png
 - out_dir/plots/*_score_compare.png
 
@@ -43,6 +51,7 @@ face系:
   python tools/score_dist_tune.py
   python tools/score_dist_tune.py --n-files 5
   python tools/score_dist_tune.py --params-json temp/new_params.json
+  python tools/score_dist_tune.py --ranking-glob temp/evaluation_ranking_*.csv
 """
 
 from __future__ import annotations
@@ -59,7 +68,6 @@ import pandas as pd
 
 import matplotlib
 matplotlib.use("Agg")   # ★ headless環境対応
-
 import matplotlib.pyplot as plt
 
 try:
@@ -125,7 +133,8 @@ class Thresholds:
       t2 <= raw < t3 -> 0.75
       t3 <= raw      -> 1.0
 
-    ※ noise_sigma_used のように「低いほど良い」場合は score_from_raw(..., higher_is_better=False) で反転評価する。
+    ※ noise_sigma_used のように「低いほど良い」場合は
+       score_from_raw(..., higher_is_better=False) で反転評価する。
     """
     t0: float
     t1: float
@@ -272,14 +281,9 @@ def in_range_ratio(scores: pd.Series) -> float:
 def infer_direction_by_score(raw_num: pd.Series, score: pd.Series) -> Tuple[bool, Optional[float], int, bool]:
     """
     raw と score の相関から「高いほど良いか」を推定する（根拠付き）。
-    将来仕様変更（noise_raw の定義変更等）への耐性用。
 
     戻り値:
       (higher_is_better, corr, n_for_corr, direction_inferred)
-
-    direction_inferred:
-      True  -> 相関を計算して推定した
-      False -> サンプル不足等で推定せずデフォルトにした
     """
     r = coerce_numeric(raw_num)
     s = coerce_numeric(score)
@@ -338,7 +342,6 @@ def resolve_raw_col(df: pd.DataFrame, score_col: str) -> Tuple[Optional[str], st
     if c1 in df.columns:
         raw_source = "raw"
         raw_direction = "higher_is_better"
-
         raw_transform = _direction_to_transform(raw_direction)
         return c1, raw_source, raw_direction, raw_transform, direction_meta
 
@@ -355,10 +358,6 @@ def build_raw_transform_spec(
 ) -> Dict[str, Any]:
     """
     raw の '変換仕様' を JSON に明示するためのメタ情報（raw_spec）。
-
-    本ツールは raw の符号反転（-raw）を行わず、
-    score_from_raw の割当ロジックで higher_is_better を表現する。
-    そのため raw_transform は「値変換」ではなく「解釈方式」を表す。
     """
     raw_direction = "higher_is_better" if higher_is_better else "lower_is_better"
     raw_transform = "identity" if higher_is_better else "lower_is_better"
@@ -366,24 +365,19 @@ def build_raw_transform_spec(
     if raw_transform not in RAW_TRANSFORM_ENUM:
         raise ValueError(f"invalid raw_transform: {raw_transform}")
 
-    # 値変換しない設計なので、effective_raw_col は実列名に寄せる（混乱防止）
     effective_raw_col = source_raw_col
 
     dm = direction_meta or {}
     return {
-        # 契約: 必須
         "raw_direction": raw_direction,
         "raw_transform": raw_transform,
 
-        # 追跡性: 必須に近い（SSOT）
         "source_raw_col": source_raw_col,
         "effective_raw_col": effective_raw_col,
         "raw_source": raw_source,
 
-        # 互換: 既存利用がある前提で残す（将来deprecated可）
         "higher_is_better": higher_is_better,
 
-        # 推定根拠（主に noise_raw でのみ有用）
         "direction_inferred": dm.get("direction_inferred", False),
         "corr": dm.get("corr", None),
         "n_for_corr": dm.get("n_for_corr", 0),
@@ -561,18 +555,11 @@ def build_evaluator_config_from_chosen_params(chosen_params_out: Dict[str, Dict]
 
     return out
 
-def _first_non_null_value(series: pd.Series) -> Optional[Any]:
-    s = series.dropna()
-    if s.empty:
-        return None
-    return s.iloc[0]
-
 
 def _unique_non_null_values(series: pd.Series) -> List[Any]:
     s = series.dropna()
     if s.empty:
         return []
-    # pandas の unique は順序が不定なことがあるので、値比較だけに使う
     return list(pd.unique(s))
 
 
@@ -581,28 +568,18 @@ def validate_dataframe_contract(df: pd.DataFrame) -> bool:
     CSV列契約チェック（追加②）
 
     - まずは blurriness の raw direction 契約だけ “厳密” に検査する。
-    - 欠損は WARN（将来ERRORにしたい場合はここを False に変更）
+    - 欠損は WARN（段階導入）
     - 値が違う/複数混在は ERROR 扱い（False）
-
-    戻り値:
-      True  -> 続行してOK
-      False -> 契約違反なので処理を止めるべき
     """
     ok = True
 
-    # ------------------------------------------------------------
     # 0) score_dist_tune の前提: 対象スコア列が存在するか
-    # ------------------------------------------------------------
     missing_score_cols = [c for c in TARGET_SCORE_COLS if c not in df.columns]
     if missing_score_cols:
         warn(f"Contract violation: missing score columns: {missing_score_cols}")
-        return False  # ここは致命（ツールが成立しない）
+        return False  # 致命（ツールが成立しない）
 
-    # ------------------------------------------------------------
     # 1) raw 列が resolve できるか（最低限）
-    #    ※個別metricは main の validate_score_column でも弾かれるが、
-    #      ここでは “入力が契約に沿っているか” を先に見る。
-    # ------------------------------------------------------------
     for score_col in TARGET_SCORE_COLS:
         metric = score_col.replace("_score", "")
         raw_col, raw_source, raw_direction, raw_transform, meta = resolve_raw_col(df, score_col)
@@ -613,26 +590,21 @@ def validate_dataframe_contract(df: pd.DataFrame) -> bool:
             )
             ok = False
 
-    # ------------------------------------------------------------
     # 2) blurriness の raw direction 契約（厳密）
-    # ------------------------------------------------------------
-    # 期待値（BlurrinessEvaluator の Contract）
     expected = {
         "blurriness_raw_direction": "higher_is_better",
         "blurriness_raw_transform": "identity",
         "blurriness_higher_is_better": True,
     }
 
-    # 欠損は “今はWARN”（将来は ok=False にして良い）
     missing = [k for k in expected.keys() if k not in df.columns]
     if missing:
         warn(
             "Contract warning: missing blurriness contract columns "
             f"(allowed for now): {missing}"
         )
-        return ok  # 欠損はまだ止めない（現状は段階導入）
+        return ok  # 欠損はまだ止めない（段階導入）
 
-    # 値チェック（不一致/混在は止める）
     for col, exp in expected.items():
         uniq = _unique_non_null_values(df[col])
         if not uniq:
@@ -640,14 +612,12 @@ def validate_dataframe_contract(df: pd.DataFrame) -> bool:
             ok = False
             continue
 
-        # 1種類に揃っていること（混在を許さない）
         if len(uniq) != 1:
             warn(f"Contract violation: '{col}' has multiple values: {uniq}")
             ok = False
             continue
 
         got = uniq[0]
-        # bool列は numpy.bool_ などが来るので bool に寄せる
         if isinstance(exp, bool):
             try:
                 got_bool = bool(got)
@@ -693,6 +663,77 @@ def dump_yaml_like(data: Dict[str, Any]) -> str:
     return "\n".join(_emit(data)) + "\n"
 
 
+# -----------------------------
+# added: accepted/direction/targets helpers (#701-5)
+# -----------------------------
+def accepted_ratio_from_ranking(
+    df: Optional[pd.DataFrame],
+    *,
+    accepted_col: str,
+    secondary_col: str,
+    mode: str,
+) -> float:
+    if df is None or df.empty:
+        return float("nan")
+    if accepted_col not in df.columns:
+        return float("nan")
+
+    pri = pd.to_numeric(df[accepted_col], errors="coerce").fillna(0) > 0
+
+    if mode == "primary":
+        return float(pri.mean())
+
+    if secondary_col not in df.columns:
+        return float(pri.mean())
+
+    sec = pd.to_numeric(df[secondary_col], errors="coerce").fillna(0) > 0
+    return float((pri | sec).mean())
+
+
+def direction_final_label(higher_is_better: bool) -> str:
+    return "higher_is_better" if higher_is_better else "lower_is_better"
+
+
+def decide_direction_final(
+    *,
+    higher_is_better: bool,
+    direction_inferred: bool,
+    corr,
+    n_for_corr: int,
+    direction_note: str,
+) -> str:
+    # noise sigma axis is always lower_is_better
+    if direction_note == "sigma_axis":
+        return "lower_is_better"
+
+    # Not enough evidence
+    if (not direction_inferred) or (corr in ("", None)) or (int(n_for_corr) < 30):
+        return "unknown"
+
+    try:
+        c = float(corr)
+    except Exception:
+        return "unknown"
+
+    inferred = "higher_is_better" if c > 0 else "lower_is_better"
+    cfg = direction_final_label(higher_is_better)
+    return inferred if inferred == cfg else "conflict"
+
+
+def target_match_ratio(flags: Optional[Dict[float, str]]) -> float:
+    if not flags:
+        return float("nan")
+    total = len(DISCRETE_SCORES)
+    if total == 0:
+        return float("nan")
+    ok = sum(1 for sv in DISCRETE_SCORES if flags.get(sv) == "in")
+    return float(ok / total)
+
+
+def _nan_to_empty(x: float) -> Any:
+    return "" if x != x else float(x)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--input-glob", default="temp/evaluation_results_*.csv")
@@ -717,6 +758,18 @@ def main() -> int:
     ap.add_argument("--emit-config-json", default="",
                     help="同内容を JSON でも出力するパス（任意）")
 
+    # accepted ratio (from evaluation_ranking_*.csv)
+    ap.add_argument("--ranking-glob", default="temp/evaluation_ranking_*.csv")
+    ap.add_argument("--ranking-n-files", type=int, default=5)
+    ap.add_argument("--accepted-col", default="accepted_flag")
+    ap.add_argument("--secondary-accepted-col", default="secondary_accept_flag")
+    ap.add_argument(
+        "--accepted-mode",
+        choices=["primary", "primary_or_secondary"],
+        default="primary",
+        help="How to compute accepted ratio from ranking CSV",
+    )
+
     args = ap.parse_args()
 
     latest_files = find_latest_files(args.input_glob, args.n_files)
@@ -730,19 +783,33 @@ def main() -> int:
     if not validate_dataframe_contract(df):
         warn("CSV contract validation failed. Stop.")
         return 2
-    
+
+    # -----------------------------
+    # ranking (accepted ratio)
+    # -----------------------------
+    ranking_df: Optional[pd.DataFrame] = None
+    try:
+        r_files = find_latest_files(args.ranking_glob, args.ranking_n_files)
+        info("using ranking files (latest first):")
+        for p in r_files:
+            info(f"  - {p}")
+        ranking_df = read_concat_csv(r_files)
+    except Exception as e:
+        warn(f"ranking CSV not available: {e}")
+
+    current_accepted_ratio = accepted_ratio_from_ranking(
+        ranking_df,
+        accepted_col=args.accepted_col,
+        secondary_col=args.secondary_accepted_col,
+        mode=args.accepted_mode,
+    )
+
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     plots_dir = out_dir / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
 
     # JSON params 読み込み（あれば優先）
-    # 形式:
-    # {
-    #   "contrast": {"thresholds": [..4..]},
-    #   "sharpness": {"thresholds": [..4..]}
-    # }
-    # metricキーは "contrast" のように score/raw の接頭辞部分
     json_params: Dict[str, Thresholds] = {}
     if args.params_json:
         pj = Path(args.params_json)
@@ -786,9 +853,6 @@ def main() -> int:
         raw = df[raw_col]
         cur_score = df[score_col]
 
-        # -----------------------------
-        # raw 数値化（符号反転などはしない）
-        # -----------------------------
         raw_num = coerce_numeric(raw)
 
         # -----------------------------
@@ -809,16 +873,13 @@ def main() -> int:
         if metric in json_params:
             thr = json_params[metric]
             thr_source = "json"
-
         else:
             if is_tech:
                 thr = propose_thresholds_for_target_distribution(raw_num)
                 thr_source = "auto_target_quantiles_12.5_32.5_62.5_87.5"
-
             elif is_face and args.apply_face_auto:
                 thr = propose_thresholds_for_target_distribution(raw_num)
                 thr_source = "auto_target_quantiles_12.5_32.5_62.5_87.5"
-
             else:
                 thr = None
                 thr_source = "skip_auto"
@@ -828,7 +889,6 @@ def main() -> int:
         # -----------------------------
         inferred_hib, corr, n_corr, inferred = infer_direction_by_score(raw_num, cur_score)
 
-        # 期待方向（resolve_raw_col の決定）と推定が矛盾したら警告
         if inferred and (inferred_hib != higher_is_better):
             tag = "CONTRACT" if metric == "blurriness" else "WARN"
             warn(
@@ -837,7 +897,6 @@ def main() -> int:
                 f"corr={corr} n={n_corr}"
             )
 
-        # raw_spec に推定情報を載せる（追跡性）
         direction_meta = dict(direction_meta) if isinstance(direction_meta, dict) else {}
         direction_meta.update(
             {
@@ -852,7 +911,6 @@ def main() -> int:
             }
         )
 
-        # raw_spec は新旧どちらの分岐でも出す（追跡性を常に確保）
         raw_spec = build_raw_transform_spec(
             metric,
             raw_col,
@@ -875,19 +933,14 @@ def main() -> int:
         if metric == "noise":
             note = "noise thresholds here are suggestions only; apply tool converts them to good_sigma/warn_sigma"
 
-        # chosen_params_out は互換キーを残しつつ raw_spec をネスト
         chosen_params_out[metric] = {
-            # 互換キー（既存利用がある前提で残す）
             "raw_col": raw_col,
             "score_col": score_col,
             "thresholds": thresholds_out,
             "source": thr_source,
             "raw_source": raw_source,
             "higher_is_better": higher_is_better,
-
-            # 新: 将来拡張しやすいネスト
             "raw_spec": raw_spec,
-
             **({"note": note} if note else {}),
         }
 
@@ -903,10 +956,7 @@ def main() -> int:
         # -----------------------------
         # face 極端寄り監視
         # -----------------------------
-        if is_face and (
-            cur_sat >= args.face_saturation_warn
-            or new_sat >= args.face_saturation_warn
-        ):
+        if is_face and (cur_sat >= args.face_saturation_warn or new_sat >= args.face_saturation_warn):
             warn(
                 f"Face metric '{metric}' extreme? "
                 f"saturation(0+1): current={cur_sat:.3f}, new={new_sat:.3f} "
@@ -918,28 +968,24 @@ def main() -> int:
         # -----------------------------
         for sv in DISCRETE_SCORES:
             comparison_rows.append(
-                {
-                    "metric": metric,
-                    "which": "current",
-                    "score": sv,
-                    "count": cur_counts.get(sv, 0),
-                    "ratio": cur_ratios.get(sv, 0.0),
-                }
+                {"metric": metric, "which": "current", "score": sv, "count": cur_counts.get(sv, 0), "ratio": cur_ratios.get(sv, 0.0)}
             )
             comparison_rows.append(
-                {
-                    "metric": metric,
-                    "which": "new",
-                    "score": sv,
-                    "count": new_counts.get(sv, 0),
-                    "ratio": new_ratios.get(sv, 0.0),
-                }
+                {"metric": metric, "which": "new", "score": sv, "count": new_counts.get(sv, 0), "ratio": new_ratios.get(sv, 0.0)}
             )
 
         # -----------------------------
-        # summary
+        # summary (#701-5 追記)
         # -----------------------------
-        row = {
+        direction_final = decide_direction_final(
+            higher_is_better=higher_is_better,
+            direction_inferred=bool(raw_spec.get("direction_inferred", False)),
+            corr=raw_spec.get("corr", ""),
+            n_for_corr=int(raw_spec.get("n_for_corr", 0)),
+            direction_note=str(raw_spec.get("direction_note", "")),
+        )
+
+        row: Dict[str, Any] = {
             "metric": metric,
             "type": "tech" if is_tech else ("face" if is_face else "other"),
             "score_col": score_col,
@@ -950,13 +996,16 @@ def main() -> int:
             "thresholds": thr.to_list() if thr is not None else "",
             "current_saturation_0plus1": cur_sat,
             "new_saturation_0plus1": new_sat,
+            "delta_saturation_0plus1": float(new_sat - cur_sat),
             "current_discrete_ratio": float(discrete_ratio(cur_score)),
             "new_discrete_ratio": float(discrete_ratio(new_score)),
             "current_in_range_ratio": float(in_range_ratio(cur_score)),
             "new_in_range_ratio": float(in_range_ratio(new_score)),
             "raw_resolve": raw_note,
 
-            # 将来の追跡用（主に noise で有効）
+            "current_accepted_ratio": _nan_to_empty(current_accepted_ratio),
+            "direction_final": direction_final,
+
             "direction_inferred": raw_spec.get("direction_inferred", False),
             "direction_corr": raw_spec.get("corr", ""),
             "direction_n_for_corr": raw_spec.get("n_for_corr", 0),
@@ -969,15 +1018,20 @@ def main() -> int:
         if is_tech:
             row["current_tech_target_l1"] = float(cur_l1)
             row["new_tech_target_l1"] = float(new_l1)
+            row["delta_tech_target_l1"] = float(new_l1 - cur_l1)
+
+            row["current_target_match_ratio"] = _nan_to_empty(target_match_ratio(cur_flags))
+            row["new_target_match_ratio"] = _nan_to_empty(target_match_ratio(new_flags))
 
             for sv in DISCRETE_SCORES:
                 row[f"current_target_flag_{sv}"] = cur_flags[sv]
                 row[f"new_target_flag_{sv}"] = new_flags[sv]
-
         else:
             row["current_tech_target_l1"] = ""
             row["new_tech_target_l1"] = ""
-
+            row["delta_tech_target_l1"] = ""
+            row["current_target_match_ratio"] = ""
+            row["new_target_match_ratio"] = ""
             for sv in DISCRETE_SCORES:
                 row[f"current_target_flag_{sv}"] = ""
                 row[f"new_target_flag_{sv}"] = ""
@@ -985,15 +1039,9 @@ def main() -> int:
         metric_summary.append(row)
 
         # -----------------------------
-        # plots（rawは統一後を使う）
+        # plots
         # -----------------------------
-        make_plots(
-            plots_dir,
-            metric,
-            raw_num,
-            cur_score,
-            new_score,
-        )
+        make_plots(plots_dir, metric, raw_num, cur_score, new_score)
 
         # -----------------------------
         # console
@@ -1014,8 +1062,8 @@ def main() -> int:
 
         if is_tech:
             info(f"  tech_target_l1: {cur_l1:.6f} -> {new_l1:.6f}")
+            info(f"  target_match_ratio: {_nan_to_empty(target_match_ratio(cur_flags))} -> {_nan_to_empty(target_match_ratio(new_flags))}")
 
-        # noise の場合は推定根拠も出すとデバッグが楽
         if metric == "noise":
             info(
                 f"  noise_direction: inferred={raw_spec.get('direction_inferred')} "
