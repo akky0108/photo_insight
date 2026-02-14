@@ -18,6 +18,7 @@ from tools.score_dist_tune import (  # noqa: E402
     resolve_raw_col,
     score_from_raw,
     build_evaluator_config_from_chosen_params,
+    validate_dataframe_contract,
 )
 
 
@@ -182,3 +183,115 @@ def test_build_evaluator_config_emits_noise_suggestions_only():
     assert ns["thresholds_5bin"] == [0.1, 0.2, 0.3, 0.4]
     assert ns["good_sigma_suggestion"] == 0.2
     assert ns["warn_sigma_suggestion"] == 0.4
+
+def test_build_evaluator_config_emits_local_contrast_thresholds():
+    chosen = {
+        "local_contrast": {
+            "thresholds": [0.01, 0.02, 0.03, 0.04],
+            "source": "auto",
+            "score_col": "local_contrast_score",
+            "raw_col": "local_contrast_raw",
+            "raw_source": "raw",
+            "higher_is_better": True,
+            "raw_spec": {"raw_direction": "higher_is_better", "raw_transform": "identity"},
+        }
+    }
+
+    cfg = build_evaluator_config_from_chosen_params(chosen)
+
+    assert "local_contrast" in cfg
+    assert "discretize_thresholds_raw" in cfg["local_contrast"]
+
+    m = cfg["local_contrast"]["discretize_thresholds_raw"]
+    assert set(m.keys()) == {"poor", "fair", "good", "excellent"}
+    assert m["poor"] == 0.01
+    assert m["fair"] == 0.02
+    assert m["good"] == 0.03
+    assert m["excellent"] == 0.04
+
+def test_build_raw_spec_direction_meta_is_updatable():
+    # direction_meta を後段で update して raw_spec に反映する運用を前提にする
+    rs = build_raw_transform_spec(
+        "blurriness",
+        "blurriness_raw",
+        higher_is_better=True,
+        raw_source="raw",
+        direction_meta={
+            "direction_inferred": True,
+            "corr": -0.5,
+            "n_for_corr": 60,
+            "direction_note": "corr_check_mismatch",
+        },
+    )
+    assert rs["direction_inferred"] is True
+    assert rs["corr"] == -0.5
+    assert rs["n_for_corr"] == 60
+    assert rs["direction_note"] == "corr_check_mismatch"
+
+
+def test_validate_dataframe_contract_blurriness_missing_contract_cols_warns_but_ok(capsys):
+    # 欠損は “今は” WARN で許容（段階導入）
+    df = pd.DataFrame(
+        {
+            "sharpness_score": [0.0, 0.5, 1.0],
+            "sharpness_raw": [1.0, 2.0, 3.0],
+            "blurriness_score": [0.0, 0.5, 1.0],
+            "blurriness_raw": [0.1, 0.2, 0.3],
+            "contrast_score": [0.0, 0.5, 1.0],
+            "contrast_raw": [10, 20, 30],
+            "noise_score": [1.0, 0.5, 0.0],
+            "noise_sigma_used": [0.1, 0.2, 0.3],
+
+            # ★追加（TARGET_SCORE_COLS に含まれているため）
+            "local_contrast_score": [0.0, 0.5, 1.0],
+            "local_contrast_raw": [0.01, 0.02, 0.03],
+
+            "face_sharpness_score": [0.0, 0.5, 1.0],
+            "face_sharpness_raw": [1.0, 2.0, 3.0],
+            "face_blurriness_score": [0.0, 0.5, 1.0],
+            "face_blurriness_raw": [0.1, 0.2, 0.3],
+            "face_contrast_score": [0.0, 0.5, 1.0],
+            "face_contrast_raw": [10, 20, 30],
+            # blurriness contract cols are intentionally missing
+        }
+    )
+    assert validate_dataframe_contract(df) is True
+    err = capsys.readouterr().err
+    assert "missing blurriness contract columns" in err
+
+
+def test_validate_dataframe_contract_blurriness_contract_value_mismatch_fails(capsys):
+    # blurriness contract が値不一致なら FAIL（止める）
+    df = pd.DataFrame(
+        {
+            "sharpness_score": [0.0, 0.5, 1.0],
+            "sharpness_raw": [1.0, 2.0, 3.0],
+            "blurriness_score": [0.0, 0.5, 1.0],
+            "blurriness_raw": [0.1, 0.2, 0.3],
+            "contrast_score": [0.0, 0.5, 1.0],
+            "contrast_raw": [10, 20, 30],
+            "noise_score": [1.0, 0.5, 0.0],
+            "noise_sigma_used": [0.1, 0.2, 0.3],
+
+            # ★追加（TARGET_SCORE_COLS に含まれているため）
+            "local_contrast_score": [0.0, 0.5, 1.0],
+            "local_contrast_raw": [0.01, 0.02, 0.03],
+
+            "face_sharpness_score": [0.0, 0.5, 1.0],
+            "face_sharpness_raw": [1.0, 2.0, 3.0],
+            "face_blurriness_score": [0.0, 0.5, 1.0],
+            "face_blurriness_raw": [0.1, 0.2, 0.3],
+            "face_contrast_score": [0.0, 0.5, 1.0],
+            "face_contrast_raw": [10, 20, 30],
+
+            # contract cols present but wrong
+            "blurriness_raw_direction": ["lower_is_better"] * 3,  # ← NG
+            "blurriness_raw_transform": ["identity"] * 3,
+            "blurriness_higher_is_better": [True] * 3,
+        }
+    )
+    assert validate_dataframe_contract(df) is False
+    err = capsys.readouterr().err
+    assert "Contract violation" in err
+    assert "blurriness_raw_direction" in err
+

@@ -17,9 +17,9 @@ score_dist_tune.py
     - 満たさない metric はスキップ＋警告
 
 対象メトリクス（固定）:
-- 技術系: sharpness, blurriness, contrast, noise
+- 技術系: sharpness, blurriness, contrast, noise, local_contrast
 - face系: face_sharpness, face_blurriness, face_contrast
-※ "local_*" や body_composition は対象外（誤認混入を避ける）
+※ local_contrast 以外の "local_*" や body_composition は対象外（誤認混入を避ける）
 
 目標分布（技術系）:
 - 1.0: 5-10%, 0.75: 20-30%, 0.5: 25-35%, 0.25: 15-25%, 0.0: 10-15%
@@ -85,12 +85,19 @@ TARGET_SCORE_COLS = [
     "blurriness_score",
     "contrast_score",
     "noise_score",
+    "local_contrast_score",
     "face_sharpness_score",
     "face_blurriness_score",
     "face_contrast_score",
 ]
 
-TECH_SCORE_COLS = {"sharpness_score", "blurriness_score", "contrast_score", "noise_score"}
+TECH_SCORE_COLS = {
+    "sharpness_score",
+    "blurriness_score",
+    "contrast_score",
+    "noise_score",
+    "local_contrast_score",
+}
 FACE_SCORE_COLS = {"face_sharpness_score", "face_blurriness_score", "face_contrast_score"}
 
 # 技術系の目標分布レンジ（割合）
@@ -490,7 +497,7 @@ def thresholds_list_to_mapping(metric: str, ts: List[float]) -> Optional[Dict[st
 
     t0, t1, t2, t3 = [float(x) for x in ts]
 
-    if metric in ("sharpness", "contrast"):
+    if metric in ("sharpness", "contrast", "local_contrast"):
         return {"poor": t0, "fair": t1, "good": t2, "excellent": t3}
 
     if metric == "blurriness":
@@ -553,6 +560,108 @@ def build_evaluator_config_from_chosen_params(chosen_params_out: Dict[str, Dict]
         out["noise_suggestions"] = noise_sugg
 
     return out
+
+def _first_non_null_value(series: pd.Series) -> Optional[Any]:
+    s = series.dropna()
+    if s.empty:
+        return None
+    return s.iloc[0]
+
+
+def _unique_non_null_values(series: pd.Series) -> List[Any]:
+    s = series.dropna()
+    if s.empty:
+        return []
+    # pandas の unique は順序が不定なことがあるので、値比較だけに使う
+    return list(pd.unique(s))
+
+
+def validate_dataframe_contract(df: pd.DataFrame) -> bool:
+    """
+    CSV列契約チェック（追加②）
+
+    - まずは blurriness の raw direction 契約だけ “厳密” に検査する。
+    - 欠損は WARN（将来ERRORにしたい場合はここを False に変更）
+    - 値が違う/複数混在は ERROR 扱い（False）
+
+    戻り値:
+      True  -> 続行してOK
+      False -> 契約違反なので処理を止めるべき
+    """
+    ok = True
+
+    # ------------------------------------------------------------
+    # 0) score_dist_tune の前提: 対象スコア列が存在するか
+    # ------------------------------------------------------------
+    missing_score_cols = [c for c in TARGET_SCORE_COLS if c not in df.columns]
+    if missing_score_cols:
+        warn(f"Contract violation: missing score columns: {missing_score_cols}")
+        return False  # ここは致命（ツールが成立しない）
+
+    # ------------------------------------------------------------
+    # 1) raw 列が resolve できるか（最低限）
+    #    ※個別metricは main の validate_score_column でも弾かれるが、
+    #      ここでは “入力が契約に沿っているか” を先に見る。
+    # ------------------------------------------------------------
+    for score_col in TARGET_SCORE_COLS:
+        metric = score_col.replace("_score", "")
+        raw_col, raw_source, raw_direction, raw_transform, meta = resolve_raw_col(df, score_col)
+        if raw_col is None or raw_col not in df.columns:
+            warn(
+                f"Contract violation: raw resolve failed for metric='{metric}' "
+                f"(score_col='{score_col}', resolved_raw='{raw_col}')"
+            )
+            ok = False
+
+    # ------------------------------------------------------------
+    # 2) blurriness の raw direction 契約（厳密）
+    # ------------------------------------------------------------
+    # 期待値（BlurrinessEvaluator の Contract）
+    expected = {
+        "blurriness_raw_direction": "higher_is_better",
+        "blurriness_raw_transform": "identity",
+        "blurriness_higher_is_better": True,
+    }
+
+    # 欠損は “今はWARN”（将来は ok=False にして良い）
+    missing = [k for k in expected.keys() if k not in df.columns]
+    if missing:
+        warn(
+            "Contract warning: missing blurriness contract columns "
+            f"(allowed for now): {missing}"
+        )
+        return ok  # 欠損はまだ止めない（現状は段階導入）
+
+    # 値チェック（不一致/混在は止める）
+    for col, exp in expected.items():
+        uniq = _unique_non_null_values(df[col])
+        if not uniq:
+            warn(f"Contract violation: '{col}' has no non-null values")
+            ok = False
+            continue
+
+        # 1種類に揃っていること（混在を許さない）
+        if len(uniq) != 1:
+            warn(f"Contract violation: '{col}' has multiple values: {uniq}")
+            ok = False
+            continue
+
+        got = uniq[0]
+        # bool列は numpy.bool_ などが来るので bool に寄せる
+        if isinstance(exp, bool):
+            try:
+                got_bool = bool(got)
+            except Exception:
+                got_bool = got
+            if got_bool != exp:
+                warn(f"Contract violation: '{col}' expected {exp} but got {got}")
+                ok = False
+        else:
+            if str(got) != str(exp):
+                warn(f"Contract violation: '{col}' expected '{exp}' but got '{got}'")
+                ok = False
+
+    return ok
 
 
 def dump_yaml_like(data: Dict[str, Any]) -> str:
@@ -617,6 +726,11 @@ def main() -> int:
 
     df = read_concat_csv(latest_files)
 
+    # ---- CSV contract validation (追加②) ----
+    if not validate_dataframe_contract(df):
+        warn("CSV contract validation failed. Stop.")
+        return 2
+    
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     plots_dir = out_dir / "plots"
@@ -708,6 +822,35 @@ def main() -> int:
             else:
                 thr = None
                 thr_source = "skip_auto"
+
+        # -----------------------------
+        # direction sanity check (detect only)
+        # -----------------------------
+        inferred_hib, corr, n_corr, inferred = infer_direction_by_score(raw_num, cur_score)
+
+        # 期待方向（resolve_raw_col の決定）と推定が矛盾したら警告
+        if inferred and (inferred_hib != higher_is_better):
+            tag = "CONTRACT" if metric == "blurriness" else "WARN"
+            warn(
+                f"[{tag}] direction mismatch: metric={metric} "
+                f"expected_higher_is_better={higher_is_better} inferred_higher_is_better={inferred_hib} "
+                f"corr={corr} n={n_corr}"
+            )
+
+        # raw_spec に推定情報を載せる（追跡性）
+        direction_meta = dict(direction_meta) if isinstance(direction_meta, dict) else {}
+        direction_meta.update(
+            {
+                "direction_inferred": bool(inferred),
+                "corr": corr,
+                "n_for_corr": int(n_corr),
+                "direction_note": (
+                    "corr_check_mismatch" if (inferred and (inferred_hib != higher_is_better)) else "corr_check"
+                )
+                if inferred
+                else "corr_check_skipped",
+            }
+        )
 
         # raw_spec は新旧どちらの分岐でも出す（追跡性を常に確保）
         raw_spec = build_raw_transform_spec(

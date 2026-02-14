@@ -26,6 +26,17 @@ contrast:
     good: 18.88336730003357
     excellent: 22.505969762802124
 
+local_contrast:
+  # LocalContrastEvaluator
+  # raw は std/mean の比率（スケール非依存）で「高いほど良い」
+  # thresholds are auto-tuned by score_dist_tune (target quantiles 12.5/32.5/62.5/87.5)
+  higher_is_better: true
+  discretize_thresholds_raw:
+    poor: 0.02145024063065645
+    fair: 0.07279299981892104
+    good: 0.1603263635188341
+    excellent: 0.3467159979045391
+
 noise_suggestions:
   noise:
     axis: sigma
@@ -56,4 +67,3 @@ noise_suggestions:
 noise:
   good_sigma: 0.00116243463277814
   warn_sigma: 0.0051004838448017375
-
