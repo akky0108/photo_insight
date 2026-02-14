@@ -1,0 +1,17 @@
+# config/config.prod.yaml
+
+output_directory: "temp"
+
+paths:
+  thresholds_file: "./config/thresholds.yaml"
+  evaluation_data_dir: "./temp"
+  output_data_dir: "./output"
+
+append_mode: false
+base_directory: "/mnt/l/picture/"
+target_date: "2025-01-01"
+
+debug:
+  log_summary_detail: true
+  persist_run_results: true
+  run_results_dir: "runs"

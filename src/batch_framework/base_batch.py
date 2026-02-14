@@ -1,4 +1,6 @@
 # src/batch_framework/base_batch.py
+from __future__ import annotations
+
 import os
 import time
 import logging
@@ -21,7 +23,6 @@ try:
 except Exception:  # pragma: no cover
     class FileSystemEventHandler:  # minimal fallback
         pass
-
 
 from batch_framework.core.hook_manager import HookManager, HookType
 from batch_framework.core.config_manager import ConfigManager
@@ -126,11 +127,24 @@ class BaseBatchProcessor(ABC):
 
         self._warn_if_get_data_overridden()
 
+        # ============================================================
         # Result persistence (base)
+        #
+        # おすすめ方針:
+        # - デフォルトは OFF（明示ON）
+        #   → テストや通常実行で runs/ が勝手に作られない
+        # - 保存したい場合だけ config で有効化する
+        #
+        # config例:
+        # debug:
+        #   persist_run_results: true
+        #   run_results_dir: runs
+        # ============================================================
         self._persist_run_results = bool(
-            self.config.get("debug", {}).get("persist_run_results", True)
+            self.config.get("debug", {}).get("persist_run_results", False)
         )
         base_dir = self.config.get("debug", {}).get("run_results_dir", "runs")
+
         self.result_store = ResultStore(
             base_dir=base_dir,
             use_date_partition=True,
@@ -138,18 +152,25 @@ class BaseBatchProcessor(ABC):
         )
         self.run_ctx: Optional[RunContext] = None
 
+        # optional: 同一インスタンスで複数 execute を呼ぶケース向け
+        self.completed_all_batches = False
+        self.final_summary: Dict[str, Any] = {}
+        self.all_results: List[Dict[str, Any]] = []
+
     def execute(self, *args, **kwargs) -> None:
         self.start_time = time.time()
 
-        # ===== ResultStore: start run =====
+        # ===== ResultStore: start run (LAZY) =====
+        # ここでは絶対にディレクトリを作らない（副作用ゼロ）
+        # 実際に save_* が呼ばれたタイミングで atomic write が必要な親ディレクトリを作る
         try:
             if self._persist_run_results:
                 self.run_ctx = self.result_store.make_run_context(
                     prefix=self.__class__.__name__.lower(),
-                    ensure_dirs=True,
+                    ensure_dirs=False,  # ★重要: ここで作らない
                 )
                 self.logger.info(
-                    f"[{self.__class__.__name__}] RunContext created: {self.run_ctx.out_dir}"
+                    f"[{self.__class__.__name__}] RunContext prepared: {self.run_ctx.out_dir}"
                 )
         except Exception as e:
             self.logger.error(f"RunContext init failed: {e}", exc_info=True)
@@ -179,7 +200,6 @@ class BaseBatchProcessor(ABC):
             )
 
             if errors:
-                # Exception オブジェクトをそのまま join すると見づらいので文字列化
                 msgs = [f"{type(e).__name__}: {e}" for e in errors]
                 self.handle_error(
                     f"Batch process encountered errors: {msgs}", raise_exception=True
@@ -215,7 +235,6 @@ class BaseBatchProcessor(ABC):
                 f"[{self.__class__.__name__}] Error in {hook_type.name} hooks: {e}",
                 exc_info=True,
             )
-
             if self.fail_fast:
                 raise
             errors.append(e)
@@ -247,6 +266,13 @@ class BaseBatchProcessor(ABC):
         self.config_manager.reload_config(config_path)
         self.config = self.config_manager.config
 
+        # config reload で persist_run_results を切り替えたい場合の追従
+        self._persist_run_results = bool(
+            self.config.get("debug", {}).get("persist_run_results", False)
+        )
+        # run_results_dir 変更はインスタンス差し替えが安全（運用で必要なら対応）
+        # ここでは副作用を避けるため自動で作り直さない
+
     def handle_error(self, message: str, raise_exception: bool = False) -> None:
         self.logger.error(message)
         if raise_exception:
@@ -271,12 +297,16 @@ class BaseBatchProcessor(ABC):
         except Exception:
             return
 
+    # =========================
+    # Phases
+    # =========================
+
     def setup(self) -> None:
         self.logger.info(f"[{self.__class__.__name__}] Executing common setup tasks.")
         self.data = self.get_data()
         self.after_data_loaded(self.data)
 
-        # ===== ResultStore: save meta =====
+        # ===== ResultStore: save meta (only when enabled) =====
         if self.run_ctx and self._persist_run_results:
             try:
                 self.result_store.save_meta(
@@ -328,7 +358,8 @@ class BaseBatchProcessor(ABC):
                 batch_idx, batch_data = futures[future]
                 try:
                     batch_results = future.result()
-                    all_results.extend(batch_results)
+                    if batch_results:
+                        all_results.extend(batch_results)
                 except Exception as e:
                     self.logger.error(
                         f"[{self.__class__.__name__}] [Batch {batch_idx}] Failed in thread: {e}",
@@ -352,6 +383,7 @@ class BaseBatchProcessor(ABC):
                 self.logger.info(f"Average score: {summary['avg_score']}")
 
         self.final_summary = summary
+        self.all_results = all_results
 
         if failed_batches:
             self.logger.warning(
@@ -361,12 +393,9 @@ class BaseBatchProcessor(ABC):
             self.logger.info(
                 f"[{self.__class__.__name__}] All batches processed successfully."
             )
-            if hasattr(self, "completed_all_batches"):
-                self.completed_all_batches = True
+            self.completed_all_batches = True
 
-        self.all_results = all_results
-
-        # ===== ResultStore: save results =====
+        # ===== ResultStore: save results (only when enabled) =====
         if self.run_ctx and self._persist_run_results:
             try:
                 self.result_store.save_jsonl(
@@ -418,7 +447,7 @@ class BaseBatchProcessor(ABC):
             or getattr(self, "batch_size", None)
             or max(1, len(data) // self.max_workers)
         )
-        return [data[i : i + batch_size] for i in range(0, len(data), batch_size)]
+        return [data[i: i + batch_size] for i in range(0, len(data), batch_size)]
 
     def _should_stop_processing(self) -> bool:
         return getattr(self, "memory_threshold_exceeded", False)
@@ -463,4 +492,4 @@ class BaseBatchProcessor(ABC):
 
     @abstractmethod
     def _process_batch(self, batch: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        pass
+        raise NotImplementedError

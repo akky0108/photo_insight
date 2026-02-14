@@ -1,6 +1,5 @@
-# config.yaml
+# config/config.base.yaml
 
-# EXIFデータに含めるフィールドのリスト
 exif_fields:
   - "FileName"
   - "Model"
@@ -15,22 +14,6 @@ exif_fields:
   - "ImageWidth"
   - "Orientation"
   - "BitDepth"
-
-# 出力先ディレクトリ（デフォルト: temp）
-output_directory: "temp"
-paths:
-  thresholds_file: "./config/thresholds.yaml"
-  evaluation_data_dir: "./temp"
-  output_data_dir: "./output"
-
-# EXIFデータをCSVファイルに追加するモード（True で追加、False で上書き）
-append_mode: false
-
-# 基本のディレクトリパス（例: /mnt/l/picture/2024/2024-08-26）
-base_directory: "/mnt/l/picture/"
-
-# ターゲット日付
-target_date: "2025-01-01"
 
 defaults:
   min_score: 0.0
@@ -54,10 +37,7 @@ weights:
 batch_size: 10
 
 batch:
-  memory_threshold: 90  # デフォルト値。使用率が90%以上になったら停止
-
-debug:
-  log_summary_detail: true
+  memory_threshold: 90
 
 quality_thresholds_path: config/evaluator_thresholds.yaml
 quality_profile: portrait
