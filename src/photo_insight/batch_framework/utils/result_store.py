@@ -149,6 +149,31 @@ class ResultStore:
         _atomic_write_text(lines, path)
         return path
 
+    def save_json(
+        self,
+        ctx: RunContext,
+        *,
+        obj: Dict[str, Any],
+        name: str = "summary.json",
+        indent: int = 2,
+        sort_keys: bool = True,
+    ) -> Path:
+        """
+        JSON を atomic に保存する（dict前提）。
+
+        - make_run_context() ではディレクトリを作らない設計なので、
+          実際の mkdir は _atomic_write_text() 内で行う。
+        """
+        text = json.dumps(
+            obj,
+            ensure_ascii=False,
+            indent=indent,
+            sort_keys=sort_keys,
+        )
+        path = ctx.out_dir / name
+        _atomic_write_text(text + "\n", path)
+        return path
+
     def save_text(self, ctx: RunContext, *, text: str, name: str, encoding: str = "utf-8") -> Path:
         """
         任意テキストを atomic に保存する（汎用）。

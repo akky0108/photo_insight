@@ -436,6 +436,32 @@ class BaseBatchProcessor(ABC):
                 )
             except Exception as e:
                 self.logger.error(f"save_jsonl failed: {e}", exc_info=True)
+
+            # ★追加: summary.json（既存バッチ影響ゼロ / persist ON の時だけ）
+            try:
+                summary_out: Dict[str, Any] = dict(self.final_summary or {})
+                summary_out.update(
+                    {
+                        "processor": self.__class__.__name__,
+                        "data_count": len(data or []),
+                        "max_workers": self.max_workers,
+                        "config_path": self.config_path,
+                        "failed_batches": failed_batches,
+                        "completed_all_batches": bool(self.completed_all_batches),
+                    }
+                )
+
+                if hasattr(self, "start_time"):
+                    summary_out["duration_sec"] = round(time.time() - float(self.start_time), 3)
+
+                # ResultStore側で atomic write（out_dir mkdir は保存時のみ）
+                self.result_store.save_json(
+                    self.run_ctx,
+                    obj=summary_out,
+                    name="summary.json",
+                )
+            except Exception as e:
+                self.logger.error(f"save_json failed: {e}", exc_info=True)
         # ====================================
 
     def _safe_process_batch(self, batch: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
