@@ -5,8 +5,8 @@ import logging
 import signal
 import json
 from unittest.mock import Mock, MagicMock
-from batch_framework.core.signal_handler import SignalHandler
-from batch_framework.core.config_manager import ConfigManager
+from photo_insight.batch_framework.core.signal_handler import SignalHandler
+from photo_insight.batch_framework.core.config_manager import ConfigManager
 from tests.integration.dummy_batch_processor import DummyBatchProcessor
 
 

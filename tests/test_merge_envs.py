@@ -1,12 +1,12 @@
 import os
 import pytest
 import logging
-from photo_eval_env_manager.merge_envs import (
+from photo_insight.photo_eval_env_manager.merge_envs import (
     merge_envs,
     parse_conda_yaml,
     parse_pip_requirements,
 )
-from photo_eval_env_manager.envmerge.exceptions import (
+from photo_insight.photo_eval_env_manager.envmerge.exceptions import (
     VersionMismatchError,
     DuplicatePackageError,
 )

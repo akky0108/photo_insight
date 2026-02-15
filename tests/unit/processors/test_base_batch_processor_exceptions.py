@@ -2,8 +2,8 @@ import yaml
 import pytest
 from unittest.mock import MagicMock
 
-from batch_framework.base_batch import BaseBatchProcessor
-from batch_framework.core.hook_manager import HookType
+from photo_insight.batch_framework.base_batch import BaseBatchProcessor
+from photo_insight.batch_framework.core.hook_manager import HookType
 
 
 def _write_min_config(tmp_path) -> str:

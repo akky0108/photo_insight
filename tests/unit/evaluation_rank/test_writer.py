@@ -7,12 +7,12 @@ from typing import Any, Dict, List
 
 import pytest
 
-from batch_processor.evaluation_rank.contract import (
+from photo_insight.batch_processor.evaluation_rank.contract import (
     INPUT_REQUIRED_COLUMNS,
     OUTPUT_COLUMNS,
     validate_input_contract,
 )
-from batch_processor.evaluation_rank.writer import (
+from photo_insight.batch_processor.evaluation_rank.writer import (
     safe_int_flag,
     sort_rows_for_ranking,
     write_ranking_csv,    
@@ -236,8 +236,8 @@ def test_validate_input_contract_ok_with_required_columns() -> None:
     INPUT_REQUIRED_COLUMNS が揃っていれば例外にならない。
     """
     # NOTE: import path はあなたの実ファイルに合わせて調整してね
-    # 例: from batch_processor.evaluation_rank.evaluation_rank_batch_processor import _validate_input_contract
-    from batch_processor.evaluation_rank.contract import INPUT_REQUIRED_COLUMNS
+    # 例: from photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_processor import _validate_input_contract
+    from photo_insight.batch_processor.evaluation_rank.contract import INPUT_REQUIRED_COLUMNS
 
     header = list(INPUT_REQUIRED_COLUMNS)
     validate_input_contract(header=header, csv_path=Path("dummy.csv"))
@@ -247,7 +247,7 @@ def test_validate_input_contract_raises_with_missing_columns_message() -> None:
     """
     1列でも欠けていたら ValueError になり、missing数と一部列名がメッセージに入る。
     """
-    from batch_processor.evaluation_rank.contract import INPUT_REQUIRED_COLUMNS
+    from photo_insight.batch_processor.evaluation_rank.contract import INPUT_REQUIRED_COLUMNS
 
     # わざと2つ欠けさせる
     header = list(INPUT_REQUIRED_COLUMNS)
@@ -269,7 +269,7 @@ def test_validate_input_contract_message_truncates_after_20_columns() -> None:
     """
     missing が 20 を超えると preview が省略表記される。
     """
-    from batch_processor.evaluation_rank.contract import INPUT_REQUIRED_COLUMNS
+    from photo_insight.batch_processor.evaluation_rank.contract import INPUT_REQUIRED_COLUMNS
 
     # required のうち、先頭1個だけ残して大量に欠けさせる
     header = [INPUT_REQUIRED_COLUMNS[0]]

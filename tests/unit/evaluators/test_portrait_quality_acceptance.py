@@ -1,5 +1,5 @@
 import pytest
-from evaluators.portrait_quality.portrait_quality_evaluator import PortraitQualityEvaluator
+from photo_insight.evaluators.portrait_quality.portrait_quality_evaluator import PortraitQualityEvaluator
 
 
 def _base(**overrides):

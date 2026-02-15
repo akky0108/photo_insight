@@ -1,5 +1,5 @@
 import numpy as np
-from face_detectors.face_processor import FaceProcessor
+from photo_insight.face_detectors.face_processor import FaceProcessor
 
 
 class TestFaceProcessor:

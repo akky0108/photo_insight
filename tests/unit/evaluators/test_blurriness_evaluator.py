@@ -1,4 +1,4 @@
-from evaluators.blurriness_evaluator import BlurrinessEvaluator
+from photo_insight.evaluators.blurriness_evaluator import BlurrinessEvaluator
 
 
 def test_blurriness_evaluator_config_thresholds_affect_score():

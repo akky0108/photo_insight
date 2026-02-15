@@ -1,0 +1,16 @@
+# tests/assets/config.test.yaml
+append_mode: false
+base_directory_root: /tmp/photo_insight_test
+output_directory: temp
+
+# PortraitQualityBatchProcessor
+picture_root: /tmp/photo_insight_test
+batch_size: 2
+quality_profile: portrait
+evaluator_thresholds_path: null
+
+# （念のため：MemoryMonitor系で見られても落ちないように）
+batch:
+  memory_threshold: 90
+
+evaluator_thresholds_path: tests/assets/evaluator_thresholds.test.yaml

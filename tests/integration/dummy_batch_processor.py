@@ -1,6 +1,6 @@
 # tests/integration/dummy_batch_processor.py
 
-from batch_framework.base_batch import BaseBatchProcessor
+from photo_insight.batch_framework.base_batch import BaseBatchProcessor
 
 
 class DummyBatchProcessor(BaseBatchProcessor):

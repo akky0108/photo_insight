@@ -16,13 +16,13 @@ score_dist_tune.py
     - *_raw 併存必須
     - 満たさない metric はスキップ＋警告
 
-追加（退行検知・健全性チェック強化）:
-- metric_summary.csv に以下を追加
-    - current_accepted_ratio（ranking CSV から算出）
-    - direction_final（conflict/unknown を含む最終判定）
-    - current/new_target_match_ratio（target_flag_* の集約）
-    - delta_saturation_0plus1 / delta_tech_target_l1
-- validate_metric_summary.py で CI 向けに失敗/警告を判定可能にする
+追加（退行検知・健全性チェック強化） (#701-5):
+- metric_summary.csv に以下を追加/強化
+    - current/new の sat(0+1) と target_l1 を出力し退行を検知
+    - accepted率の current/new（ranking CSV から推定。可能なら acceptance.py で再計算）
+    - direction 整合性ラベル（unknown/conflict）
+    - score_discrete_ratio / in_range_ratio の current/new
+    - validation_pass / validation_fail_reasons を出力
 
 対象メトリクス（固定）:
 - 技術系: sharpness, blurriness, contrast, noise, local_contrast
@@ -32,7 +32,6 @@ score_dist_tune.py
 目標分布（技術系）:
 - 1.0: 5-10%, 0.75: 20-30%, 0.5: 25-35%, 0.25: 15-25%, 0.0: 10-15%
 → 自動閾値提案は「目標中心」に合わせた分位点境界を使う:
-  0.0=12.5%, 0.25=20%, 0.5=30%, 0.75=25%, 1.0=7.5%
   境界: t0=12.5%, t1=32.5%, t2=62.5%, t3=87.5%
 
 face系:
@@ -43,7 +42,7 @@ face系:
 - out_dir/new_params_used.json        (採用した閾値)
 - out_dir/score_distribution_long.csv (long形式 current/new)
 - out_dir/score_distribution_wide.csv (wide形式 + delta)
-- out_dir/metric_summary.csv          (metricごとの要約：飽和率・目標差など + 追加項目)
+- out_dir/metric_summary.csv          (metricごとの要約：飽和率・目標差など + 追加項目 + validation)
 - out_dir/plots/*_raw_hist.png
 - out_dir/plots/*_score_compare.png
 
@@ -51,7 +50,8 @@ face系:
   python tools/score_dist_tune.py
   python tools/score_dist_tune.py --n-files 5
   python tools/score_dist_tune.py --params-json temp/new_params.json
-  python tools/score_dist_tune.py --ranking-glob temp/evaluation_ranking_*.csv
+  python tools/score_dist_tune.py --ranking-glob "output/**/evaluation_ranking_*.csv"
+  python tools/score_dist_tune.py --validate-require-target-l1-improve --validate-direction-conflict-fail
 """
 
 from __future__ import annotations
@@ -62,13 +62,22 @@ import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
 import matplotlib
-matplotlib.use("Agg")   # ★ headless環境対応
-import matplotlib.pyplot as plt
+
+matplotlib.use("Agg")  # ★ headless環境対応
+import matplotlib.pyplot as plt  # noqa: E402
+
+# -------------------------------------------------
+# ensure import paths (evaluation_rank lives under src/batch_processor)
+# -------------------------------------------------
+REPO_ROOT = Path(__file__).resolve().parents[1]  # .../photo_insight
+BP_ROOT = REPO_ROOT / "src" / "batch_processor"
+if BP_ROOT.exists() and str(BP_ROOT) not in sys.path:
+    sys.path.insert(0, str(BP_ROOT))
 
 try:
     import yaml
@@ -80,11 +89,11 @@ DISCRETE_SET = set(DISCRETE_SCORES)
 
 # raw_transform の列挙（将来拡張しても互換が壊れにくいように固定）
 RAW_TRANSFORM_ENUM = {
-    "identity",         # 値はそのまま（高いほど良い）
+    "identity",  # 値はそのまま（高いほど良い）
     "lower_is_better",  # 値は変えず、score割当ロジックを逆向きにする
-    "negate",           # effective = -raw（将来導入する場合）
-    "affine",           # effective = a*raw + b（将来導入する場合）
-    "clip",             # effective = clip(raw, lo, hi)（将来導入する場合）
+    "negate",  # effective = -raw（将来導入する場合）
+    "affine",  # effective = a*raw + b（将来導入する場合）
+    "clip",  # effective = clip(raw, lo, hi)（将来導入する場合）
 }
 
 # 対象固定（score_col -> raw_col を自動派生）
@@ -136,6 +145,7 @@ class Thresholds:
     ※ noise_sigma_used のように「低いほど良い」場合は
        score_from_raw(..., higher_is_better=False) で反転評価する。
     """
+
     t0: float
     t1: float
     t2: float
@@ -258,11 +268,11 @@ def saturation_ratio(ratios: Dict[float, float]) -> float:
 
 
 def discrete_ratio(scores: pd.Series) -> float:
+    """
+    離散率は「母数からrange外を除外しない」。
+    range外は in_range_ratio が落とす責務。
+    """
     s = coerce_numeric(scores).dropna()
-    if s.empty:
-        return 0.0
-    # 0..1 範囲を前提に in-range を取ってから離散率判定
-    s = s[(s >= -0.001) & (s <= 1.001)]
     if s.empty:
         return 0.0
     r = s.map(lambda x: round_to_quarter(float(x)))
@@ -270,11 +280,11 @@ def discrete_ratio(scores: pd.Series) -> float:
     return float(ok.mean())
 
 
-def in_range_ratio(scores: pd.Series) -> float:
+def in_range_ratio(scores: pd.Series, *, eps: float = 1e-6) -> float:
     s = coerce_numeric(scores).dropna()
     if s.empty:
         return 0.0
-    ok = (s >= -0.001) & (s <= 1.001)
+    ok = (s >= -eps) & (s <= 1.0 + eps)
     return float(ok.mean())
 
 
@@ -326,12 +336,14 @@ def resolve_raw_col(df: pd.DataFrame, score_col: str) -> Tuple[Optional[str], st
             raw_direction = "lower_is_better"
             raw_transform = _direction_to_transform(raw_direction)
 
-            direction_meta.update({
-                "direction_inferred": False,
-                "corr": None,
-                "n_for_corr": 0,
-                "direction_note": "sigma_axis",
-            })
+            direction_meta.update(
+                {
+                    "direction_inferred": False,
+                    "corr": None,
+                    "n_for_corr": 0,
+                    "direction_note": "sigma_axis",
+                }
+            )
 
             return "noise_sigma_used", raw_source, raw_direction, raw_transform, direction_meta
 
@@ -371,13 +383,10 @@ def build_raw_transform_spec(
     return {
         "raw_direction": raw_direction,
         "raw_transform": raw_transform,
-
         "source_raw_col": source_raw_col,
         "effective_raw_col": effective_raw_col,
         "raw_source": raw_source,
-
         "higher_is_better": higher_is_better,
-
         "direction_inferred": dm.get("direction_inferred", False),
         "corr": dm.get("corr", None),
         "n_for_corr": dm.get("n_for_corr", 0),
@@ -392,6 +401,7 @@ def validate_score_column(
     *,
     min_samples: int,
     min_discrete_ratio: float,
+    eps: float = 1e-6,
 ) -> Tuple[bool, str]:
     # raw併存必須
     if raw_col not in df.columns:
@@ -404,7 +414,7 @@ def validate_score_column(
     if n < min_samples:
         return False, f"too few samples (n={n} < {min_samples})"
 
-    r_in = in_range_ratio(df[score_col])
+    r_in = in_range_ratio(df[score_col], eps=eps)
     if r_in < 0.98:
         return False, f"in-range ratio too low ({r_in:.3f} < 0.98); suspicious column"
 
@@ -486,15 +496,18 @@ def make_plots(
 
 
 def thresholds_list_to_mapping(metric: str, ts: List[float]) -> Optional[Dict[str, float]]:
+    """
+    evaluator_thresholds.yaml 形式の mapping に変換（tech/face共通）
+    """
     if len(ts) != 4:
         return None
 
     t0, t1, t2, t3 = [float(x) for x in ts]
 
-    if metric in ("sharpness", "contrast", "local_contrast"):
+    if metric in ("sharpness", "contrast", "local_contrast", "face_sharpness", "face_contrast"):
         return {"poor": t0, "fair": t1, "good": t2, "excellent": t3}
 
-    if metric == "blurriness":
+    if metric in ("blurriness", "face_blurriness"):
         return {"bad": t0, "poor": t1, "fair": t2, "good": t3}
 
     # noise は mapping 化しない（suggestions に “材料” として保存する）
@@ -556,6 +569,35 @@ def build_evaluator_config_from_chosen_params(chosen_params_out: Dict[str, Dict]
     return out
 
 
+def build_thresholds_dict_for_acceptance(chosen_params_out: Dict[str, Dict]) -> Dict[str, Any]:
+    """
+    acceptance.decide_accept(..., thresholds=...) に渡すための dict を（できる範囲で）構築する。
+
+    生成例:
+      {
+        "sharpness": {"discretize_thresholds_raw": {...}},
+        "blurriness": {"discretize_thresholds_raw": {...}},
+        ...
+        "face_blurriness": {"discretize_thresholds_raw": {...}},
+      }
+    """
+    out: Dict[str, Any] = {}
+
+    for metric, spec in chosen_params_out.items():
+        ts = spec.get("thresholds")
+        if not ts:
+            continue
+
+        mapping = thresholds_list_to_mapping(metric, ts)
+        if mapping is None:
+            continue
+
+        out.setdefault(metric, {})
+        out[metric]["discretize_thresholds_raw"] = mapping
+
+    return out
+
+
 def _unique_non_null_values(series: pd.Series) -> List[Any]:
     s = series.dropna()
     if s.empty:
@@ -599,10 +641,7 @@ def validate_dataframe_contract(df: pd.DataFrame) -> bool:
 
     missing = [k for k in expected.keys() if k not in df.columns]
     if missing:
-        warn(
-            "Contract warning: missing blurriness contract columns "
-            f"(allowed for now): {missing}"
-        )
+        warn("Contract warning: missing blurriness contract columns (allowed for now): " + str(missing))
         return ok  # 欠損はまだ止めない（段階導入）
 
     for col, exp in expected.items():
@@ -638,6 +677,7 @@ def dump_yaml_like(data: Dict[str, Any]) -> str:
     """
     PyYAMLが無い環境でも落ちない簡易YAML（この用途に十分）。
     """
+
     def _emit(obj, indent=0):
         sp = "  " * indent
         if isinstance(obj, dict):
@@ -664,7 +704,7 @@ def dump_yaml_like(data: Dict[str, Any]) -> str:
 
 
 # -----------------------------
-# added: accepted/direction/targets helpers (#701-5)
+# accepted/direction/targets helpers (#701-5)
 # -----------------------------
 def accepted_ratio_from_ranking(
     df: Optional[pd.DataFrame],
@@ -734,29 +774,148 @@ def _nan_to_empty(x: float) -> Any:
     return "" if x != x else float(x)
 
 
+def _is_nan(x: Any) -> bool:
+    try:
+        return bool(float(x) != float(x))
+    except Exception:
+        return True
+
+
+def validate_metric_row_701_5(
+    row: Dict[str, Any],
+    *,
+    sat_max: float,
+    accepted_delta_max: float,
+    discrete_min: float,
+    in_range_min: float,
+    require_target_l1_improve: bool,
+    direction_conflict_fail: bool,
+) -> Tuple[bool, List[str]]:
+    """
+    #701-5: 閾値調整後の分布健全性チェック
+    返り値: (pass, reasons)
+    """
+    reasons: List[str] = []
+
+    # 1) saturation
+    try:
+        new_sat = float(row.get("new_saturation_0plus1"))
+        if new_sat >= sat_max:
+            reasons.append(f"sat_0plus1>= {sat_max} (new={new_sat:.3f})")
+    except Exception:
+        reasons.append("sat_0plus1 missing/invalid")
+
+    # 2) accepted delta
+    cur_acc = row.get("current_accepted_ratio")
+    new_acc = row.get("new_accepted_ratio")
+    if _is_nan(cur_acc) or _is_nan(new_acc) or (cur_acc == "") or (new_acc == ""):
+        reasons.append("accepted_ratio missing (ranking/acceptance?)")
+    else:
+        try:
+            d = abs(float(new_acc) - float(cur_acc))
+            if d > accepted_delta_max:
+                reasons.append(f"accepted_delta> {accepted_delta_max} (abs_delta={d:.3f})")
+        except Exception:
+            reasons.append("accepted_ratio invalid")
+
+    # 3) direction consistency
+    dfin = str(row.get("direction_final", ""))
+    if dfin == "conflict" and direction_conflict_fail:
+        reasons.append("direction_conflict")
+
+    # 4) discrete ratio (new)
+    try:
+        new_disc = float(row.get("new_discrete_ratio"))
+        if new_disc < discrete_min:
+            reasons.append(f"discrete_ratio< {discrete_min} (new={new_disc:.3f})")
+    except Exception:
+        reasons.append("new_discrete_ratio missing/invalid")
+
+    # 5) in-range ratio (new)
+    try:
+        new_ir = float(row.get("new_in_range_ratio"))
+        if new_ir < in_range_min:
+            reasons.append(f"in_range_ratio< {in_range_min} (new={new_ir:.3f})")
+    except Exception:
+        reasons.append("new_in_range_ratio missing/invalid")
+
+    # 6) tech_target_l1 improve (tech only)
+    if require_target_l1_improve and row.get("type") == "tech":
+        try:
+            cur_l1 = float(row.get("current_tech_target_l1"))
+            new_l1 = float(row.get("new_tech_target_l1"))
+            if new_l1 > cur_l1:
+                reasons.append(f"tech_target_l1_regressed (cur={cur_l1:.6f}, new={new_l1:.6f})")
+        except Exception:
+            reasons.append("tech_target_l1 missing/invalid")
+
+    passed = len(reasons) == 0
+    return passed, reasons
+
+
+def compute_new_accepted_ratio_via_acceptance_from_results(
+    df_results_with_new_scores: pd.DataFrame,
+    *,
+    thresholds_for_acceptance: Dict[str, Any],
+) -> float:
+    """
+    evaluation_results 側（必要情報が揃っている想定）に new_score を反映した df を入力に、
+    acceptance.decide_accept を再実行して new_accepted_ratio を推定する。
+    """
+    if df_results_with_new_scores is None or df_results_with_new_scores.empty:
+        return float("nan")
+
+    try:
+        from evaluation_rank.acceptance import decide_accept  # type: ignore
+    except Exception as e:
+        warn(f"new accepted: cannot import evaluation_rank.acceptance.decide_accept: {e}")
+        return float("nan")
+
+    ok = 0
+    total = 0
+    first_err: Optional[str] = None
+
+    for _, r in df_results_with_new_scores.iterrows():
+        d = r.to_dict()
+        try:
+            try:
+                out = decide_accept(d, thresholds=thresholds_for_acceptance)
+            except TypeError:
+                out = decide_accept(d)
+            acc = bool(out[0]) if isinstance(out, (tuple, list)) and len(out) >= 1 else bool(out)
+            total += 1
+            if acc:
+                ok += 1
+        except Exception as e:
+            if first_err is None:
+                first_err = repr(e)
+            continue
+
+    if total == 0:
+        warn(f"new accepted: decide_accept failed for all rows: {first_err or 'unknown'}")
+        return float("nan")
+
+    return float(ok / total)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--input-glob", default="temp/evaluation_results_*.csv")
     ap.add_argument("--n-files", type=int, default=5)
     ap.add_argument("--out-dir", default="temp/score_dist_tune_out")
 
-    ap.add_argument("--params-json", default="",
-                    help="新パラメータをJSONで指定する場合のパス（未指定なら自動提案）")
+    ap.add_argument("--params-json", default="", help="新パラメータをJSONで指定する場合のパス（未指定なら自動提案）")
 
     # A確定仕様
     ap.add_argument("--min-samples", type=int, default=50)
     ap.add_argument("--min-discrete-ratio", type=float, default=0.95)
 
     # face系はデフォルト自動提案をしない（極端寄り抑制は“監視”）
-    ap.add_argument("--apply-face-auto", action="store_true",
-                    help="face系にも自動閾値提案を適用する（デフォルトはOFF推奨）")
-    ap.add_argument("--face-saturation-warn", type=float, default=0.80,
-                    help="face系で(0+1)飽和率がこの値を超えたら警告")
+    ap.add_argument("--apply-face-auto", action="store_true", help="face系にも自動閾値提案を適用する（デフォルトはOFF推奨）")
+    ap.add_argument("--face-saturation-warn", type=float, default=0.80, help="face系で(0+1)飽和率がこの値を超えたら警告")
 
-    ap.add_argument("--emit-config-yaml", default="",
-                    help="evaluator_thresholds.yaml 形式で出力するパス（例: temp/evaluator_thresholds.yaml）")
-    ap.add_argument("--emit-config-json", default="",
-                    help="同内容を JSON でも出力するパス（任意）")
+    ap.add_argument("--emit-config-yaml", default="", help="evaluator_thresholds.yaml 形式で出力するパス（例: temp/evaluator_thresholds.yaml）")
+    ap.add_argument("--emit-config-json", default="", help="同内容を JSON でも出力するパス（任意）")
 
     # accepted ratio (from evaluation_ranking_*.csv)
     ap.add_argument("--ranking-glob", default="temp/evaluation_ranking_*.csv")
@@ -770,6 +929,22 @@ def main() -> int:
         help="How to compute accepted ratio from ranking CSV",
     )
 
+    # #701-5 validation thresholds (SSOT)
+    ap.add_argument("--validate-sat-max", type=float, default=0.40, help="max allowed saturation(0+1) for NEW")
+    ap.add_argument("--validate-accepted-delta-max", type=float, default=0.10, help="max allowed abs delta accepted_ratio")
+    ap.add_argument("--validate-discrete-min", type=float, default=0.95, help="min allowed score_discrete_ratio for NEW")
+    ap.add_argument("--validate-in-range-min", type=float, default=0.98, help="min allowed in_range_ratio for NEW")
+    ap.add_argument(
+        "--validate-require-target-l1-improve",
+        action="store_true",
+        help="if set, require new_tech_target_l1 <= current_tech_target_l1 for tech metrics",
+    )
+    ap.add_argument(
+        "--validate-direction-conflict-fail",
+        action="store_true",
+        help="if set, direction_final=conflict causes FAIL (recommended for CI)",
+    )
+
     args = ap.parse_args()
 
     latest_files = find_latest_files(args.input_glob, args.n_files)
@@ -779,7 +954,7 @@ def main() -> int:
 
     df = read_concat_csv(latest_files)
 
-    # ---- CSV contract validation (追加②) ----
+    # ---- CSV contract validation ----
     if not validate_dataframe_contract(df):
         warn("CSV contract validation failed. Stop.")
         return 2
@@ -820,15 +995,18 @@ def main() -> int:
                 raise ValueError(f"params_json metric '{metric}' missing 'thresholds'")
             json_params[metric] = Thresholds.from_list(spec["thresholds"])
 
-    comparison_rows: List[Dict] = []
-    metric_summary: List[Dict] = []
-    chosen_params_out: Dict[str, Dict] = {}
+    comparison_rows: List[Dict[str, Any]] = []
+    metric_summary: List[Dict[str, Any]] = []
+    chosen_params_out: Dict[str, Dict[str, Any]] = {}
+
+    # new accepted 用に new score を results df に反映していく
+    df_new_scores = df.copy()
 
     for score_col in TARGET_SCORE_COLS:
         metric = score_col.replace("_score", "")
 
         raw_col, raw_source, raw_direction, raw_transform, direction_meta = resolve_raw_col(df, score_col)
-        higher_is_better = (raw_direction == "higher_is_better")
+        higher_is_better = raw_direction == "higher_is_better"
         raw_note = raw_source  # 互換（必要なら別文字列でもOK）
 
         if raw_col is None:
@@ -852,7 +1030,6 @@ def main() -> int:
 
         raw = df[raw_col]
         cur_score = df[score_col]
-
         raw_num = coerce_numeric(raw)
 
         # -----------------------------
@@ -929,6 +1106,10 @@ def main() -> int:
             new_score = coerce_numeric(cur_score)
             thresholds_out = None
 
+        # new accepted のために results df の score 列を new_score に置換
+        if score_col in df_new_scores.columns:
+            df_new_scores[score_col] = pd.to_numeric(new_score, errors="coerce")
+
         note = ""
         if metric == "noise":
             note = "noise thresholds here are suggestions only; apply tool converts them to good_sigma/warn_sigma"
@@ -968,14 +1149,26 @@ def main() -> int:
         # -----------------------------
         for sv in DISCRETE_SCORES:
             comparison_rows.append(
-                {"metric": metric, "which": "current", "score": sv, "count": cur_counts.get(sv, 0), "ratio": cur_ratios.get(sv, 0.0)}
+                {
+                    "metric": metric,
+                    "which": "current",
+                    "score": sv,
+                    "count": cur_counts.get(sv, 0),
+                    "ratio": cur_ratios.get(sv, 0.0),
+                }
             )
             comparison_rows.append(
-                {"metric": metric, "which": "new", "score": sv, "count": new_counts.get(sv, 0), "ratio": new_ratios.get(sv, 0.0)}
+                {
+                    "metric": metric,
+                    "which": "new",
+                    "score": sv,
+                    "count": new_counts.get(sv, 0),
+                    "ratio": new_ratios.get(sv, 0.0),
+                }
             )
 
         # -----------------------------
-        # summary (#701-5 追記)
+        # summary (#701-5)
         # -----------------------------
         direction_final = decide_direction_final(
             higher_is_better=higher_is_better,
@@ -994,18 +1187,17 @@ def main() -> int:
             "higher_is_better": higher_is_better,
             "threshold_source": thr_source,
             "thresholds": thr.to_list() if thr is not None else "",
-            "current_saturation_0plus1": cur_sat,
-            "new_saturation_0plus1": new_sat,
+            "current_saturation_0plus1": float(cur_sat),
+            "new_saturation_0plus1": float(new_sat),
             "delta_saturation_0plus1": float(new_sat - cur_sat),
             "current_discrete_ratio": float(discrete_ratio(cur_score)),
             "new_discrete_ratio": float(discrete_ratio(new_score)),
             "current_in_range_ratio": float(in_range_ratio(cur_score)),
             "new_in_range_ratio": float(in_range_ratio(new_score)),
             "raw_resolve": raw_note,
-
             "current_accepted_ratio": _nan_to_empty(current_accepted_ratio),
+            "new_accepted_ratio": "",  # 後でまとめて計算して埋める
             "direction_final": direction_final,
-
             "direction_inferred": raw_spec.get("direction_inferred", False),
             "direction_corr": raw_spec.get("corr", ""),
             "direction_n_for_corr": raw_spec.get("n_for_corr", 0),
@@ -1062,7 +1254,9 @@ def main() -> int:
 
         if is_tech:
             info(f"  tech_target_l1: {cur_l1:.6f} -> {new_l1:.6f}")
-            info(f"  target_match_ratio: {_nan_to_empty(target_match_ratio(cur_flags))} -> {_nan_to_empty(target_match_ratio(new_flags))}")
+            info(
+                f"  target_match_ratio: {_nan_to_empty(target_match_ratio(cur_flags))} -> {_nan_to_empty(target_match_ratio(new_flags))}"
+            )
 
         if metric == "noise":
             info(
@@ -1074,6 +1268,32 @@ def main() -> int:
     if not comparison_rows:
         warn("No valid metrics produced outputs (all skipped by checks).")
         return 2
+
+    # -----------------------------
+    # new accepted ratio (best-effort)
+    # -----------------------------
+    thresholds_for_acceptance = build_thresholds_dict_for_acceptance(chosen_params_out)
+    new_accepted_ratio = compute_new_accepted_ratio_via_acceptance_from_results(
+        df_new_scores,
+        thresholds_for_acceptance=thresholds_for_acceptance,
+    )
+
+
+    # metric_summary 行に new_accepted_ratio を埋めて、validation を確定
+    for row in metric_summary:
+        row["new_accepted_ratio"] = _nan_to_empty(new_accepted_ratio)
+
+        v_pass, v_reasons = validate_metric_row_701_5(
+            row,
+            sat_max=args.validate_sat_max,
+            accepted_delta_max=args.validate_accepted_delta_max,
+            discrete_min=args.validate_discrete_min,
+            in_range_min=args.validate_in_range_min,
+            require_target_l1_improve=bool(args.validate_require_target_l1_improve),
+            direction_conflict_fail=bool(args.validate_direction_conflict_fail),
+        )
+        row["validation_pass"] = bool(v_pass)
+        row["validation_fail_reasons"] = ";".join(v_reasons)
 
     # save params
     params_path = out_dir / "new_params_used.json"
@@ -1107,12 +1327,10 @@ def main() -> int:
     long_csv = out_dir / "score_distribution_long.csv"
     comp_df.to_csv(long_csv, index=False)
 
-    cur_df = comp_df[comp_df["which"] == "current"].rename(
-        columns={"count": "current_count", "ratio": "current_ratio"}
-    ).drop(columns=["which"])
-    new_df = comp_df[comp_df["which"] == "new"].rename(
-        columns={"count": "new_count", "ratio": "new_ratio"}
-    ).drop(columns=["which"])
+    cur_df = comp_df[comp_df["which"] == "current"].rename(columns={"count": "current_count", "ratio": "current_ratio"}).drop(
+        columns=["which"]
+    )
+    new_df = comp_df[comp_df["which"] == "new"].rename(columns={"count": "new_count", "ratio": "new_ratio"}).drop(columns=["which"])
     wide = pd.merge(cur_df, new_df, on=["metric", "score"], how="outer").fillna(0)
     wide["delta_ratio"] = wide["new_ratio"] - wide["current_ratio"]
     wide_csv = out_dir / "score_distribution_wide.csv"
@@ -1131,6 +1349,7 @@ def main() -> int:
     info(f"  wide    : {wide_csv}")
     info(f"  summary : {summary_csv}")
     info(f"  plots   : {plots_dir}")
+    info(f"  accepted: current={_nan_to_empty(current_accepted_ratio)} new={_nan_to_empty(new_accepted_ratio)}")
     return 0
 
 
