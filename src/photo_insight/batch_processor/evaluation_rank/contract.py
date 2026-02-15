@@ -2,9 +2,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-# contract.py
-from __future__ import annotations
-
 from pathlib import Path
 from typing import List, Sequence
 
@@ -158,6 +155,10 @@ OUTPUT_COLUMNS = [
     "accepted_flag",
     "secondary_accept_flag",
     "blurriness_score",
+    "blurriness_score_brightness_adjusted",
+    "blurriness_raw",
+    "blurriness_grade",
+    "mean_brightness",
     "sharpness_score",
     "contrast_score",
     "noise_score",
@@ -168,6 +169,11 @@ OUTPUT_COLUMNS = [
     "face_noise_score",
     "face_local_sharpness_score",
     "face_local_contrast_score",
+    "face_blurriness_score",
+    "face_blurriness_score_brightness_adjusted",
+    "face_blurriness_raw",
+    "face_blurriness_grade",
+    "face_mean_brightness",
     "composition_rule_based_score",
     "face_position_score",
     "framing_score",
