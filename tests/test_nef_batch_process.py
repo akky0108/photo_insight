@@ -5,8 +5,8 @@ from pathlib import Path
 from unittest.mock import MagicMock
 from concurrent.futures import ThreadPoolExecutor
 
-from batch_processor.nef_batch_process import NEFFileBatchProcess
-import batch_framework.utils.io_utils as io_utils
+from photo_insight.batch_processor.nef_batch_process import NEFFileBatchProcess
+import photo_insight.batch_framework.utils.io_utils as io_utils
 
 # --- 共通フィクスチャ ---
 @pytest.fixture

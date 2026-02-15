@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from evaluators.color_balance_evaluator import ColorBalanceEvaluator
+from photo_insight.evaluators.color_balance_evaluator import ColorBalanceEvaluator
 
 
 @pytest.fixture

@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from image_utils.image_preprocessor import ImagePreprocessor
+from photo_insight.image_utils.image_preprocessor import ImagePreprocessor
 
 
 def create_dummy_image(height=300, width=400, channels=3):

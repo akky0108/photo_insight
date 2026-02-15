@@ -1,6 +1,6 @@
 import pytest
 
-from evaluators.portrait_quality.metric_mapping import MetricResultMapper
+from photo_insight.evaluators.portrait_quality.metric_mapping import MetricResultMapper
 
 
 def test_mapper_noise_global():

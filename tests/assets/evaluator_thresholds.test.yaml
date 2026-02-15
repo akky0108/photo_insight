@@ -1,0 +1,3 @@
+# tests/assets/evaluator_thresholds.test.yaml
+# テストでは「存在して読み込める」ことだけ担保
+{}

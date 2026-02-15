@@ -1,11 +1,28 @@
 import sys
 import os
-import pytest
-from unittest.mock import MagicMock
-from batch_framework.base_batch import BaseBatchProcessor
-from batch_framework.core.hook_manager import HookType
 
+# ★ 先に src を import path に入れる（重要）
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
+
+import pytest
+from pathlib import Path
+from unittest.mock import MagicMock
+from photo_insight.batch_framework.base_batch import BaseBatchProcessor
+from photo_insight.batch_framework.core.hook_manager import HookType
+
+# -----------------------------
+# ★A: Config をテスト用に固定
+# -----------------------------
+@pytest.fixture(autouse=True)
+def _set_test_config_env(monkeypatch):
+    repo_root = Path(__file__).resolve().parents[1]
+
+    # ConfigManager がここを見る
+    monkeypatch.setenv("PROJECT_ROOT", str(repo_root))
+
+    # 既存fixtureで使ってるパスに合わせる（tests/fixtures/test_config.yaml）
+    cfg = repo_root / "tests" / "fixtures" / "test_config.yaml"
+    monkeypatch.setenv("CONFIG_PATH", str(cfg))
 
 
 @pytest.fixture

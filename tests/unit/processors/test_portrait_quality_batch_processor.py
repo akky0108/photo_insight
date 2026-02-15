@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import MagicMock, patch
-from portrait_quality_batch_processor import PortraitQualityBatchProcessor
+from photo_insight.portrait_quality_batch_processor import PortraitQualityBatchProcessor
 
 
 @pytest.fixture

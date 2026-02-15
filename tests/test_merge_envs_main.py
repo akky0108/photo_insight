@@ -2,10 +2,10 @@ import pytest
 import sys
 from types import SimpleNamespace
 from unittest import mock
-from photo_eval_env_manager import merge_envs as target_module
-from photo_eval_env_manager.merge_envs import run_cli
-from utils.app_logger import AppLogger
-import photo_eval_env_manager.merge_envs as main_module
+from photo_insight.photo_eval_env_manager import merge_envs as target_module
+from photo_insight.photo_eval_env_manager.merge_envs import run_cli
+from photo_insight.utils.app_logger import AppLogger
+import photo_insight.photo_eval_env_manager.merge_envs as main_module
 
 
 def test_main_logs_exception_and_exits(monkeypatch):
@@ -116,7 +116,7 @@ def test_run_cli_strict_mode_conflict(tmp_path, logger):
         log_level="INFO",
     )
 
-    from photo_eval_env_manager.envmerge.exceptions import VersionMismatchError
+    from photo_insight.photo_eval_env_manager.envmerge.exceptions import VersionMismatchError
 
     with pytest.raises(VersionMismatchError):
         run_cli(args, logger)
@@ -137,7 +137,7 @@ def test_run_cli_duplicate_version_conflict(tmp_path, logger):
         log_level="INFO",
     )
 
-    from photo_eval_env_manager.envmerge.exceptions import VersionMismatchError
+    from photo_insight.photo_eval_env_manager.envmerge.exceptions import VersionMismatchError
     with pytest.raises(VersionMismatchError):
         run_cli(args, logger)
 
