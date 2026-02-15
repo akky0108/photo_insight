@@ -143,8 +143,36 @@ class ResultStore:
     def save_jsonl(self, ctx: RunContext, *, rows: list[dict], name: str = "results.jsonl") -> Path:
         """
         JSONL を atomic に保存する。
+        numpy / Path / datetime 等が混ざっても落ちない。
         """
-        lines = "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n"
+
+        def _default(o: Any):
+            # --- numpy scalar 対応 (np.float32, np.int64 等) ---
+            try:
+                import numpy as np  # type: ignore
+                if isinstance(o, np.generic):
+                    return o.item()
+            except Exception:
+                pass
+
+            # --- Path 対応 ---
+            from pathlib import Path
+            if isinstance(o, Path):
+                return str(o)
+
+            # --- datetime など ---
+            try:
+                return o.isoformat()
+            except Exception:
+                pass
+
+            # 最終 fallback
+            return str(o)
+
+        lines = "\n".join(
+            json.dumps(r, ensure_ascii=False, default=_default) for r in rows
+        ) + "\n"
+
         path = ctx.out_dir / name
         _atomic_write_text(lines, path)
         return path
