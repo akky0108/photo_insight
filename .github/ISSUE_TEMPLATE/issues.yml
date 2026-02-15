@@ -1,0 +1,505 @@
+issues:
+
+   # ==================================================
+  # EPIC #701 : Noise
+  # ==================================================
+  - id: epic_noise_701
+    title: "[#701] Noise 指標の raw/反転/閾値自動調整パイプラインを整理・安定化"
+    body: |
+      **概要**  
+      NoiseEvaluator・score_dist_tune・config 反映の流れを統合的に整理し、
+      raw 値の反転仕様・自動閾値提案・設定反映を安全に運用できる基盤へ改善する。
+
+      **狙い（Why）**
+      - noise_raw / noise_sigma_used / 反転仕様の混乱を解消
+      - 閾値調整の属人化を防止
+      - 分布チューニングの再現性を確保
+
+      **成果物（DoD）**
+      - raw_direction / raw_transform が常に出力される
+      - raw 解決優先順位が固定されている
+      - config の SSOT が good/warn に統一されている
+      - 分布健全性チェックが自動化されている
+
+      **追加DoD（E2E/運用）**
+      - score_dist_tune → new_params_used.json → apply_noise_suggestions → evaluator_thresholds.yaml 更新 → 再評価
+        の一連が「手順書 + 1本の回帰テスト（またはスモーク）」で再現できる
+      - noise の suggestions は “提案” として保存され、SSOT（good_sigma/warn_sigma）更新は apply 工程のみで行われる
+      - 適用ガード: good_sigma < warn_sigma を保証（逆転時は中断 or warn + swap の方針を固定）
+
+    labels: [enhancement, noise, scoring, threshold, tuning]
+    children:
+      - noise_raw_direction_contract
+      - noise_raw_resolution_priority
+      - noise_raw_metadata_export
+      - noise_config_ssot
+      - noise_quantile_to_sigma_rule
+      - noise_suggestion_apply_tool
+      - noise_distribution_validation
+      - noise_design_doc_update
+      # --- 追加 ---
+      - noise_apply_guardrails
+      - noise_e2e_smoke_pipeline
+      - noise_suggestions_schema_contract
+
+
+  - id: noise_raw_direction_contract
+    title: "[#701-7] raw 向き（higher_is_better）契約の導入と一般化"
+    body: |
+      - resolve_raw_col() が raw_col / direction / transform を返す
+      - score_dist_tune は transform 適用後に推定
+      - 出力 JSON に必ず direction/transform を含める
+
+      対象: tools/score_dist_tune.py
+
+      **進捗メモ**
+      - raw_spec を chosen_params_out に常時出力する方針で実装済み（direction/transform/col情報）
+      - noise は sigma軸で lower_is_better を明示する方針へ寄せる
+
+
+  - id: noise_raw_resolution_priority
+    title: "[#701-2] noise_raw 優先解決ルールの固定"
+    body: |
+      優先順位:
+      1) noise_raw
+      2) noise_sigma_used
+      3) fallback + 反転
+
+      対象: tools/score_dist_tune.py
+
+      **注意（現状との整合チェック）**
+      - 現実装が「noise は sigma 優先（noise_sigma_used）」に寄っている場合、
+        ここは仕様の再確認が必要（要: “score_dist_tune の主軸は sigma” に合わせるなら優先順位を更新）
+
+
+  - id: noise_raw_metadata_export
+    title: "[#701-1] raw 変換メタ情報の出力強化"
+    body: |
+      chosen_params_out に以下を必須追加:
+      - effective_raw_col
+      - source_raw_col
+      - raw_transform
+      - raw_direction
+
+      **進捗メモ**
+      - raw_spec ネストで上記を包含する形で出力（raw_spec.effective_raw_col 等）
+      - 互換キー（higher_is_better 等）も残す方針
+
+
+  - id: noise_config_ssot
+    title: "[#701-8] Noise 閾値 SSOT の確立"
+    body: |
+      - evaluator は good_sigma / warn_sigma のみ参照
+      - suggestions は別管理
+
+      **追加（運用ルール）**
+      - config/noise の SSOT は good_sigma,warn_sigma
+      - score_dist_tune は SSOT を直接書き換えない
+      - apply 工程のみが SSOT を更新する
+
+
+  - id: noise_quantile_to_sigma_rule
+    title: "[#701-3] quantile→sigma 変換ルール標準化"
+    body: |
+      - good_sigma = -good_quantile
+      - warn_sigma = -poor_quantile
+
+      **更新（現状反映）**
+      - “sigma軸” で保存する場合は符号反転は不要
+      - 変換ルール（sigma軸 / thresholds_5bin = [t0,t1,t2,t3]）:
+        - good_sigma = thresholds_5bin[1]  （0.75/0.5 境界）
+        - warn_sigma = thresholds_5bin[3]  （0.25/0.0 境界）
+      - raw軸（noise_raw=-sigma）で提案する方式は「過去互換」扱いに寄せ、推奨は sigma軸に統一
+
+
+  - id: noise_suggestion_apply_tool
+    title: "[#701-4] suggestions 自動反映ツール整備"
+    body: |
+      - JSON/YAML 入力
+      - dry-run
+      - 差分表示
+
+      **進捗メモ（完了寄り）**
+      - tests/test_apply_noise_suggestions.py が PASS
+      - dry-run で diff 表示確認済み
+      - --apply で config/evaluator_thresholds.yaml に noise.good_sigma / warn_sigma を反映
+      - .bak バックアップ作成あり
+
+      **残タスク（任意：堅牢化）**
+      - suggestions 欠損/不正形のエラーメッセージ改善
+      - good_sigma < warn_sigma ガード（逆転時の扱いを固定）
+      - 既存 noise セクションがある場合の “merge/upsert” 方針を明確化
+
+
+  - id: noise_distribution_validation
+    title: "[#701-5] Noise 分布健全性チェック基準"
+    body: |
+      - 飽和率 < 0.4
+      - accepted率 ±10%
+      - direction 整合性
+
+      **追加（実装寄りのチェック項目）**
+      - score_discrete_ratio >= 0.95（0.25刻み）
+      - in_range_ratio >= 0.98（0..1 微小許容）
+      - metric_summary.csv に current/new の sat と target_l1 を出力し退行を検知できる
+
+
+  - id: noise_design_doc_update
+    title: "[#701-6] NoiseEvaluator 設計ドキュメント更新"
+    body: |
+      - raw 反転理由
+      - tune 連携構造
+      - SSOT 運用
+
+      **追加（章立て/差し込み箇所）**
+      - Tuning Integration: suggestions（sigma軸）と SSOT（good/warn）の分離
+      - apply 手順（dry-run → apply）と、変換ルール（good=bin[1], warn=bin[3]）
+
+
+  # --------------------------
+  # 追加: apply の安全柵
+  # --------------------------
+  - id: noise_apply_guardrails
+    title: "[#701-9] apply_noise_suggestions ガード・入力バリデーション強化"
+    body: |
+      **目的**
+      apply 工程での事故（逆転・欠損・別schema混入）を防ぐ。
+
+      **スコープ**
+      - params の schema 検証（noise_suggestions.noise.thresholds_5bin が必須）
+      - good_sigma < warn_sigma の保証（逆転時は中断 or warn+swap）
+      - 既存 config の noise セクション有無に関わらず “upsert” で更新
+
+      **DoD**
+      - 代表的な不正入力パターンでテストが追加され PASS
+      - dry-run と apply の出力が分かりやすい（どこから取ったか明示）
+
+
+  # --------------------------
+  # 追加: E2Eスモーク（パイプライン）
+  # --------------------------
+  - id: noise_e2e_smoke_pipeline
+    title: "[#701-10] Noise tuning→apply→再評価 のE2Eスモーク手順・最小テスト"
+    body: |
+      **目的**
+      “分析→提案→反映→再評価” を1本の最小手順で再現できるようにする。
+
+      **スコープ**
+      - score_dist_tune 実行（new_params_used.json / metric_summary.csv が出る）
+      - apply_noise_suggestions 実行（dry-run→apply）
+      - evaluator_thresholds.yaml に good/warn が入り、NoiseEvaluator がそれを参照して再評価できる
+
+      **DoD**
+      - docs/運用メモにコマンド列を記載
+      - 可能なら “小さなサンプルCSV” を使ったスモークテスト1本（落ちない/更新される）
+
+
+  # --------------------------
+  # 追加: suggestions schema 契約
+  # --------------------------
+  - id: noise_suggestions_schema_contract
+    title: "[#701-11] noise_suggestions schema 契約（JSON/YAML）固定"
+    body: |
+      **目的**
+      score_dist_tune の出力と apply_tool の入力がズレないように、契約を固定する。
+
+      **内容（案）**
+      - noise_suggestions:
+          noise:
+            axis: "sigma"
+            thresholds_5bin: [t0,t1,t2,t3]
+            good_sigma_suggestion: t1
+            warn_sigma_suggestion: t3
+            raw_col: noise_sigma_used
+            raw_spec: { raw_direction: lower_is_better, ... }
+      - “raw軸（noise_raw=-sigma）での提案” は互換として残す場合は version/axis で識別する
+
+      **DoD**
+      - docs/ に schema を明記
+      - apply_tool が schema を前提に安全に動く（バリデーションあり）
+
+
+
+  # ==================================================
+  # EPIC #702 : Blurriness
+  # ==================================================
+  - id: epic_blurriness_702
+    title: "[#702] Blurriness raw/向き/閾値再設計"
+    body: |
+      blurriness_score の中間分布を安定させる。
+    labels: [enhancement, blurriness, scoring, threshold]
+    children:
+      - blurriness_direction_contract
+      - blurriness_threshold_reestimate
+      - face_blurriness_threshold_split
+      - blurriness_brightness_adjust_validation
+
+
+  - id: blurriness_direction_contract
+    title: "[#702-1] Blurriness direction 契約固定"
+    body: |
+      raw の意味を明文化
+
+
+  - id: blurriness_threshold_reestimate
+    title: "[#702-2] Blurriness 閾値再推定"
+    body: |
+      分布ベース再設計
+
+
+  - id: face_blurriness_threshold_split
+    title: "[#702-3] face_blurriness 閾値分離"
+    body: |
+      顔用 thresholds
+
+
+  - id: blurriness_brightness_adjust_validation
+    title: "[#702-4] 明るさ補正検証"
+    body: |
+      差分・相関確認
+
+
+  # ==================================================
+  # EPIC #703 : Contrast
+  # ==================================================
+  - id: epic_contrast_703
+    title: "[#703] Contrast / FaceContrast 閾値分離"
+    body: |
+      分布正常化
+    labels: [enhancement, contrast, scoring, threshold]
+    children:
+      - contrast_threshold_reestimate
+      - face_contrast_threshold_split
+      - contrast_grade_mapping_review
+
+
+  - id: contrast_threshold_reestimate
+    title: "[#703-1] contrast 閾値再推定"
+    body: |
+      分布再設計
+
+
+  - id: face_contrast_threshold_split
+    title: "[#703-2] face_contrast 閾値分離"
+    body: |
+      顔用 thresholds
+
+
+  - id: contrast_grade_mapping_review
+    title: "[#703-3] grade 整理"
+    body: |
+      mapping 見直し
+
+
+  # ==================================================
+  # EPIC #704 : LocalContrast
+  # ==================================================
+  - id: epic_local_contrast_704
+    title: "[#704] LocalContrast 意味強化"
+    body: |
+      解像度・信頼性向上
+    labels: [enhancement, local_contrast, scoring, threshold]
+    children:
+      - local_contrast_threshold_reestimate
+      - local_contrast_std_penalty_rule
+      - local_contrast_contract_doc
+
+
+  - id: local_contrast_threshold_reestimate
+    title: "[#704-1] local_contrast 閾値再推定"
+    body: |
+      分布再設計
+
+
+  - id: local_contrast_std_penalty_rule
+    title: "[#704-2] std ペナルティ"
+    body: |
+      減点定義
+
+
+  - id: local_contrast_contract_doc
+    title: "[#704-3] local_contrast 契約"
+    body: |
+      定義明文化
+
+
+  # ==================================================
+  # EPIC #705 : Rule of Thirds
+  # ==================================================
+  - id: epic_rot_705
+    title: "[#705] Rule of Thirds 統合修正"
+    body: |
+      ROT 統合安定化
+    labels: [bug, composition, scoring]
+    children:
+      - rot_score_generation_check
+      - rot_contrib_wiring_fix
+      - rot_threshold_tuning
+
+
+  - id: rot_score_generation_check
+    title: "[#705-1] ROT score 生成点検"
+    body: |
+      raw→score
+
+
+  - id: rot_contrib_wiring_fix
+    title: "[#705-2] ROT 寄与修正"
+    body: |
+      wiring 修正
+
+
+  - id: rot_threshold_tuning
+    title: "[#705-3] ROT 閾値"
+    body: |
+      再設計
+
+
+  # ==================================================
+  # EPIC #706 : Acceptance
+  # ==================================================
+  - id: epic_acceptance_706
+    title: "[#706] Acceptance デバッグ基盤整備"
+    body: |
+      accepted 可視化
+    labels: [enhancement, acceptance, analysis, debugging]
+    children:
+      - acceptance_debug_top_percent_flag
+      - rejected_reason_breakdown_report
+      - acceptance_sensitivity_check
+      - rejected_reason_alias_map_hardening
+      - rejected_reason_score_correlation
+      - rejected_reason_taxonomy_cleanup
+
+
+
+  - id: acceptance_debug_top_percent_flag
+    title: "[#706-1] 仮accepted(top%)"
+    body: |
+      上位%フラグ
+
+
+  - id: rejected_reason_breakdown_report
+    title: "[#706-2] rejected_reason 集計"
+    body: |
+      内訳可視化
+
+      **Phase1 Done**
+      - rejected_reason を正規化して rejected のみ集計
+      - summary CSV 出力: reason,count,ratio
+      - テスト追加: tests/unit/evaluation_rank/ 配下、PASS（単体・ディレクトリ）
+
+      **Next**
+      - #706-4 alias_map 最適化
+      - #706-5 スコア相関（平均値）レポート
+      - #706-6 taxonomy 整理（SSOT化）
+
+
+
+  - id: acceptance_sensitivity_check
+    title: "[#706-3] accepted率検知"
+    body: |
+      退行警告
+
+  - id: rejected_reason_alias_map_hardening
+    title: "[#706-4] rejected_reason alias_map 最適化"
+    body: |
+      **目的**
+      rejected_reason の表記揺れを吸収し、unknown を最小化して分析精度を上げる。
+
+      **スコープ**
+      - alias_map（別名→正規名）の整備
+      - normalize の最小強化（trim/lower/space→_ は維持）
+      - unknown 集計比率の監視（ログ）
+
+      **DoD**
+      - unknown 比率が明確に低下（例: 5%未満を目標）
+      - alias_map がコード or config で一元管理される
+      - 代表的な揺れ（英語/日本語/略語/typo）を吸収できる
+
+      **備考**
+      Phase1 の集計CSVを材料に alias 候補を抽出して辞書化する。
+
+  - id: rejected_reason_score_correlation
+    title: "[#706-5] rejected_reason × スコア相関（平均値）レポート"
+    body: |
+      **目的**
+      「その理由で落ちている」妥当性をスコア平均で検証し、閾値調整の判断材料にする。
+
+      **スコープ**
+      - reason ごとに主要スコアの平均/分散を集計
+      - 例: blurriness_score / noise_score / exposure_score / face系など
+
+      **出力**
+      - rejected_reason_score_stats.csv
+        - columns: reason, count, ratio, avg_<metric>..., std_<metric>...
+
+      **DoD**
+      - 上位 reason について平均スコアが直感と整合する
+      - 指標欠損があっても壊れない（safe_float / NA処理）
+      - 分析が本処理を落とさない（warningで継続）
+
+  - id: rejected_reason_taxonomy_cleanup
+    title: "[#706-6] Acceptance rejected_reason taxonomy 整理（SSOT化）"
+    body: |
+      **目的**
+      rejected_reason の種類・命名・粒度を整理し、Acceptance側をSSOTにして downstream 集計を安定させる。
+
+      **スコープ**
+      - AcceptanceEngine が出力する rejected_reason を canonical set に統一
+      - 1枚に複数理由がある場合の扱いを固定（例: primary_reason + secondary_reasons）
+      - 既存 reason の互換（alias_mapで吸収 or 移行期間を設ける）
+
+      **DoD**
+      - canonical reason set が定義されている（コード or config）
+      - Acceptance の全 reject 分岐が canonical reason を返す
+      - 互換方針が明文化される（古い値の扱い）
+
+  # ==================================================
+  # EPIC #707 : Scoring / Weighting
+  # ==================================================
+  - id: epic_scoring_707
+    title: "[#707] Overall scoring 重み・寄与最適化"
+    body: |
+      overall_score の構成要素（tech/face/comp 等）の重み付けを可視化・検証・最適化し、
+      採用精度と主観品質の一致度を高める。
+
+      **狙い（Why）**
+      - スコア合成のブラックボックス化を防止
+      - 調整を経験則から実験ベースへ移行
+      - shot_type 別最適化への布石
+
+      **成果物（DoD）**
+      - contrib_* の分布・平均が accepted / rejected 別に可視化されている
+      - 重み変更の影響を測るための土台が整っている（次Issueへ接続可能）
+      - 分析は本処理を落とさない（warning で継続）
+
+    labels: [enhancement, scoring, optimization, analysis]
+    children:
+      - scoring_contribution_report
+
+
+  - id: scoring_contribution_report
+    title: "[#707-1] contrib 寄与率レポート生成"
+    body: |
+      **目的**
+      overall_score の寄与（contrib_*）が、accepted / rejected でどう違うかを可視化し、
+      重み調整・閾値調整の判断材料を作る。
+
+      **スコープ**
+      - ranking 最終 rows から contrib_* 列を自動検出して集計
+      - accepted_flag により accepted / rejected に分割
+      - 欠損・文字列混入でも壊れない（safe_float / NAスキップ）
+
+      **出力**
+      - output/contrib_summary.csv
+        - columns: group, metric, count, avg, std, min, max
+        - group: accepted / rejected
+        - metric: contrib_*（自動検出）
+        - sort: group, metric
+
+      **DoD**
+      - contrib_summary.csv が生成される
+      - accepted / rejected それぞれで集計行が出る
+      - テスト追加（tests/unit/evaluation_rank/ 配下）
+      - 本処理は失敗しても継続（warning ログ）

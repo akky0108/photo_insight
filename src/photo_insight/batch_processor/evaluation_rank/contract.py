@@ -162,6 +162,7 @@ OUTPUT_COLUMNS = [
     "sharpness_score",
     "contrast_score",
     "noise_score",
+    "noise_score_brightness_adjusted",
     "local_sharpness_score",
     "local_contrast_score",
     "face_sharpness_score",
