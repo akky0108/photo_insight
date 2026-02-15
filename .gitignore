@@ -1,51 +1,105 @@
-# OS固有ファイル
+# =========================
+# OS / IDE
+# =========================
 .DS_Store
-
-# IDE・エディタ設定
+Thumbs.db
 .vscode/
+.idea/
 
-# .env ファイルを無視
+# =========================
+# Python caches / test caches
+# =========================
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.cache/
+.tox/
+htmlcov/
+.coverage
+coverage.xml
+
+# =========================
+# Build artifacts
+# =========================
+dist/
+build/
+*.egg-info/
+
+# =========================
+# Notebooks
+# =========================
+.ipynb_checkpoints/
+
+# =========================
+# Virtualenv / env
+# =========================
 .env
+.venv/
+venv/
+photo_eval_env/
 
-# ログファイルや一時ファイルを無視
+# =========================
+# Runtime logs
+# =========================
 logs/
+*.log
+
+# =========================
+# Runtime / generated outputs (project specific)
+# =========================
+# 評価出力・中間生成物（巨大化しやすい）
 output/
 temp/
 processed_txt/
 wandb/
+tmp/
 
-# Python のコンパイル済みファイルを無視
-*.pyc
-__pycache__/
+# out_* 系の生成物（例: out_brightness_validate/ など）
+out_*/
+out-*/
+out.*/
+out*/
 
-# Conda ロックファイルなども無視
+# =========================
+# Runs (結論: 対象外でOK → ignore 推奨)
+# =========================
+Runs/
+runs/
+
+# =========================
+# Conda / lock
+# =========================
 conda-lock.yml
 
-# その他、依存関係管理関連
-*.json
-*.txt
-*.yml
-!environment.yml
-!environment_*.yml
-!requirements.txt
-!requirements-dev.txt
-!/.github/workflows/ci.yml
+# =========================
+# Local scratch / backups
+# =========================
+*.bak
+*.swp
+*~
 
-# CI用に除外する依存関係ファイル
+# =========================
+# CI helper
+# =========================
 exclude_for_ci.txt
 
-# シェルスクリプトなどの実行ログファイル
-*.log
+# =========================
+# Docs: 「仕様は残す」「生成物だけ落とす」
+# =========================
+docs/**/generated/
+docs/**/out_*/
+docs/**/summary_*.json
+docs/**/pairs_*.csv
 
-# Jupyter Notebook
-.ipynb_checkpoints/
+# もし docs/ に “意図せず吐かれる” 分析結果が出るなら追加で守る
+docs/**/brightness_comp_summary.json
+docs/**/brightness_comp_pairs.csv
 
-# テスト・ビルドキャッシュなど
-htmlcov/
-.tox/
-.cache/
-pytest_cache/
-*.egg-info/
-dist/
-build/
-*.bak
+# =========================
+# Environment snapshots (pip list / freeze)
+# =========================
+pip_list*.json
+pip_list*.txt
+pip_freeze*.txt
+pip_freeze*.json

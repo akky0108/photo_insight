@@ -1,8 +1,9 @@
+# src/tools/score_dist_tune.py
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 """
-score_dist_tune.py
+score_dist_tune.py (moved under src/tools)
 
 「現状の分布」→「目標分布に寄せる新閾値」→「raw→score再計算」→「分布比較」を一気に出す。
 
@@ -38,20 +39,12 @@ face系:
 - 現段階は「極端寄り抑制」を“監視”に留める（警告と可視化）。
 - 自動閾値提案の適用は --apply-face-auto で切替可能（デフォルトOFF推奨）。
 
-出力:
-- out_dir/new_params_used.json        (採用した閾値)
-- out_dir/score_distribution_long.csv (long形式 current/new)
-- out_dir/score_distribution_wide.csv (wide形式 + delta)
-- out_dir/metric_summary.csv          (metricごとの要約：飽和率・目標差など + 追加項目 + validation)
-- out_dir/plots/*_raw_hist.png
-- out_dir/plots/*_score_compare.png
-
 使い方:
-  python tools/score_dist_tune.py
-  python tools/score_dist_tune.py --n-files 5
-  python tools/score_dist_tune.py --params-json temp/new_params.json
-  python tools/score_dist_tune.py --ranking-glob "output/**/evaluation_ranking_*.csv"
-  python tools/score_dist_tune.py --validate-require-target-l1-improve --validate-direction-conflict-fail
+  python -m src.tools.score_dist_tune
+  python -m src.tools.score_dist_tune --n-files 5
+  python -m src.tools.score_dist_tune --params-json temp/new_params.json
+  python -m src.tools.score_dist_tune --ranking-glob "output/**/evaluation_ranking_*.csv"
+  python -m src.tools.score_dist_tune --validate-require-target-l1-improve --validate-direction-conflict-fail
 """
 
 from __future__ import annotations
@@ -72,12 +65,17 @@ matplotlib.use("Agg")  # ★ headless環境対応
 import matplotlib.pyplot as plt  # noqa: E402
 
 # -------------------------------------------------
-# ensure import paths (evaluation_rank lives under src/batch_processor)
+# ensure import paths (src is importable)
 # -------------------------------------------------
-REPO_ROOT = Path(__file__).resolve().parents[1]  # .../photo_insight
-BP_ROOT = REPO_ROOT / "src" / "batch_processor"
-if BP_ROOT.exists() and str(BP_ROOT) not in sys.path:
-    sys.path.insert(0, str(BP_ROOT))
+REPO_ROOT = Path(__file__).resolve().parents[2]  # .../photo_insight
+SRC_ROOT = REPO_ROOT / "src"
+if SRC_ROOT.exists() and str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+# -------------------------------------------------
+# #701-5 SSOT validation
+# -------------------------------------------------
+from .score_dist_validation import Criteria7015, validate_row_701_5  # noqa: E402
 
 try:
     import yaml
@@ -520,10 +518,6 @@ def thresholds_list_to_mapping(metric: str, ts: List[float]) -> Optional[Dict[st
 def build_evaluator_config_from_chosen_params(chosen_params_out: Dict[str, Dict]) -> Dict[str, Dict]:
     """
     chosen_params_out（new_params_used.json 相当）から evaluator config（YAML用dict）を組み立てる。
-
-    方針:
-    - face_* は基本スキップ（同一 evaluator を使っているため）
-    - noise は suggestions にのみ出す（good_sigma/warn_sigma 方式を尊重）
     """
     out: Dict[str, Dict] = {}
     noise_sugg: Dict[str, Any] = {}
@@ -572,14 +566,6 @@ def build_evaluator_config_from_chosen_params(chosen_params_out: Dict[str, Dict]
 def build_thresholds_dict_for_acceptance(chosen_params_out: Dict[str, Dict]) -> Dict[str, Any]:
     """
     acceptance.decide_accept(..., thresholds=...) に渡すための dict を（できる範囲で）構築する。
-
-    生成例:
-      {
-        "sharpness": {"discretize_thresholds_raw": {...}},
-        "blurriness": {"discretize_thresholds_raw": {...}},
-        ...
-        "face_blurriness": {"discretize_thresholds_raw": {...}},
-      }
     """
     out: Dict[str, Any] = {}
 
@@ -608,10 +594,6 @@ def _unique_non_null_values(series: pd.Series) -> List[Any]:
 def validate_dataframe_contract(df: pd.DataFrame) -> bool:
     """
     CSV列契約チェック（追加②）
-
-    - まずは blurriness の raw direction 契約だけ “厳密” に検査する。
-    - 欠損は WARN（段階導入）
-    - 値が違う/複数混在は ERROR 扱い（False）
     """
     ok = True
 
@@ -774,101 +756,50 @@ def _nan_to_empty(x: float) -> Any:
     return "" if x != x else float(x)
 
 
-def _is_nan(x: Any) -> bool:
-    try:
-        return bool(float(x) != float(x))
-    except Exception:
-        return True
-
-
-def validate_metric_row_701_5(
-    row: Dict[str, Any],
-    *,
-    sat_max: float,
-    accepted_delta_max: float,
-    discrete_min: float,
-    in_range_min: float,
-    require_target_l1_improve: bool,
-    direction_conflict_fail: bool,
-) -> Tuple[bool, List[str]]:
-    """
-    #701-5: 閾値調整後の分布健全性チェック
-    返り値: (pass, reasons)
-    """
-    reasons: List[str] = []
-
-    # 1) saturation
-    try:
-        new_sat = float(row.get("new_saturation_0plus1"))
-        if new_sat >= sat_max:
-            reasons.append(f"sat_0plus1>= {sat_max} (new={new_sat:.3f})")
-    except Exception:
-        reasons.append("sat_0plus1 missing/invalid")
-
-    # 2) accepted delta
-    cur_acc = row.get("current_accepted_ratio")
-    new_acc = row.get("new_accepted_ratio")
-    if _is_nan(cur_acc) or _is_nan(new_acc) or (cur_acc == "") or (new_acc == ""):
-        reasons.append("accepted_ratio missing (ranking/acceptance?)")
-    else:
-        try:
-            d = abs(float(new_acc) - float(cur_acc))
-            if d > accepted_delta_max:
-                reasons.append(f"accepted_delta> {accepted_delta_max} (abs_delta={d:.3f})")
-        except Exception:
-            reasons.append("accepted_ratio invalid")
-
-    # 3) direction consistency
-    dfin = str(row.get("direction_final", ""))
-    if dfin == "conflict" and direction_conflict_fail:
-        reasons.append("direction_conflict")
-
-    # 4) discrete ratio (new)
-    try:
-        new_disc = float(row.get("new_discrete_ratio"))
-        if new_disc < discrete_min:
-            reasons.append(f"discrete_ratio< {discrete_min} (new={new_disc:.3f})")
-    except Exception:
-        reasons.append("new_discrete_ratio missing/invalid")
-
-    # 5) in-range ratio (new)
-    try:
-        new_ir = float(row.get("new_in_range_ratio"))
-        if new_ir < in_range_min:
-            reasons.append(f"in_range_ratio< {in_range_min} (new={new_ir:.3f})")
-    except Exception:
-        reasons.append("new_in_range_ratio missing/invalid")
-
-    # 6) tech_target_l1 improve (tech only)
-    if require_target_l1_improve and row.get("type") == "tech":
-        try:
-            cur_l1 = float(row.get("current_tech_target_l1"))
-            new_l1 = float(row.get("new_tech_target_l1"))
-            if new_l1 > cur_l1:
-                reasons.append(f"tech_target_l1_regressed (cur={cur_l1:.6f}, new={new_l1:.6f})")
-        except Exception:
-            reasons.append("tech_target_l1 missing/invalid")
-
-    passed = len(reasons) == 0
-    return passed, reasons
-
-
 def compute_new_accepted_ratio_via_acceptance_from_results(
     df_results_with_new_scores: pd.DataFrame,
     *,
-    thresholds_for_acceptance: Dict[str, Any],
+    thresholds_for_acceptance: Optional[Dict[str, Any]] = None,
 ) -> float:
     """
-    evaluation_results 側（必要情報が揃っている想定）に new_score を反映した df を入力に、
-    acceptance.decide_accept を再実行して new_accepted_ratio を推定する。
+    df_results_with_new_scores に new_score を反映済みとして、
+    ポートレート受け入れ判定を再実行し new_accepted_ratio を推定する。
+
+    NOTE:
+    - evaluator_thresholds（discretize_thresholds_raw）とは別系統の閾値が accept rules に存在するため、
+      thresholds_for_acceptance は「accept rules 用のキー体系」であることが前提。
+      未指定(None)なら accept rules のデフォルトで判定する。
     """
     if df_results_with_new_scores is None or df_results_with_new_scores.empty:
         return float("nan")
 
+    decide_accept = None
+    err_msgs: List[str] = []
+
+    # 1) canonical (current "truth"): evaluators accept rules
     try:
-        from evaluation_rank.acceptance import decide_accept  # type: ignore
+        from photo_insight.evaluators.portrait_accept_rules import decide_accept as _decide_accept  # type: ignore
+        decide_accept = _decide_accept
     except Exception as e:
-        warn(f"new accepted: cannot import evaluation_rank.acceptance.decide_accept: {e}")
+        err_msgs.append(f"portrait_accept_rules import failed: {e}")
+
+    # 2) legacy fallbacks (keep for safety)
+    if decide_accept is None:
+        for mod_path in [
+            "photo_insight.batch_processor.evaluation_rank.acceptance",
+            "batch_processor.evaluation_rank.acceptance",
+            "evaluation_rank.acceptance",
+        ]:
+            try:
+                acc_mod = __import__(mod_path, fromlist=["*"])
+                if hasattr(acc_mod, "decide_accept") and callable(getattr(acc_mod, "decide_accept")):
+                    decide_accept = getattr(acc_mod, "decide_accept")
+                    break
+            except Exception as e:
+                err_msgs.append(f"{mod_path} import failed: {e}")
+
+    if decide_accept is None:
+        warn("new accepted: cannot import decide_accept. " + " | ".join(err_msgs))
         return float("nan")
 
     ok = 0
@@ -878,10 +809,15 @@ def compute_new_accepted_ratio_via_acceptance_from_results(
     for _, r in df_results_with_new_scores.iterrows():
         d = r.to_dict()
         try:
-            try:
-                out = decide_accept(d, thresholds=thresholds_for_acceptance)
-            except TypeError:
+            # thresholds 引数を受ける/受けない両対応
+            if thresholds_for_acceptance is not None:
+                try:
+                    out = decide_accept(d, thresholds=thresholds_for_acceptance)
+                except TypeError:
+                    out = decide_accept(d)
+            else:
                 out = decide_accept(d)
+
             acc = bool(out[0]) if isinstance(out, (tuple, list)) and len(out) >= 1 else bool(out)
             total += 1
             if acc:
@@ -896,6 +832,7 @@ def compute_new_accepted_ratio_via_acceptance_from_results(
         return float("nan")
 
     return float(ok / total)
+
 
 
 def main() -> int:
@@ -918,7 +855,7 @@ def main() -> int:
     ap.add_argument("--emit-config-json", default="", help="同内容を JSON でも出力するパス（任意）")
 
     # accepted ratio (from evaluation_ranking_*.csv)
-    ap.add_argument("--ranking-glob", default="temp/evaluation_ranking_*.csv")
+    ap.add_argument("--ranking-glob", default="output/**/evaluation_ranking_*.csv")
     ap.add_argument("--ranking-n-files", type=int, default=5)
     ap.add_argument("--accepted-col", default="accepted_flag")
     ap.add_argument("--secondary-accepted-col", default="secondary_accept_flag")
@@ -1149,22 +1086,10 @@ def main() -> int:
         # -----------------------------
         for sv in DISCRETE_SCORES:
             comparison_rows.append(
-                {
-                    "metric": metric,
-                    "which": "current",
-                    "score": sv,
-                    "count": cur_counts.get(sv, 0),
-                    "ratio": cur_ratios.get(sv, 0.0),
-                }
+                {"metric": metric, "which": "current", "score": sv, "count": cur_counts.get(sv, 0), "ratio": cur_ratios.get(sv, 0.0)}
             )
             comparison_rows.append(
-                {
-                    "metric": metric,
-                    "which": "new",
-                    "score": sv,
-                    "count": new_counts.get(sv, 0),
-                    "ratio": new_ratios.get(sv, 0.0),
-                }
+                {"metric": metric, "which": "new", "score": sv, "count": new_counts.get(sv, 0), "ratio": new_ratios.get(sv, 0.0)}
             )
 
         # -----------------------------
@@ -1278,20 +1203,21 @@ def main() -> int:
         thresholds_for_acceptance=thresholds_for_acceptance,
     )
 
+    # -----------------------------
+    # #701-5 validation (SSOT)
+    # -----------------------------
+    criteria = Criteria7015(
+        sat_max=args.validate_sat_max,
+        accepted_delta_max=args.validate_accepted_delta_max,
+        discrete_min=args.validate_discrete_min,
+        in_range_min=args.validate_in_range_min,
+        require_target_l1_improve=bool(args.validate_require_target_l1_improve),
+        direction_conflict_fail=bool(args.validate_direction_conflict_fail),
+    )
 
-    # metric_summary 行に new_accepted_ratio を埋めて、validation を確定
     for row in metric_summary:
         row["new_accepted_ratio"] = _nan_to_empty(new_accepted_ratio)
-
-        v_pass, v_reasons = validate_metric_row_701_5(
-            row,
-            sat_max=args.validate_sat_max,
-            accepted_delta_max=args.validate_accepted_delta_max,
-            discrete_min=args.validate_discrete_min,
-            in_range_min=args.validate_in_range_min,
-            require_target_l1_improve=bool(args.validate_require_target_l1_improve),
-            direction_conflict_fail=bool(args.validate_direction_conflict_fail),
-        )
+        v_pass, v_reasons = validate_row_701_5(row, criteria=criteria)
         row["validation_pass"] = bool(v_pass)
         row["validation_fail_reasons"] = ";".join(v_reasons)
 
