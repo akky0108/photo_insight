@@ -2,8 +2,8 @@ import os
 import numpy as np
 import cv2
 import pytest
-from evaluators.portrait_quality.portrait_quality_evaluator import PortraitQualityEvaluator
-from utils.app_logger import Logger
+from photo_insight.evaluators.portrait_quality.portrait_quality_evaluator import PortraitQualityEvaluator
+from photo_insight.utils.app_logger import Logger
 
 ASSETS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../assets"))
 

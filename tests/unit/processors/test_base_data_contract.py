@@ -2,7 +2,7 @@ import yaml
 from typing import Any, Dict, List
 from unittest.mock import MagicMock
 
-from batch_framework.base_batch import BaseBatchProcessor
+from photo_insight.batch_framework.base_batch import BaseBatchProcessor
 
 
 def _write_min_config(tmp_path) -> str:

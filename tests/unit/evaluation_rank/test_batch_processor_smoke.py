@@ -7,12 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from batch_processor.evaluation_rank.contract import (
+from photo_insight.batch_processor.evaluation_rank.contract import (
     INPUT_REQUIRED_COLUMNS,
     OUTPUT_COLUMNS,
 )
 
-from batch_processor.evaluation_rank.evaluation_rank_batch_processor import (
+from photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_processor import (
     EvaluationRankBatchProcessor,
 )
 from tests.unit.processors.test_portrait_quality_batch_processor import processor

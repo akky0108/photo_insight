@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 from unittest.mock import MagicMock
-from evaluators.fullbody_composition_evaluator import FullBodyCompositionEvaluator
+from photo_insight.evaluators.fullbody_composition_evaluator import FullBodyCompositionEvaluator
 
 # === Fixtures ===
 

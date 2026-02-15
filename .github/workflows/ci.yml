@@ -31,6 +31,11 @@ jobs:
         run: |
           pytest -q tests/unit/evaluation_rank
 
+      - name: Validate metric_summary (regression gate)
+        run: |
+          python tools/validate_metric_summary.py \
+            --summary-csv tests/fixtures/score_dist_tune/metric_summary.csv
+
   lint-and-format:
     runs-on: ubuntu-latest
 

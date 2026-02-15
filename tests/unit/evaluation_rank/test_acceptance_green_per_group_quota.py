@@ -1,7 +1,7 @@
 import math
 import pytest
 
-from batch_processor.evaluation_rank.acceptance import AcceptanceEngine, AcceptRules
+from photo_insight.batch_processor.evaluation_rank.acceptance import AcceptanceEngine, AcceptRules
 
 
 def _row(
