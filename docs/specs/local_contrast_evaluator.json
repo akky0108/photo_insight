@@ -1,0 +1,72 @@
+{
+  "slug": "local_contrast_evaluator",
+  "name": "LocalContrastEvaluator",
+  "overview": "局所的な陰影の締まりやコントラスト不足（眠い写真）を、ブロック単位の統計量に基づいて安定的に検出する評価モジュール。",
+  "purpose": "露出や入力スケール（0..255 / 0..1 / float）に依存せず、陰影の弱さ・立体感の欠如を定量化し、ランキング・合成評価で再現性のある指標として提供する。",
+  "algorithm": "1) 入力画像をグレースケール化。2) block_size ごとに分割。3) 各ブロックの std/mean 比率を算出。4) 低ダイナミックブロックを除外。5) 有効ブロック群に winsorize を適用。6) 中央値を local_contrast_raw、分散を local_contrast_std とする。7) raw を SSOT 閾値に基づき5段階スコアへ変換する。",
+  "normalization": "std/mean 比率によるスケール非依存指標を採用する。raw は物理量寄り指標として保持し、discretize_thresholds_raw により離散化する。raw は higher_is_better 契約とする。",
+  "tuning_integration": "score_dist_tune は local_contrast_raw（ratio軸）に基づく境界を suggestions として保存する。運用SSOT（discretize_thresholds_raw）は自動更新せず、apply工程でのみ反映する。",
+  "fallback": "ブロック不足・raw 非有限・異常値検出時は global std/mean 比率へフォールバックする。fallback 時は local_contrast_eval_status=\"fallback_used\" とし、理由を local_contrast_fallback_reason に必ず記録する。global 計算も失敗した場合は invalid_input とする。",
+  "testing": "1) 出力項目の存在保証。2) 離散値の妥当性。3) 小画像・単色画像で安全にフォールバック。4) uint8/float01 入力での安定性。5) raw契約（higher_is_better）の維持。6) 異常入力時に例外を出さないことを保証する。",
+  "future": "face_local_contrast への展開、マルチスケール評価、露出・ノイズ連携補正、分布ドリフト検知、自動チューニング精度向上。",
+  "philosophy": "Raw（診断）と Score（運用）を分離する。異常や条件不足は黙殺せず必ず status/reason に残す。SSOTとsuggestionsを分離し、再現性と追跡性を最優先する。",
+  "fields": [
+    {
+      "name": "local_contrast_raw",
+      "type": "float|null",
+      "desc": "ブロック std/mean 比率の中央値（診断・チューニング用。高いほど良い）。"
+    },
+    {
+      "name": "local_contrast_score",
+      "type": "float",
+      "desc": "5段階離散スコア（1.0 / 0.75 / 0.5 / 0.25 / 0.0）。"
+    },
+    {
+      "name": "local_contrast_grade",
+      "type": "str",
+      "desc": "ラベル（excellent / good / fair / poor / bad）。"
+    },
+    {
+      "name": "local_contrast_std",
+      "type": "float|null",
+      "desc": "ブロック比率のばらつき（安定性指標）。"
+    },
+    {
+      "name": "local_contrast_eval_status",
+      "type": "str",
+      "desc": "評価状態（ok / fallback_used / invalid_input）。"
+    },
+    {
+      "name": "local_contrast_fallback_reason",
+      "type": "str|null",
+      "desc": "フォールバック理由（例: insufficient_blocks / nonfinite_raw / global_invalid）。"
+    },
+    {
+      "name": "success",
+      "type": "bool",
+      "desc": "評価成功フラグ（invalid_input時のみ false）。"
+    },
+    {
+      "name": "num_valid_blocks",
+      "type": "int|null",
+      "desc": "評価に使用された有効ブロック数。"
+    },
+    {
+      "name": "image_dtype",
+      "type": "str|null",
+      "desc": "入力画像dtype。"
+    }
+  ],
+  "history": [
+    {
+      "date": "2026-02",
+      "change": "std/mean 比率による局所コントラスト評価、winsorize集約、フォールバック機構を整備",
+      "author": "akky0108"
+    },
+    {
+      "date": "2026-02",
+      "change": "raw契約・SSOT/suggestions分離・評価契約を明文化",
+      "author": "akky0108"
+    }
+  ]
+}
