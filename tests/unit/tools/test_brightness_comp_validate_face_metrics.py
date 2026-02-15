@@ -6,9 +6,9 @@ from pathlib import Path
 
 import sys
 REPO_ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from src.tools.brightness_comp_validate import run, SCHEMA_VERSION
+from tools.brightness_comp_validate import run, SCHEMA_VERSION  # type: ignore
 
 
 def _write_ranking_csv(path: Path) -> None:
@@ -30,7 +30,6 @@ def _write_ranking_csv(path: Path) -> None:
         "face_blurriness_raw",
     ]
 
-    # 2行、face_detected=True で face_* が有効
     rows = [
         {
             "file_name": "a.jpg",
@@ -67,8 +66,7 @@ def _write_ranking_csv(path: Path) -> None:
     with path.open("w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, fieldnames=header)
         w.writeheader()
-        for r in rows:
-            w.writerow(r)
+        w.writerows(rows)
 
 
 def test_face_metrics_present(tmp_path: Path) -> None:
@@ -76,7 +74,10 @@ def test_face_metrics_present(tmp_path: Path) -> None:
     _write_ranking_csv(ranking_csv)
 
     out_dir = tmp_path / "out"
-    summary_path = run(root_dir=tmp_path / "output", date=None, out_dir=out_dir)
+    summary_path = run(
+        ranking_glob=str(tmp_path / "output" / "**" / "evaluation_ranking_*.csv"),
+        out_dir=out_dir,
+    )
 
     data = json.loads(summary_path.read_text(encoding="utf-8"))
     assert data["schema_version"] == SCHEMA_VERSION
