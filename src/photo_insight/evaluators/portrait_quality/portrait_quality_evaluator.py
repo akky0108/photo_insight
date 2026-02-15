@@ -130,7 +130,9 @@ class PortraitQualityEvaluator:
 
         # 前処理器で画像を一括取得
         self.face_evaluator = FaceEvaluator(backend="insightface")
-        self.face_processor = FaceProcessor(self.face_evaluator, logger=self.logger)
+
+        # ★ 重要: 引数で face_processor が渡されていればそれを優先（テストDI/差し替え用）
+        self.face_processor = face_processor or FaceProcessor(self.face_evaluator, logger=self.logger)
 
         self.preprocessor = ImagePreprocessor(
             logger=self.logger, is_raw=self.is_raw, gamma=1.2
@@ -350,40 +352,44 @@ class PortraitQualityEvaluator:
             best_face = self.face_processor.get_best_face(faces)
             if best_face:
                 cropped_face_rgb_u8 = self.face_processor.crop_face(self.rgb_u8, best_face)
-                cropped_face_bgr_u8 = cv2.cvtColor(cropped_face_rgb_u8, cv2.COLOR_RGB2BGR)
+                if cropped_face_rgb_u8 is not None:
+                    cropped_face_bgr_u8 = cv2.cvtColor(cropped_face_rgb_u8, cv2.COLOR_RGB2BGR)
 
-                face_attrs = self.face_processor.extract_attributes(best_face) or {}
-                results["yaw"] = face_attrs.get("yaw", 0.0)
-                results["pitch"] = face_attrs.get("pitch", 0.0)
-                results["roll"] = face_attrs.get("roll", 0.0)
-                results["gaze"] = face_attrs.get("gaze", [0, 0])
+                    face_attrs = self.face_processor.extract_attributes(best_face) or {}
+                    results["yaw"] = face_attrs.get("yaw", 0.0)
+                    results["pitch"] = face_attrs.get("pitch", 0.0)
+                    results["roll"] = face_attrs.get("roll", 0.0)
+                    results["gaze"] = face_attrs.get("gaze", [0, 0])
 
-                # face_box_height_ratio
-                try:
-                    h, _w = self.rgb_u8.shape[:2]
-                    box = best_face.get("box")
-                    if box and len(box) == 4 and h > 0:
-                        x1, y1, x2, y2 = box
-                        face_h = max(1.0, float(y2 - y1))
-                        results["face_box_height_ratio"] = float(face_h / float(h))
-                    else:
+                    # face_box_height_ratio
+                    try:
+                        h, _w = self.rgb_u8.shape[:2]
+                        box = best_face.get("box") or best_face.get("bbox")
+                        if box and len(box) == 4 and h > 0:
+                            x1, y1, x2, y2 = box
+                            face_h = max(1.0, float(y2 - y1))
+                            results["face_box_height_ratio"] = float(face_h / float(h))
+                        else:
+                            results["face_box_height_ratio"] = 0.0
+                    except Exception:
                         results["face_box_height_ratio"] = 0.0
-                except Exception:
-                    results["face_box_height_ratio"] = 0.0
 
-                results["lead_room_score"] = self._calc_lead_room_score(
-                    self.rgb_u8, best_face, float(results.get("yaw", 0.0))
-                )
-
-                results.update(
-                    self._eval_metrics(
-                        cropped_face_bgr_u8,
-                        FACE_REGION_METRICS,
-                        prefix="face_",
-                        tag="face",
-                        evaluators_dict=self.evaluators_face,
+                    results["lead_room_score"] = self._calc_lead_room_score(
+                        self.rgb_u8, best_face, float(results.get("yaw", 0.0))
                     )
-                )
+
+                    results.update(
+                        self._eval_metrics(
+                            cropped_face_bgr_u8,
+                            FACE_REGION_METRICS,
+                            prefix="face_",
+                            tag="face",
+                            evaluators_dict=self.evaluators_face,
+                        )
+                    )
+                else:
+                    # 顔は検出されたが crop に失敗したケース：ログだけ残して global へ
+                    self.logger.warning("Face detected but crop_face returned None. Skip face-region metrics.")
 
             # -------------------------
             # global metrics
@@ -665,15 +671,13 @@ class PortraitQualityEvaluator:
             # （ただしPython reprが来る可能性もある）
             results["faces"] = str(faces)
 
-        # もし他にも dict/list をCSVに入れてる列があればここに追加してOK
-        # 例: results["gaze"] が list のままなら JSON にするなど
         gaze = results.get("gaze")
         if isinstance(gaze, (list, dict)):
             results["gaze"] = _to_json_str(gaze)
 
     def _calc_lead_room_score(self, image: np.ndarray, best_face: Dict[str, Any], yaw: float) -> float:
         h, W = image.shape[:2]
-        box = best_face.get("box")
+        box = best_face.get("box") or best_face.get("bbox")
         if not box or len(box) != 4:
             return 0.0
 

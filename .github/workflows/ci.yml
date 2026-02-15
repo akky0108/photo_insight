@@ -27,8 +27,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
-      - name: Run unit tests (evaluation_rank only)
+      - name: Run unit tests
         run: |
+          pytest -q tests/unit/core
           pytest -q tests/unit/evaluation_rank
 
       - name: Validate metric_summary (regression gate)
