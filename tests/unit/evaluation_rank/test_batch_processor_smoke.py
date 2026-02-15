@@ -11,11 +11,9 @@ from photo_insight.batch_processor.evaluation_rank.contract import (
     INPUT_REQUIRED_COLUMNS,
     OUTPUT_COLUMNS,
 )
-
 from photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_processor import (
     EvaluationRankBatchProcessor,
 )
-from tests.unit.processors.test_portrait_quality_batch_processor import processor
 
 
 def _write_min_input_csv(csv_path: Path) -> None:
@@ -26,16 +24,29 @@ def _write_min_input_csv(csv_path: Path) -> None:
     csv_path.parent.mkdir(parents=True, exist_ok=True)
 
     # 雑な1行データ（列ごとに “それっぽい” ダミーを入れる）
-    row = {}
-    for c in INPUT_REQUIRED_COLUMNS:
-        # まずは空で埋める（writer/normalizer側で落ちない設計ならこれでもOK）
-        row[c] = ""
+    row: dict[str, str] = {c: "" for c in INPUT_REQUIRED_COLUMNS}
 
-    # 重要そうなやつだけ最低限埋める（型事故・パース事故を避ける）
+    # 必須の識別系
     row["file_name"] = "dummy.jpg"
+    row["group_id"] = "A"
+    row["subgroup_id"] = "1"
+    row["shot_type"] = "upper_body"
 
-    # スコア系: 0..1
-    for k in [
+    # bool系
+    row["face_detected"] = "1"
+    row["full_body_detected"] = "0"
+
+    # faces / gaze は文字列として入ることが多いので JSON 文字列で
+    row["faces"] = json.dumps([])
+    row["gaze"] = json.dumps({"x": 0.0, "y": 0.0, "z": 0.0})
+
+    # accepted_* は入力に必須
+    row["accepted_flag"] = "0"
+    row["accepted_reason"] = ""
+
+    # --- score系 (0..1) ---
+    score_like_keys = [
+        # technical / face / composition scores
         "sharpness_score",
         "blurriness_score",
         "contrast_score",
@@ -59,17 +70,23 @@ def _write_min_input_csv(csv_path: Path) -> None:
         "body_composition_score",
         "composition_score",
         "rule_of_thirds_score",
-        "face_blurriness_score",
         "face_composition_score",
-    ]:
+        "face_blurriness_score",
+        # brightness adjusted variants (rank sideで参照されうる)
+        "blurriness_score_brightness_adjusted",
+        "noise_score_brightness_adjusted",
+        "face_blurriness_score_brightness_adjusted",
+    ]
+    for k in score_like_keys:
         if k in row:
             row[k] = "0.75"
 
-    # raw系: 適当な数値
-    for k in [
+    # --- raw/ratio/angle系 (適当な数値) ---
+    raw_like_keys = [
         "sharpness_raw",
         "blurriness_raw",
         "contrast_raw",
+        "noise_raw",
         "noise_sigma_midtone",
         "noise_sigma_used",
         "noise_mask_ratio",
@@ -80,7 +97,9 @@ def _write_min_input_csv(csv_path: Path) -> None:
         "mean_brightness",
         "face_sharpness_raw",
         "face_contrast_raw",
+        "face_noise_raw",
         "face_noise_sigma_midtone",
+        "face_noise_sigma_used",
         "face_noise_mask_ratio",
         "face_local_sharpness_std",
         "face_local_contrast_std",
@@ -104,42 +123,18 @@ def _write_min_input_csv(csv_path: Path) -> None:
         "pose_score",
         "body_height_ratio",
         "body_center_y_ratio",
-    ]:
+    ]
+    for k in raw_like_keys:
         if k in row:
             row[k] = "1.0"
-
-    # bool系
-    row["face_detected"] = "1"
-    row["full_body_detected"] = "0"
 
     # status / grade 系（最低限OKに寄せる）
     for k in list(row.keys()):
         if k.endswith("_eval_status") or k.endswith("_status"):
             row[k] = "ok"
-
     for k in list(row.keys()):
         if k.endswith("_grade"):
             row[k] = "good"
-
-    # faces: 文字列として入る想定のことが多いので JSON 文字列で
-    row["faces"] = json.dumps([])
-
-    # gaze: dict文字列でもOK
-    row["gaze"] = json.dumps({"x": 0.0, "y": 0.0, "z": 0.0})
-
-    # group/subgroup/shot_type
-    row["group_id"] = "A"
-    row["subgroup_id"] = "1"
-    row["shot_type"] = "upper_body"
-
-    # contrib_* は INPUT_REQUIRED_COLUMNS に含まれているので埋めとく（空でも落ちないなら不要）
-    for k in list(row.keys()):
-        if k.startswith("contrib_"):
-            row[k] = "0.0"
-
-    # accepted_flag / accepted_reason は入力に必須なのでダミー
-    row["accepted_flag"] = "0"
-    row["accepted_reason"] = ""
 
     with csv_path.open("w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, fieldnames=INPUT_REQUIRED_COLUMNS)
@@ -161,8 +156,7 @@ def test_evaluation_rank_batch_processor_smoke(tmp_path: Path, date: str) -> Non
     input_csv = eval_dir / f"evaluation_results_{date}.csv"
     _write_min_input_csv(input_csv)
 
-    # BaseBatchProcessor の config が paths を読む前提で最小configを書く
-    # ※もし BaseBatchProcessor の期待スキーマが違う場合、ここだけ調整すればOK
+    # 最小config（paths を読む前提）
     config_path = tmp_path / "evaluation_rank.yaml"
     config_path.write_text(
         "\n".join(
@@ -180,8 +174,8 @@ def test_evaluation_rank_batch_processor_smoke(tmp_path: Path, date: str) -> Non
         max_workers=1,
         date=date,
     )
-    # BaseBatchProcessor が config を paths に反映する前に load_data が走る経路に備えて、
-    # テスト側で SSOT を明示する（smokeの目的は I/O 経路の確認）
+
+    # setup が読む前提の SSOT をテスト側でも直指定（smokeの目的は I/O 経路の確認）
     processor.paths["evaluation_data_dir"] = str(eval_dir)
     processor.paths["output_data_dir"] = str(out_dir)
 
