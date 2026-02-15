@@ -7,7 +7,7 @@ import pytest
 
 # プロジェクトの import 事情（src/ を PYTHONPATH に乗せるなど）により変わるので、
 # まずは通常 import を試し、ダメなら pytest.ini / conftest.py 側で調整してください。
-from evaluators.local_contrast_evaluator import LocalContrastEvaluator
+from photo_insight.evaluators.local_contrast_evaluator import LocalContrastEvaluator
 
 
 def _make_texture_uint8(h: int = 256, w: int = 256, seed: int = 0) -> np.ndarray:
@@ -138,7 +138,7 @@ def test_local_contrast_invalid_input_type():
 
 def test_scale_invariant_float_vs_uint8():
 
-    from evaluators.local_contrast_evaluator import LocalContrastEvaluator
+    from photo_insight.evaluators.local_contrast_evaluator import LocalContrastEvaluator
 
     ev = LocalContrastEvaluator()
 

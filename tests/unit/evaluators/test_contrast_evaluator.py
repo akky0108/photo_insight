@@ -8,7 +8,7 @@ try:
     # preferred (if src/ is on PYTHONPATH)
     from src.evaluators.contrast_evaluator import ContrastEvaluator  # type: ignore
 except Exception:
-    from evaluators.contrast_evaluator import ContrastEvaluator  # type: ignore
+    from photo_insight.evaluators.contrast_evaluator import ContrastEvaluator  # type: ignore
 
 try:
     from src.evaluators.common.grade_contract import (  # type: ignore
@@ -20,7 +20,7 @@ try:
         score_to_grade,
     )
 except Exception:
-    from evaluators.common.grade_contract import (  # type: ignore
+    from photo_insight.evaluators.common.grade_contract import (  # type: ignore
         normalize_eval_status,
         GRADE_ENUM,
         EVAL_STATUS_ENUM,

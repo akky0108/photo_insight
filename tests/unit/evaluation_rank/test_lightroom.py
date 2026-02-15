@@ -3,7 +3,7 @@
 
 import pytest
 
-from batch_processor.evaluation_rank import lightroom as lr
+from photo_insight.batch_processor.evaluation_rank import lightroom as lr
 
 
 # -------------------------

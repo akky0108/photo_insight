@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from batch_processor.evaluation_rank.contract import (
+from photo_insight.batch_processor.evaluation_rank.contract import (
     INPUT_REQUIRED_COLUMNS,
     OUTPUT_COLUMNS,
 )

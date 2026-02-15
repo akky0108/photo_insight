@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from batch_processor.evaluation_rank.analysis.rejected_reason_stats import (
+from photo_insight.batch_processor.evaluation_rank.analysis.rejected_reason_stats import (
     RejectedReasonAnalyzer,
     write_rejected_reason_summary_csv,
 )

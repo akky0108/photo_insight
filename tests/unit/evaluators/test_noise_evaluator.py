@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from evaluators.noise_evaluator import NoiseEvaluator
+from photo_insight.evaluators.noise_evaluator import NoiseEvaluator
 
 
 def make_dummy_image(size=256, noise_level=5):

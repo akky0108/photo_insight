@@ -52,7 +52,7 @@ def after_data_loaded(self, data: List[Dict]) -> None:
 ### 実装テンプレート（推奨）
 ```python
 from typing import Dict, List, Any, Optional
-from batch_framework.base_batch import BaseBatchProcessor
+from photo_insight.batch_framework.base_batch import BaseBatchProcessor
 
 class SampleBatchProcessor(BaseBatchProcessor):
     def __init__(self, config_path: Optional[str] = None, max_workers: int = 2, logger=None):

@@ -2,8 +2,8 @@ import pytest
 import yaml
 import warnings
 from pathlib import Path
-from photo_eval_env_manager.envmerge.env_merger import EnvMerger
-from photo_eval_env_manager.envmerge.exceptions import VersionMismatchError, DuplicatePackageError
+from photo_insight.photo_eval_env_manager.envmerge.env_merger import EnvMerger
+from photo_insight.photo_eval_env_manager.envmerge.exceptions import VersionMismatchError, DuplicatePackageError
 
 # === 基本マージ処理のテスト ===
 

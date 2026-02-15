@@ -1,6 +1,6 @@
 import time
 
-from batch_framework.core.hook_manager import HookManager, HookType
+from photo_insight.batch_framework.core.hook_manager import HookManager, HookType
 
 
 def test_add_and_execute_hooks_in_priority_order():
