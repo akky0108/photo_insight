@@ -7,6 +7,7 @@ from typing import List, Dict, Any, Iterable, Sequence, Union
 import csv
 import os
 import time
+import json
 from threading import Lock
 
 
@@ -152,6 +153,65 @@ def write_csv_with_lock(
         except Exception as e:
             logger.error(
                 f"CSV書き込み失敗 ({attempt + 1}/{retries}): {file_path} err={e}",
+                exc_info=True,
+            )
+            if attempt == retries - 1:
+                raise
+            time.sleep(sleep_sec)
+
+
+def write_json_atomic(
+    file_path: Union[str, Path],
+    obj: Dict[str, Any],
+    lock,
+    logger,
+    *,
+    retries: int = 3,
+    sleep_sec: float = 1.0,
+    fsync: bool = True,
+    indent: int = 2,
+    sort_keys: bool = True,
+) -> None:
+    """
+    JSON を atomic に書く（tmpへ書いて os.replace）。
+    - スレッドセーフ（同一プロセス内 Lock 前提）
+    - 保存時にだけ親ディレクトリ作成
+    """
+    logger = _ensure_logger(logger)
+    lock = _ensure_lock(lock)
+    file_path = Path(file_path)
+
+    for attempt in range(retries):
+        try:
+            with lock:
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+
+                tmp_path = file_path.with_suffix(
+                    file_path.suffix + f".tmp.{os.getpid()}"
+                )
+
+                payload = json.dumps(
+                    obj,
+                    ensure_ascii=False,
+                    indent=indent,
+                    sort_keys=sort_keys,
+                )
+
+                with tmp_path.open("w", encoding="utf-8") as f:
+                    f.write(payload)
+                    f.write("\n")
+                    f.flush()
+                    if fsync:
+                        os.fsync(f.fileno())
+
+                os.replace(str(tmp_path), str(file_path))
+
+            logger.info(f"JSON出力成功: {file_path}")
+            return
+
+        except Exception as e:
+            logger.error(
+                f"JSON書き込み失敗 ({attempt + 1}/{retries}): {file_path} err={e}",
                 exc_info=True,
             )
             if attempt == retries - 1:
