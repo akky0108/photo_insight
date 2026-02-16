@@ -165,6 +165,12 @@ def apply_eye_state_policy(
 
     改善②:
       category 未設定/空でも破綻しない（portrait判定をより堅く）。
+
+    Step4-2:
+      accepted_reason を「コード固定 + 詳細は '|' 以降」に統一して
+      集計が割れないようにする。
+        - EYE_HALF_NG | p=... | sz=...
+        - EYE_CLOSED_WARN | p=... | sz=...
     """
 
     def _to_float(v: Any, default: Optional[float] = 0.0) -> Optional[float]:
@@ -204,19 +210,23 @@ def apply_eye_state_policy(
             r["accepted_flag"] = 0
             r["secondary_accept_flag"] = 0
 
-            tag = f"EYE_HALF_NG(p={format_score(closed_prob)},sz={patch_size})"
+            # --- Step4-2: code固定 + 詳細は '|' 以降へ ---
+            tag = f"EYE_HALF_NG | p={format_score(closed_prob)} | sz={patch_size}"
             r["accepted_reason"] = tag
             r["secondary_accept_reason"] = ""
             continue
 
         if closed_prob >= closed_min:
             r["eye_state"] = "closed"
-            tag = f"EYE_CLOSED_WARN(p={format_score(closed_prob)},sz={patch_size})"
+
+            # --- Step4-2: code固定 + 詳細は '|' 以降へ ---
+            tag = f"EYE_CLOSED_WARN | p={format_score(closed_prob)} | sz={patch_size}"
             base = (r.get("accepted_reason") or "").strip()
             r["accepted_reason"] = f"{base} | {tag}" if base else tag
             continue
 
         r["eye_state"] = "ok"
+
 
 
 # ==============================

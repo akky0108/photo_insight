@@ -625,10 +625,15 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
 
                 self.logger.info(
                     f"[rejected_reason] wrote: {out_path} "
-                    f"(total_rows={meta['total_rows']}, rejected={meta['total_rejected']}, reasons={meta['unique_reasons']})"
+                    f"(total_rows={meta['total_rows']}, rejected={meta['total_rejected']}, "
+                    f"reasons={meta['unique_reasons']}, "
+                    f"missing_reason_rows={meta.get('missing_reason_rows')}, "
+                    f"reason_keys={meta.get('reason_keys')})"
                 )
+
                 if summary:
-                    top = ", ".join([f"{r.reason}:{r.count}" for r in summary[:3]])
+                    # dataclass field changed: reason -> reason_code
+                    top = ", ".join([f"{r.reason_code}:{r.count}" for r in summary[:3]])
                     self.logger.info(f"[rejected_reason] top: {top}")
 
             except Exception as e:
