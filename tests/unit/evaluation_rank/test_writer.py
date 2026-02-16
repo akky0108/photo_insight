@@ -3,12 +3,11 @@ from __future__ import annotations
 
 import csv
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import pytest
 
 from photo_insight.batch_processor.evaluation_rank.contract import (
-    INPUT_REQUIRED_COLUMNS,
     OUTPUT_COLUMNS,
     validate_input_contract,
 )
@@ -144,6 +143,33 @@ def test_write_ranking_csv_normalizes_flags_to_01(tmp_path: Path) -> None:
     assert body[1]["accepted_flag"] == "0"
     assert body[1]["secondary_accept_flag"] == "1"
     assert body[1]["flag"] == "0"
+
+
+def test_write_ranking_csv_preserves_provisional_values(tmp_path: Path) -> None:
+    out = tmp_path / "ranking.csv"
+    rows = [
+        _mk_min_row(
+            file_name="a.NEF",
+            overall_score=70.0,
+            provisional_top_percent=10.0,
+            provisional_top_percent_flag=1,
+        ),
+        _mk_min_row(
+            file_name="b.NEF",
+            overall_score=60.0,
+            provisional_top_percent=10.0,
+            provisional_top_percent_flag=0,
+        ),
+    ]
+
+    write_ranking_csv(output_csv=out, rows=rows, sort_for_ranking=False)
+    _, body = _read_csv(out)
+
+    assert body[0]["provisional_top_percent"] in ("10.0", "10")
+    assert body[0]["provisional_top_percent_flag"] == "1"
+
+    assert body[1]["provisional_top_percent"] in ("10.0", "10")
+    assert body[1]["provisional_top_percent_flag"] == "0"
 
 
 def test_write_ranking_csv_accepts_filename_alias(tmp_path: Path) -> None:

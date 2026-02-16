@@ -28,6 +28,8 @@ from photo_insight.batch_processor.evaluation_rank.scoring import (
 )
 from photo_insight.batch_processor.evaluation_rank.writer import write_ranking_csv
 from photo_insight.evaluators.common.grade_contract import GRADE_ENUM, normalize_eval_status, score_to_grade
+from photo_insight.batch_processor.evaluation_rank.provisional import apply_provisional_top_percent
+
 
 
 # =========================
@@ -525,6 +527,81 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
 
             output_csv = Path(self.paths["output_data_dir"]) / f"evaluation_ranking_{self.date}.csv"
             output_csv.parent.mkdir(parents=True, exist_ok=True)
+
+            # -------------------------
+            # #706-1 provisional top% flag
+            # -------------------------
+            try:
+                cfg = self.config_manager.get_config() or {}
+                rank_cfg = (
+                    (cfg.get("evaluation_rank") or cfg.get("batch_processor") or {})
+                    if isinstance(cfg, dict)
+                    else {}
+                )
+                prov_cfg = (rank_cfg.get("provisional_top_percent") or {}) if isinstance(rank_cfg, dict) else {}
+
+                prov_enabled = bool(prov_cfg.get("enabled", False))
+                prov_percent = prov_cfg.get("percent", 0)
+
+                def _i01(v: Any) -> int:
+                    """bool/int/float/str を 0/1 に寄せる。落ちないのが最優先。"""
+                    try:
+                        return 1 if int(float(v)) != 0 else 0
+                    except Exception:
+                        return 1 if str(v).strip().lower() in ("1", "true", "t", "yes", "y") else 0
+
+                def _count_stats(items: list[dict[str, Any]]) -> tuple[int, int, int, int, int]:
+                    """
+                    return: (accepted, provisional, overlap, accepted_not_top, top_not_accepted)
+                    """
+                    a = p = ov = 0
+                    for r in items:
+                        af = _i01(r.get("accepted_flag", 0))
+                        pf = _i01(r.get("provisional_top_percent_flag", 0))
+                        a += af
+                        p += pf
+                        if af and pf:
+                            ov += 1
+                    return a, p, ov, (a - ov), (p - ov)
+
+                if prov_enabled:
+                    # apply in-place
+                    apply_provisional_top_percent(
+                        records=rows,
+                        percent=prov_percent,
+                        score_key="overall_score",
+                    )
+
+                    # percent as float for logging
+                    try:
+                        p = float(rows[0].get("provisional_top_percent", prov_percent) or 0.0)
+                    except Exception:
+                        p = 0.0
+
+                    total = len(rows)
+                    accepted, provisional, overlap, accepted_not_top, top_not_accepted = _count_stats(rows)
+
+                    # category split（運用で超効く）
+                    portraits = [r for r in rows if str(r.get("category") or "").strip().lower() == "portrait"]
+                    non_faces = [r for r in rows if str(r.get("category") or "").strip().lower() == "non_face"]
+
+                    pa, pp, pov, pan, pna = _count_stats(portraits) if portraits else (0, 0, 0, 0, 0)
+                    na, np_, nov, nan, nna = _count_stats(non_faces) if non_faces else (0, 0, 0, 0, 0)
+
+                    self.logger.info(
+                        f"[provisional_top_percent] enabled p={p:.1f} k={provisional}/{total} "
+                        f"accepted={accepted} overlap={overlap} "
+                        f"accepted_not_top={accepted_not_top} top_not_accepted={top_not_accepted} "
+                        f"| portrait(k={pp}/{len(portraits)} acc={pa} ov={pov}) "
+                        f"non_face(k={np_}/{len(non_faces)} acc={na} ov={nov})"
+                    )
+                else:
+                    # disabled でも accepted の件数だけは見えると便利
+                    total = len(rows)
+                    accepted = sum(_i01(r.get("accepted_flag", 0)) for r in rows)
+                    self.logger.info(f"[provisional_top_percent] disabled (accepted={accepted}/{total})")
+            except Exception:
+                self.logger.exception("Failed to apply provisional_top_percent (continue).")
 
             columns = write_ranking_csv(
                 output_csv=output_csv,
