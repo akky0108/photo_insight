@@ -11,13 +11,30 @@ from photo_insight.batch_processor.evaluation_rank.provisional import apply_prov
 def _mk_records(scores: List[Any]) -> List[Dict[str, Any]]:
     """
     score_key=overall_score を前提に records を作る。
-    追加キーは不要（provisional は score しか見ない）。
+    provisional は score しか見ない（他キーは任意）。
     """
     return [{"file_name": f"f{i:03d}.jpg", "overall_score": s} for i, s in enumerate(scores)]
 
 
+def _i01(v: Any) -> int:
+    """bool/int/float/str を 0/1 に寄せる。落ちないのが最優先。"""
+    if isinstance(v, bool):
+        return 1 if v else 0
+    if v is None:
+        return 0
+    try:
+        return 1 if int(float(v)) != 0 else 0
+    except Exception:
+        s = str(v).strip().lower()
+        return 1 if s in ("1", "true", "t", "yes", "y") else 0
+
+
 def _count_flag(records: List[Dict[str, Any]]) -> int:
-    return sum(int(r.get("provisional_top_percent_flag") or 0) for r in records)
+    return sum(_i01(r.get("provisional_top_percent_flag")) for r in records)
+
+
+def _flagged_files(records: List[Dict[str, Any]]) -> List[str]:
+    return [r["file_name"] for r in records if _i01(r.get("provisional_top_percent_flag")) == 1]
 
 
 def test_basic_10pct_of_10_is_1() -> None:
@@ -29,7 +46,7 @@ def test_basic_10pct_of_10_is_1() -> None:
     assert all(float(r["provisional_top_percent"]) == 10.0 for r in recs)
 
 
-def test_ceil_works_12pct10_is_2() -> None:
+def test_ceil_works_12_items_10pct_is_2() -> None:
     # 12件 × 10% = 1.2 -> ceil 2
     recs = _mk_records([float(i) for i in range(12)])
     apply_provisional_top_percent(recs, percent=10)
@@ -82,7 +99,35 @@ def test_score_none_or_unparseable_is_bottom() -> None:
 
     # topは 0.9 のはず（index 0）
     assert _count_flag(recs) == 1
-    assert recs[0]["provisional_top_percent_flag"] == 1
-    assert recs[1]["provisional_top_percent_flag"] == 0
-    assert recs[2]["provisional_top_percent_flag"] == 0
-    assert recs[3]["provisional_top_percent_flag"] == 0
+    assert _i01(recs[0]["provisional_top_percent_flag"]) == 1
+    assert _i01(recs[1]["provisional_top_percent_flag"]) == 0
+    assert _i01(recs[2]["provisional_top_percent_flag"]) == 0
+    assert _i01(recs[3]["provisional_top_percent_flag"]) == 0
+
+
+def test_tie_is_index_based_topk() -> None:
+    """
+    仕様: 同点は index 方式（ソート後の上位k件をそのまま取る）
+    → 同点が並んだとき、先に出現したものが優先される。
+    """
+    # 0.9 が同点で2件、k=1なので先の f000 が選ばれるはず
+    recs = _mk_records([0.9, 0.9, 0.1, 0.2])
+    apply_provisional_top_percent(recs, percent=25)  # 4件の25% => 1件
+
+    assert _count_flag(recs) == 1
+    assert _flagged_files(recs) == ["f000.jpg"]
+
+
+def test_independent_from_accepted_flag() -> None:
+    """
+    provisional は accepted 判定とは独立であること。
+    （accepted が 1 でも top% に入らなければ provisional は 0）
+    """
+    recs = _mk_records([0.1, 0.2, 0.3, 0.4])
+    # accepted を適当に付与（provisional 側は見ない想定）
+    recs[0]["accepted_flag"] = 1  # 最下位
+    recs[3]["accepted_flag"] = 0  # 最上位
+
+    apply_provisional_top_percent(recs, percent=25)  # 4件の25% => 1件
+    assert _flagged_files(recs) == ["f003.jpg"]
+    assert _i01(recs[0].get("provisional_top_percent_flag")) == 0
