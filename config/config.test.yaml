@@ -15,3 +15,8 @@ debug:
   log_summary_detail: false
   persist_run_results: false   # ★ runs/ を作らせない
   run_results_dir: "runs"
+
+evaluation_rank:
+  provisional_top_percent:
+    enabled: true
+    percent: 10

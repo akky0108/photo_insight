@@ -154,6 +154,9 @@ OUTPUT_COLUMNS = [
     "flag",
     "accepted_flag",
     "secondary_accept_flag",
+    # --- #706-1 provisional accepted (top%) ---
+    "provisional_top_percent_flag",
+    "provisional_top_percent",
     "blurriness_score",
     "blurriness_score_brightness_adjusted",
     "blurriness_raw",
