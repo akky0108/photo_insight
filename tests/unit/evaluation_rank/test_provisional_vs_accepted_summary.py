@@ -48,6 +48,13 @@ def test_build_summary_counts_all_and_groups() -> None:
     assert ("portrait", "a-1") in keys
     assert ("non_face", "non_face") in keys
 
+    # category rollup row exists (Step2)
+    assert ("portrait", "ALL") in keys
+    assert ("non_face", "ALL") in keys
+
+    # meta categories (optional; keep if your implementation adds it)
+    assert meta["categories"] == 2
+
 def test_write_csv(tmp_path: Path) -> None:
     rows = [_r(), _r(category="non_face", accept_group="non_face")]
     summary, _ = build_provisional_vs_accepted_summary(rows)
@@ -57,3 +64,7 @@ def test_write_csv(tmp_path: Path) -> None:
     text = out.read_text(encoding="utf-8")
     assert "category,accept_group,provisional_top_percent" in text
     assert "ALL,ALL" in text
+
+    # Step2: category rollups are written
+    assert "portrait,ALL" in text
+    assert "non_face,ALL" in text

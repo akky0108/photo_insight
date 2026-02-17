@@ -607,18 +607,36 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
             summary, meta = build_provisional_vs_accepted_summary(rows)
             write_provisional_vs_accepted_summary_csv(summary, out_path)
 
-            # ALL行だけログに出す（うるさくしない）
-            all_row = summary[0] if summary else None
+            def _fmt(tag: str, r) -> str:
+                return (
+                    f"{tag} total={r.total} accepted={r.accepted} prov={r.provisional} "
+                    f"overlap={r.overlap} A_not_top={r.accepted_not_top} "
+                    f"top_not_A={r.top_not_accepted}"
+                )
+
+            if not summary:
+                self.logger.info(f"[prov_vs_acc] wrote: {out_path} (empty)")
+                return
+
+            # 1) ALL/ALL（既存の主ログ）
+            all_row = next((r for r in summary if r.category == "ALL" and r.accept_group == "ALL"), None)
             if all_row:
                 self.logger.info(
                     f"[prov_vs_acc] wrote: {out_path} "
-                    f"(total={all_row.total}, accepted={all_row.accepted}, "
-                    f"prov={all_row.provisional}, overlap={all_row.overlap}, "
-                    f"A_not_top={all_row.accepted_not_top}, top_not_A={all_row.top_not_accepted}, "
-                    f"groups={meta.get('groups')})"
+                    f"({_fmt('ALL', all_row)}, groups={meta.get('groups')})"
                 )
             else:
-                self.logger.info(f"[prov_vs_acc] wrote: {out_path} (empty)")
+                self.logger.info(f"[prov_vs_acc] wrote: {out_path} (no ALL row, groups={meta.get('groups')})")
+
+            # 2) portrait/ALL, non_face/ALL（あれば追加で1行ずつ）
+            portrait_all = next((r for r in summary if r.category == "portrait" and r.accept_group == "ALL"), None)
+            if portrait_all:
+                self.logger.info(f"[prov_vs_acc] {_fmt('portrait', portrait_all)}")
+
+            non_face_all = next((r for r in summary if r.category == "non_face" and r.accept_group == "ALL"), None)
+            if non_face_all:
+                self.logger.info(f"[prov_vs_acc] {_fmt('non_face', non_face_all)}")
+
         except Exception as e:
             self.logger.warning(f"[prov_vs_acc] failed to write summary: {e}")
 
