@@ -63,6 +63,7 @@ def test_write_csv(tmp_path: Path) -> None:
     write_provisional_vs_accepted_summary_csv(summary, out)
     text = out.read_text(encoding="utf-8")
     assert "category,accept_group,provisional_top_percent" in text
+    assert "accepted_rate,provisional_rate,overlap_rate" in text
     assert "ALL,ALL" in text
 
     # Step2: category rollups are written

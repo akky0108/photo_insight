@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 from collections import defaultdict
 
+from photo_insight.batch_processor.evaluation_rank import provisional
+
 
 def _i01(v: Any) -> int:
     try:
@@ -34,6 +36,9 @@ class ProvisionalVsAcceptedSummaryRow:
     overlap: int
     accepted_not_top: int
     top_not_accepted: int
+    accepted_rate: float
+    provisional_rate: float
+    overlap_rate: float
     mean_overall: float
     mean_face: float
     mean_comp: float
@@ -70,7 +75,7 @@ def build_provisional_vs_accepted_summary(
                 category=cat, accept_group=grp, percent=0.0,
                 total=0, accepted=0, provisional=0, overlap=0,
                 accepted_not_top=0, top_not_accepted=0,
-                mean_overall=0.0, mean_face=0.0, mean_comp=0.0, mean_tech=0.0,
+                accepted_rate=0.0, provisional_rate=0.0, overlap_rate=0.0,                mean_overall=0.0, mean_face=0.0, mean_comp=0.0, mean_tech=0.0,
             )
 
         # percent は代表値として先頭から拾う（全行同一想定だが、違っても落ちない）
@@ -97,6 +102,10 @@ def build_provisional_vs_accepted_summary(
 
         accepted_not_top = accepted - overlap
         top_not_accepted = provisional - overlap
+        denom = float(total) if total > 0 else 1.0
+        accepted_rate = accepted / denom
+        provisional_rate = provisional / denom
+        overlap_rate = overlap / denom
 
         return ProvisionalVsAcceptedSummaryRow(
             category=cat,
@@ -108,10 +117,13 @@ def build_provisional_vs_accepted_summary(
             overlap=overlap,
             accepted_not_top=accepted_not_top,
             top_not_accepted=top_not_accepted,
-            mean_overall=(sum_overall / total),
-            mean_face=(sum_face / total),
-            mean_comp=(sum_comp / total),
-            mean_tech=(sum_tech / total),
+            accepted_rate=float(accepted_rate),
+            provisional_rate=float(provisional_rate),
+            overlap_rate=float(overlap_rate),
+            mean_overall=(sum_overall / total) if total > 0 else 0.0,
+            mean_face=(sum_face / total) if total > 0 else 0.0,
+            mean_comp=(sum_comp / total) if total > 0 else 0.0,
+            mean_tech=(sum_tech / total) if total > 0 else 0.0,
         )
 
     out: List[ProvisionalVsAcceptedSummaryRow] = []
@@ -145,6 +157,7 @@ def write_provisional_vs_accepted_summary_csv(
         "category", "accept_group", "provisional_top_percent",
         "total", "accepted", "provisional", "overlap",
         "accepted_not_top", "top_not_accepted",
+        "accepted_rate", "provisional_rate", "overlap_rate",
         "mean_overall", "mean_face", "mean_comp", "mean_tech",
     ]
     lines = [",".join(header) + "\n"]
@@ -162,6 +175,9 @@ def write_provisional_vs_accepted_summary_csv(
                     str(r.overlap),
                     str(r.accepted_not_top),
                     str(r.top_not_accepted),
+                    f"{r.accepted_rate:.6f}",
+                    f"{r.provisional_rate:.6f}",
+                    f"{r.overlap_rate:.6f}",
                     f"{r.mean_overall:.4f}",
                     f"{r.mean_face:.4f}",
                     f"{r.mean_comp:.4f}",

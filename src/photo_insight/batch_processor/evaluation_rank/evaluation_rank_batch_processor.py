@@ -607,28 +607,50 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
             summary, meta = build_provisional_vs_accepted_summary(rows)
             write_provisional_vs_accepted_summary_csv(summary, out_path)
 
+            def _rate(n: int, d: int) -> float:
+                return (float(n) / float(d)) if d > 0 else 0.0
+
             def _fmt(tag: str, r) -> str:
+                total = int(getattr(r, "total", 0) or 0)
+
+                accepted = int(getattr(r, "accepted", 0) or 0)
+                provisional = int(getattr(r, "provisional", 0) or 0)
+                overlap = int(getattr(r, "overlap", 0) or 0)
+                accepted_not_top = int(getattr(r, "accepted_not_top", 0) or 0)
+                top_not_accepted = int(getattr(r, "top_not_accepted", 0) or 0)
+
+                acc_r = _rate(accepted, total)
+                prov_r = _rate(provisional, total)
+                ov_r = _rate(overlap, total)
+                ant_r = _rate(accepted_not_top, total)
+                tna_r = _rate(top_not_accepted, total)
+
                 return (
-                    f"{tag} total={r.total} accepted={r.accepted} prov={r.provisional} "
-                    f"overlap={r.overlap} A_not_top={r.accepted_not_top} "
-                    f"top_not_A={r.top_not_accepted}"
+                    f"{tag} total={total} "
+                    f"accepted={accepted} ({acc_r:.3f}) "
+                    f"prov={provisional} ({prov_r:.3f}) "
+                    f"overlap={overlap} ({ov_r:.3f}) "
+                    f"A_not_top={accepted_not_top} ({ant_r:.3f}) "
+                    f"top_not_A={top_not_accepted} ({tna_r:.3f})"
                 )
 
             if not summary:
                 self.logger.info(f"[prov_vs_acc] wrote: {out_path} (empty)")
                 return
 
-            # 1) ALL/ALL（既存の主ログ）
+            # 1) ALL/ALL（主ログ）
             all_row = next((r for r in summary if r.category == "ALL" and r.accept_group == "ALL"), None)
             if all_row:
                 self.logger.info(
                     f"[prov_vs_acc] wrote: {out_path} "
-                    f"({_fmt('ALL', all_row)}, groups={meta.get('groups')})"
+                    f"({_fmt('ALL', all_row)}, groups={meta.get('groups')}, categories={meta.get('categories')})"
                 )
             else:
-                self.logger.info(f"[prov_vs_acc] wrote: {out_path} (no ALL row, groups={meta.get('groups')})")
+                self.logger.info(
+                    f"[prov_vs_acc] wrote: {out_path} (no ALL row, groups={meta.get('groups')}, categories={meta.get('categories')})"
+                )
 
-            # 2) portrait/ALL, non_face/ALL（あれば追加で1行ずつ）
+            # 2) portrait/ALL, non_face/ALL（あれば1行ずつ）
             portrait_all = next((r for r in summary if r.category == "portrait" and r.accept_group == "ALL"), None)
             if portrait_all:
                 self.logger.info(f"[prov_vs_acc] {_fmt('portrait', portrait_all)}")
