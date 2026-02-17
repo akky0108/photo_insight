@@ -634,6 +634,18 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                     f"top_not_A={top_not_accepted} ({tna_r:.3f})"
                 )
 
+            # 3行ログ版（ALL / portrait-ALL / gap_top3）
+            def _fmt_rates(r) -> str:
+                # 率を見やすく（小数3桁）
+                return (
+                    f"accepted={r.accepted} ({r.accepted_rate:.3f}) "
+                    f"prov={r.provisional} ({r.provisional_rate:.3f}) "
+                    f"overlap={r.overlap} ({r.overlap_rate:.3f}) "
+                    f"A_not_top={r.accepted_not_top} ({r.accepted_not_top_rate:.3f}) "
+                    f"top_not_A={r.top_not_accepted} ({r.top_not_accepted_rate:.3f}) "
+                    f"prec={r.precision:.3f} rec={r.recall:.3f} f1={r.f1:.3f}"
+                )
+
             if not summary:
                 self.logger.info(f"[prov_vs_acc] wrote: {out_path} (empty)")
                 return
@@ -643,21 +655,34 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
             if all_row:
                 self.logger.info(
                     f"[prov_vs_acc] wrote: {out_path} "
-                    f"({_fmt('ALL', all_row)}, groups={meta.get('groups')}, categories={meta.get('categories')})"
+                    f"(ALL total={all_row.total} {_fmt_rates(all_row)}, "
+                    f"groups={meta.get('groups')}, categories={meta.get('categories')})"
                 )
             else:
-                self.logger.info(
-                    f"[prov_vs_acc] wrote: {out_path} (no ALL row, groups={meta.get('groups')}, categories={meta.get('categories')})"
-                )
+                self.logger.info(f"[prov_vs_acc] wrote: {out_path} (no ALL row)")
 
-            # 2) portrait/ALL, non_face/ALL（あれば1行ずつ）
+            # 2) portrait/ALL
             portrait_all = next((r for r in summary if r.category == "portrait" and r.accept_group == "ALL"), None)
             if portrait_all:
-                self.logger.info(f"[prov_vs_acc] {_fmt('portrait', portrait_all)}")
+                self.logger.info(f"[prov_vs_acc] portrait total={portrait_all.total} {_fmt_rates(portrait_all)}")
 
-            non_face_all = next((r for r in summary if r.category == "non_face" and r.accept_group == "ALL"), None)
-            if non_face_all:
-                self.logger.info(f"[prov_vs_acc] {_fmt('non_face', non_face_all)}")
+            # 3) gap_top3（cat/grp のみ対象）
+            group_rows = [
+                r for r in summary
+                if r.category not in ("ALL",) and r.accept_group not in ("ALL",)
+            ]
+            if group_rows:
+                def _gap(x) -> float:
+                    return abs(float(x.accepted_rate) - float(x.provisional_rate))
+
+                top3 = sorted(group_rows, key=_gap, reverse=True)[:3]
+                parts = []
+                for rr in top3:
+                    parts.append(
+                        f"{rr.category}/{rr.accept_group} "
+                        f"gap={_gap(rr):.3f} (A={rr.accepted_rate:.3f} P={rr.provisional_rate:.3f} f1={rr.f1:.3f})"
+                    )
+                self.logger.info("[prov_vs_acc] gap_top3: " + " | ".join(parts))
 
         except Exception as e:
             self.logger.warning(f"[prov_vs_acc] failed to write summary: {e}")
