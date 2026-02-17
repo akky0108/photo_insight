@@ -27,6 +27,10 @@ from photo_insight.batch_processor.evaluation_rank.scoring import (
     score01,
 )
 from photo_insight.batch_processor.evaluation_rank.writer import write_ranking_csv
+from photo_insight.batch_processor.evaluation_rank.analysis.provisional_vs_accepted import (
+    build_provisional_vs_accepted_summary,
+    write_provisional_vs_accepted_summary_csv,
+)
 from photo_insight.evaluators.common.grade_contract import GRADE_ENUM, normalize_eval_status, score_to_grade
 from photo_insight.batch_processor.evaluation_rank.provisional import apply_provisional_top_percent
 
@@ -484,167 +488,17 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
 
         return results
 
-    # -------------------------
-    # cleanup / ranking / output
-    # -------------------------
 
-    def cleanup(self) -> None:
+    def _log_thresholds(self, thresholds: dict[str, float]) -> None:
         try:
-            rows = [
-                r["row"]
-                for r in self.all_results
-                if r.get("status") == "success" and isinstance(r.get("row"), dict)
-            ]
-            if not rows:
-                self.logger.warning("No successful rows to output.")
-                return
-
-            for r in rows:
-                _normalize_row_inplace(r)
-
-            for r in rows:
-                inject_best_eye_features(r)
-
-            thresholds = self.acceptance.run(rows)
-            portrait_thr = thresholds.get("portrait", 0.0)
-            non_face_thr = thresholds.get("non_face", 0.0)
-
-            for r in rows:
-                apply_lightroom_fields(r, keyword_max_len=90)
-
-            for r in rows:
-                for k in (
-                    "overall_score", "score_technical", "score_face", "score_composition",
-                    "debug_pitch", "debug_gaze_y", "debug_eye_contact", "debug_expression",
-                    "debug_half_penalty", "debug_expr_effective",
-                ):
-                    if k in r:
-                        r[k] = format_score(safe_float(r.get(k)))
-
-                for k in list(r.keys()):
-                    if isinstance(k, str) and k.startswith("contrib_"):
-                        r[k] = format_score(safe_float(r.get(k)))
-
-            output_csv = Path(self.paths["output_data_dir"]) / f"evaluation_ranking_{self.date}.csv"
-            output_csv.parent.mkdir(parents=True, exist_ok=True)
-
-            # -------------------------
-            # #706-1 provisional top% flag
-            # -------------------------
-            try:
-                cfg = self.config_manager.get_config() or {}
-                rank_cfg = (
-                    (cfg.get("evaluation_rank") or cfg.get("batch_processor") or {})
-                    if isinstance(cfg, dict)
-                    else {}
-                )
-                prov_cfg = (rank_cfg.get("provisional_top_percent") or {}) if isinstance(rank_cfg, dict) else {}
-
-                prov_enabled = bool(prov_cfg.get("enabled", False))
-                prov_percent = prov_cfg.get("percent", 0)
-
-                def _i01(v: Any) -> int:
-                    """bool/int/float/str を 0/1 に寄せる。落ちないのが最優先。"""
-                    try:
-                        return 1 if int(float(v)) != 0 else 0
-                    except Exception:
-                        return 1 if str(v).strip().lower() in ("1", "true", "t", "yes", "y") else 0
-
-                def _count_stats(items: list[dict[str, Any]]) -> tuple[int, int, int, int, int]:
-                    """
-                    return: (accepted, provisional, overlap, accepted_not_top, top_not_accepted)
-                    """
-                    a = p = ov = 0
-                    for r in items:
-                        af = _i01(r.get("accepted_flag", 0))
-                        pf = _i01(r.get("provisional_top_percent_flag", 0))
-                        a += af
-                        p += pf
-                        if af and pf:
-                            ov += 1
-                    return a, p, ov, (a - ov), (p - ov)
-
-                if prov_enabled:
-                    # apply in-place
-                    apply_provisional_top_percent(
-                        records=rows,
-                        percent=prov_percent,
-                        score_key="overall_score",
-                    )
-
-                    # percent as float for logging
-                    try:
-                        p = float(rows[0].get("provisional_top_percent", prov_percent) or 0.0)
-                    except Exception:
-                        p = 0.0
-
-                    total = len(rows)
-                    accepted, provisional, overlap, accepted_not_top, top_not_accepted = _count_stats(rows)
-
-                    # category split（運用で超効く）
-                    portraits = [r for r in rows if str(r.get("category") or "").strip().lower() == "portrait"]
-                    non_faces = [r for r in rows if str(r.get("category") or "").strip().lower() == "non_face"]
-
-                    pa, pp, pov, pan, pna = _count_stats(portraits) if portraits else (0, 0, 0, 0, 0)
-                    na, np_, nov, nan, nna = _count_stats(non_faces) if non_faces else (0, 0, 0, 0, 0)
-
-                    self.logger.info(
-                        f"[provisional_top_percent] enabled p={p:.1f} k={provisional}/{total} "
-                        f"accepted={accepted} overlap={overlap} "
-                        f"accepted_not_top={accepted_not_top} top_not_accepted={top_not_accepted} "
-                        f"| portrait(k={pp}/{len(portraits)} acc={pa} ov={pov}) "
-                        f"non_face(k={np_}/{len(non_faces)} acc={na} ov={nov})"
-                    )
-                else:
-                    # disabled でも accepted の件数だけは見えると便利
-                    total = len(rows)
-                    accepted = sum(_i01(r.get("accepted_flag", 0)) for r in rows)
-                    self.logger.info(f"[provisional_top_percent] disabled (accepted={accepted}/{total})")
-            except Exception:
-                self.logger.exception("Failed to apply provisional_top_percent (continue).")
-
-            columns = write_ranking_csv(
-                output_csv=output_csv,
-                rows=rows,
-                sort_for_ranking=True,
-            )
-
-            try:
-                analyzer = RejectedReasonAnalyzer(
-                    alias_map={},
-                    unknown_label="unknown",
-                    keep_unknown_raw=False,
-                )
-                summary, meta = analyzer.analyze(rows)
-
-                out_dir = Path(self.paths["output_data_dir"])
-                out_dir.mkdir(parents=True, exist_ok=True)
-                out_path = out_dir / "rejected_reason_summary.csv"
-
-                write_rejected_reason_summary_csv(summary, out_path)
-
-                self.logger.info(
-                    f"[rejected_reason] wrote: {out_path} "
-                    f"(total_rows={meta['total_rows']}, rejected={meta['total_rejected']}, "
-                    f"reasons={meta['unique_reasons']}, "
-                    f"missing_reason_rows={meta.get('missing_reason_rows')}, "
-                    f"reason_keys={meta.get('reason_keys')})"
-                )
-
-                if summary:
-                    # dataclass field changed: reason -> reason_code
-                    top = ", ".join([f"{r.reason_code}:{r.count}" for r in summary[:3]])
-                    self.logger.info(f"[rejected_reason] top: {top}")
-
-            except Exception as e:
-                self.logger.warning(f"[rejected_reason] failed to write summary: {e}")
-
-            self.logger.info(f"Output written: {output_csv}")
+            portrait_thr = float(thresholds.get("portrait", 0.0) or 0.0)
+            non_face_thr = float(thresholds.get("non_face", 0.0) or 0.0)
 
             rules = getattr(self.acceptance, "rules", None)
             portrait_p = getattr(rules, "portrait_percentile", None)
             non_face_p = getattr(rules, "non_face_percentile", None)
 
+            # 互換（過去のフィールド名）
             if portrait_p is None:
                 portrait_p = getattr(rules, "portrait_p", None) or getattr(rules, "portrait_accept_percentile", None)
             if non_face_p is None:
@@ -657,10 +511,222 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                 f"Accepted thresholds: portrait(P{portrait_p_txt}={portrait_thr:.2f}), "
                 f"non_face(P{non_face_p_txt}={non_face_thr:.2f})"
             )
+        except Exception as e:
+            self.logger.warning(f"Failed to log thresholds: {e}")
+
+
+    # -------------------------
+    # cleanup / ranking / output
+    # -------------------------
+
+    def cleanup(self) -> None:
+        try:
+            rows = self._collect_success_rows()
+            if not rows:
+                self.logger.warning("No successful rows to output.")
+                return
+
+            self._normalize_rows(rows)
+            self._inject_eye_features(rows)
+
+            thresholds = self.acceptance.run(rows)
+
+            self._apply_lightroom(rows)
+            self._format_rows_for_output(rows)
+
+            # 706-1
+            self._apply_provisional_top_percent(rows)
+
+            output_csv, columns = self._write_ranking(rows)
+
+            # 706-3 Step1（NEW）
+            self._write_provisional_vs_accepted_summary(rows)
+
+            # rejected_reason（既存）
+            self._write_rejected_reason_summary(rows)
+
+            self._log_thresholds(thresholds)
             self.logger.info(f"Columns written: {len(columns)} cols")
 
         finally:
             super().cleanup()
+
+
+    def _collect_success_rows(self) -> list[dict[str, Any]]:
+        return [
+            r["row"]
+            for r in self.all_results
+            if r.get("status") == "success" and isinstance(r.get("row"), dict)
+        ]
+
+
+    def _normalize_rows(self, rows: list[dict[str, Any]]) -> None:
+        for r in rows:
+            _normalize_row_inplace(r)
+
+
+    def _inject_eye_features(self, rows: list[dict[str, Any]]) -> None:
+        for r in rows:
+            inject_best_eye_features(r)
+
+
+    def _apply_lightroom(self, rows: list[dict[str, Any]]) -> None:
+        for r in rows:
+            apply_lightroom_fields(r, keyword_max_len=90)
+
+
+    def _format_rows_for_output(self, rows: list[dict[str, Any]]) -> None:
+        for r in rows:
+            for k in (
+                "overall_score", "score_technical", "score_face", "score_composition",
+                "debug_pitch", "debug_gaze_y", "debug_eye_contact", "debug_expression",
+                "debug_half_penalty", "debug_expr_effective",
+            ):
+                if k in r:
+                    r[k] = format_score(safe_float(r.get(k)))
+
+            for k in list(r.keys()):
+                if isinstance(k, str) and k.startswith("contrib_"):
+                    r[k] = format_score(safe_float(r.get(k)))
+
+
+    def _write_ranking(self, rows: list[dict[str, Any]]) -> tuple[Path, list[str]]:
+        output_csv = Path(self.paths["output_data_dir"]) / f"evaluation_ranking_{self.date}.csv"
+        output_csv.parent.mkdir(parents=True, exist_ok=True)
+        columns = write_ranking_csv(output_csv=output_csv, rows=rows, sort_for_ranking=True)
+        self.logger.info(f"Output written: {output_csv}")
+        return output_csv, columns
+
+
+    def _write_provisional_vs_accepted_summary(self, rows: list[dict[str, Any]]) -> None:
+        try:
+            out_dir = Path(self.paths["output_data_dir"])
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out_path = out_dir / f"provisional_vs_accepted_summary_{self.date}.csv"
+
+            summary, meta = build_provisional_vs_accepted_summary(rows)
+            write_provisional_vs_accepted_summary_csv(summary, out_path)
+
+            # ALL行だけログに出す（うるさくしない）
+            all_row = summary[0] if summary else None
+            if all_row:
+                self.logger.info(
+                    f"[prov_vs_acc] wrote: {out_path} "
+                    f"(total={all_row.total}, accepted={all_row.accepted}, "
+                    f"prov={all_row.provisional}, overlap={all_row.overlap}, "
+                    f"A_not_top={all_row.accepted_not_top}, top_not_A={all_row.top_not_accepted}, "
+                    f"groups={meta.get('groups')})"
+                )
+            else:
+                self.logger.info(f"[prov_vs_acc] wrote: {out_path} (empty)")
+        except Exception as e:
+            self.logger.warning(f"[prov_vs_acc] failed to write summary: {e}")
+
+
+    def _write_rejected_reason_summary(self, rows: list[dict[str, Any]]) -> None:
+        try:
+            analyzer = RejectedReasonAnalyzer(
+                alias_map={},
+                unknown_label="unknown",
+                keep_unknown_raw=False,
+                # rejected_reason が無い/空でも accepted_reason を拾える版を使うならここも明示すると堅い
+                reason_keys=("rejected_reason", "accepted_reason"),
+            )
+            summary, meta = analyzer.analyze(rows)
+
+            out_dir = Path(self.paths["output_data_dir"])
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out_path = out_dir / "rejected_reason_summary.csv"
+
+            write_rejected_reason_summary_csv(summary, out_path)
+
+            self.logger.info(
+                f"[rejected_reason] wrote: {out_path} "
+                f"(total_rows={meta['total_rows']}, rejected={meta['total_rejected']}, "
+                f"reasons={meta['unique_reasons']}, "
+                f"missing_reason_rows={meta.get('missing_reason_rows')}, "
+                f"reason_keys={meta.get('reason_keys')})"
+            )
+
+            if summary:
+                top = ", ".join([f"{r.reason_code}:{r.count}" for r in summary[:3]])
+                self.logger.info(f"[rejected_reason] top: {top}")
+
+
+        except Exception as e:
+            self.logger.warning(f"[rejected_reason] failed to write summary: {e}")
+
+
+    def _apply_provisional_top_percent(self, rows: list[dict[str, Any]]) -> None:
+        """
+        #706-1 provisional top% flag
+        rows に provisional_top_percent_flag / provisional_top_percent を in-place で付与し、
+        運用で効く統計ログを出す。
+        """
+        try:
+            cfg = self.config_manager.get_config() or {}
+            rank_cfg = (
+                (cfg.get("evaluation_rank") or cfg.get("batch_processor") or {})
+                if isinstance(cfg, dict)
+                else {}
+            )
+            prov_cfg = (rank_cfg.get("provisional_top_percent") or {}) if isinstance(rank_cfg, dict) else {}
+
+            prov_enabled = bool(prov_cfg.get("enabled", False))
+            prov_percent = prov_cfg.get("percent", 0)
+
+            def _i01(v: Any) -> int:
+                try:
+                    return 1 if int(float(v)) != 0 else 0
+                except Exception:
+                    return 1 if str(v).strip().lower() in ("1", "true", "t", "yes", "y") else 0
+
+            def _count_stats(items: list[dict[str, Any]]) -> tuple[int, int, int, int, int]:
+                a = p = ov = 0
+                for r in items:
+                    af = _i01(r.get("accepted_flag", 0))
+                    pf = _i01(r.get("provisional_top_percent_flag", 0))
+                    a += af
+                    p += pf
+                    if af and pf:
+                        ov += 1
+                return a, p, ov, (a - ov), (p - ov)
+
+            if prov_enabled:
+                apply_provisional_top_percent(
+                    records=rows,
+                    percent=prov_percent,
+                    score_key="overall_score",
+                )
+
+                try:
+                    p = float(rows[0].get("provisional_top_percent", prov_percent) or 0.0)
+                except Exception:
+                    p = 0.0
+
+                total = len(rows)
+                accepted, provisional, overlap, accepted_not_top, top_not_accepted = _count_stats(rows)
+
+                portraits = [r for r in rows if str(r.get("category") or "").strip().lower() == "portrait"]
+                non_faces = [r for r in rows if str(r.get("category") or "").strip().lower() == "non_face"]
+
+                pa, pp, pov, _, _ = _count_stats(portraits) if portraits else (0, 0, 0, 0, 0)
+                na, np_, nov, _, _ = _count_stats(non_faces) if non_faces else (0, 0, 0, 0, 0)
+
+                self.logger.info(
+                    f"[provisional_top_percent] enabled p={p:.1f} k={provisional}/{total} "
+                    f"accepted={accepted} overlap={overlap} "
+                    f"accepted_not_top={accepted_not_top} top_not_accepted={top_not_accepted} "
+                    f"| portrait(k={pp}/{len(portraits)} acc={pa} ov={pov}) "
+                    f"non_face(k={np_}/{len(non_faces)} acc={na} ov={nov})"
+                )
+            else:
+                total = len(rows)
+                accepted = sum(_i01(r.get("accepted_flag", 0)) for r in rows)
+                self.logger.info(f"[provisional_top_percent] disabled (accepted={accepted}/{total})")
+
+        except Exception:
+            self.logger.exception("Failed to apply provisional_top_percent (continue).")
 
 
 # =========================
