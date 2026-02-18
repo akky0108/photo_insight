@@ -198,7 +198,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # common knobs (BaseBatchProcessor ctor)
-    p.add_argument("--config", dest="config_path", default=None, help="Config file path")
+    p.add_argument("--config", dest="config_path", default="config/config.prod.yaml", help="Config file path")
     p.add_argument("--max-workers", type=int, default=2)
     p.add_argument("--config-env", default=None, help="ConfigManager env name (optional)")
     p.add_argument(
