@@ -6,6 +6,7 @@ import importlib
 import sys
 import ast
 import re
+from pathlib import Path
 from typing import Any, Dict, Type, Optional
 
 from photo_insight.batch_framework.base_batch import BaseBatchProcessor
@@ -158,6 +159,7 @@ def _extract_runtime_overrides(exec_kwargs: Dict[str, Any]) -> Dict[str, Any]:
     """
     injected: Dict[str, Any] = {}
 
+    # --- date/run_date --
     run_date = None
     if "run_date" in exec_kwargs:
         run_date = exec_kwargs.pop("run_date")
@@ -170,6 +172,17 @@ def _extract_runtime_overrides(exec_kwargs: Dict[str, Any]) -> Dict[str, Any]:
             raise ValueError(f"Invalid date format: {s} (expected YYYY-MM-DD)")
         injected["date"] = s
 
+    # --- target_dir ---
+    target_dir = None
+    if "target_dir" in exec_kwargs:
+        target_dir = exec_kwargs.pop("target_dir")
+    elif "dir" in exec_kwargs:
+        # 互換：昔の --dir を許すなら
+        target_dir = exec_kwargs.pop("dir")
+
+    if target_dir is not None:
+        injected["target_dir"] = str(target_dir)
+
     return injected
 
 
@@ -180,6 +193,10 @@ def _apply_runtime_overrides(proc: BaseBatchProcessor, injected: Dict[str, Any])
     if "date" in injected:
         setattr(proc, "date", injected["date"])
 
+    if "target_dir" in injected:
+        # strでもPathでも来るので Path 化
+        setattr(proc, "target_dir", Path(injected["target_dir"]))
+        
 
 # -------------------------
 # CLI
