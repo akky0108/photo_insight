@@ -54,6 +54,7 @@ temp/
 processed_txt/
 wandb/
 tmp/
+backup/
 
 # out_* 系の生成物（例: out_brightness_validate/ など）
 out_*/
