@@ -2,16 +2,23 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
   pull_request:
-    branches: [ "*" ]
+    branches: [ main, develop ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   unit-tests:
     runs-on: ubuntu-latest
 
     env:
-      NO_ALBUMENTATIONS_UPDATE: "1"  
+      NO_ALBUMENTATIONS_UPDATE: "1"
 
     steps:
       - uses: actions/checkout@v4
@@ -29,8 +36,7 @@ jobs:
 
       - name: Run unit tests
         run: |
-          pytest -q tests/unit/core
-          pytest -q tests/unit/evaluation_rank
+          pytest -q tests/unit/core tests/unit/evaluation_rank
 
       - name: Validate metric_summary (regression gate)
         run: |
@@ -54,7 +60,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
-      - name: Lint with flake8 (log only)
+      - name: Lint with flake8
         run: |
           mkdir -p ci_logs/lint
           flake8 . \
@@ -63,20 +69,22 @@ jobs:
             --show-source \
             --format="%(path)s::%(code)s::%(row)d::%(col)d::%(text)s" \
             --extend-ignore=E203,W503 \
-            > ci_logs/lint/flake8.log || true
+            > ci_logs/lint/flake8.log 2>&1
 
       - name: Upload flake8 log
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: flake8-log
           path: ci_logs/lint/flake8.log
 
-      - name: Check formatting with black (log only)
+      - name: Check formatting with black
         run: |
           mkdir -p ci_logs/format
-          black --check . > ci_logs/format/black.log 2>&1 || true
+          black --check . > ci_logs/format/black.log 2>&1
 
       - name: Upload black log
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: black-log
