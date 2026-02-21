@@ -36,7 +36,7 @@ jobs:
 
       - name: Run unit tests
         run: |
-          pytest -q tests/unit/core tests/unit/evaluation_rank tests/util/processors tests/unit/batch_framework
+          pytest -q tests/unit/core tests/unit/evaluation_rank tests/unit/processors tests/unit/batch_framework
 
       - name: Validate metric_summary (regression gate)
         run: |
