@@ -15,12 +15,16 @@ from photo_insight.evaluators.face_evaluator import FaceEvaluator
 from photo_insight.evaluators.sharpness_evaluator import SharpnessEvaluator
 from photo_insight.evaluators.blurriness_evaluator import BlurrinessEvaluator
 from photo_insight.evaluators.contrast_evaluator import ContrastEvaluator
-from photo_insight.evaluators.composite_composition_evaluator import CompositeCompositionEvaluator
+from photo_insight.evaluators.composite_composition_evaluator import (
+    CompositeCompositionEvaluator,
+)
 from photo_insight.evaluators.noise_evaluator import NoiseEvaluator
 from photo_insight.evaluators.exposure_evaluator import ExposureEvaluator
 from photo_insight.evaluators.local_sharpness_evaluator import LocalSharpnessEvaluator
 from photo_insight.evaluators.local_contrast_evaluator import LocalContrastEvaluator
-from photo_insight.evaluators.rule_based_composition_evaluator import RuleBasedCompositionEvaluator
+from photo_insight.evaluators.rule_based_composition_evaluator import (
+    RuleBasedCompositionEvaluator,
+)
 from photo_insight.evaluators.color_balance_evaluator import ColorBalanceEvaluator
 from photo_insight.detectors.body_detection import FullBodyDetector
 from photo_insight.utils.app_logger import Logger
@@ -93,9 +97,9 @@ class PortraitQualityEvaluator:
         preprocessor_resize_size: Tuple[int, int] = (224, 224),
         face_processor: Optional[FaceProcessor] = None,
         skip_face_processing: bool = False,
-        config_manager: Optional[Any] = None,        # ★ 追加
-        quality_profile: str = "portrait",          # ★ 追加（将来 landscape 等も想定）
-        thresholds_path: Optional[str] = None,      # ★ 追加（直指定したい場合）
+        config_manager: Optional[Any] = None,  # ★ 追加
+        quality_profile: str = "portrait",  # ★ 追加（将来 landscape 等も想定）
+        thresholds_path: Optional[str] = None,  # ★ 追加（直指定したい場合）
     ):
         self.is_raw = is_raw
         self.logger = logger or Logger(logger_name="PortraitQualityEvaluator")
@@ -132,7 +136,9 @@ class PortraitQualityEvaluator:
         self.face_evaluator = FaceEvaluator(backend="insightface")
 
         # ★ 重要: 引数で face_processor が渡されていればそれを優先（テストDI/差し替え用）
-        self.face_processor = face_processor or FaceProcessor(self.face_evaluator, logger=self.logger)
+        self.face_processor = face_processor or FaceProcessor(
+            self.face_evaluator, logger=self.logger
+        )
 
         self.preprocessor = ImagePreprocessor(
             logger=self.logger, is_raw=self.is_raw, gamma=1.2
@@ -166,15 +172,23 @@ class PortraitQualityEvaluator:
         # global: use full config as-is
         self.evaluators_global = {
             "face": self.face_evaluator,
-            "sharpness": SharpnessEvaluator(logger=self.logger, config=self.eval_config),
-            "blurriness": BlurrinessEvaluator(logger=self.logger, config=self.eval_config),
-            "contrast": ContrastEvaluator(logger=self.logger, config=self.eval_config, metric_key="contrast"),
+            "sharpness": SharpnessEvaluator(
+                logger=self.logger, config=self.eval_config
+            ),
+            "blurriness": BlurrinessEvaluator(
+                logger=self.logger, config=self.eval_config
+            ),
+            "contrast": ContrastEvaluator(
+                logger=self.logger, config=self.eval_config, metric_key="contrast"
+            ),
             "noise": NoiseEvaluator(
                 max_noise_value=max_noise_value,  # 互換で残してOK
                 logger=self.logger,
                 config=self.eval_config,
             ),
-            "local_sharpness": LocalSharpnessEvaluator(logger=self.logger, config=self.eval_config),
+            "local_sharpness": LocalSharpnessEvaluator(
+                logger=self.logger, config=self.eval_config
+            ),
             "local_contrast": LocalContrastEvaluator(),
             "exposure": ExposureEvaluator(),
             "color_balance": ColorBalanceEvaluator(),
@@ -184,15 +198,25 @@ class PortraitQualityEvaluator:
         # 例: face_blurriness -> {"blurriness": {...}}
         self.evaluators_face = {
             "face": self.face_evaluator,
-            "sharpness": SharpnessEvaluator(logger=self.logger, config=_subcfg("face_sharpness")),
-            "blurriness": BlurrinessEvaluator(logger=self.logger, config=_subcfg("face_blurriness")),
-            "contrast": ContrastEvaluator(logger=self.logger, config=_subcfg("face_contrast"), metric_key="contrast"),
+            "sharpness": SharpnessEvaluator(
+                logger=self.logger, config=_subcfg("face_sharpness")
+            ),
+            "blurriness": BlurrinessEvaluator(
+                logger=self.logger, config=_subcfg("face_blurriness")
+            ),
+            "contrast": ContrastEvaluator(
+                logger=self.logger,
+                config=_subcfg("face_contrast"),
+                metric_key="contrast",
+            ),
             "noise": NoiseEvaluator(
                 max_noise_value=max_noise_value,
                 logger=self.logger,
                 config=_subcfg("face_noise"),
             ),
-            "local_sharpness": LocalSharpnessEvaluator(logger=self.logger, config=_subcfg("face_local_sharpness")),
+            "local_sharpness": LocalSharpnessEvaluator(
+                logger=self.logger, config=_subcfg("face_local_sharpness")
+            ),
             "local_contrast": LocalContrastEvaluator(),
             "exposure": ExposureEvaluator(),
             "color_balance": ColorBalanceEvaluator(),
@@ -205,15 +229,19 @@ class PortraitQualityEvaluator:
         # 変更後: 顔＋全身を統合する Composite を使う
         self.composition_evaluator = CompositeCompositionEvaluator(
             logger=self.logger,
-            config=None,   # 将来 config を渡したくなったらここに
+            config=None,  # 将来 config を渡したくなったらここに
         )
 
         self.logger.info(f"画像ファイル {self.file_name} をロードしました")
 
         # 閾値系の初期化だけ 1 行にまとめる
-        self._init_thresholds(quality_profile=quality_profile, thresholds_path=thresholds_path)
+        self._init_thresholds(
+            quality_profile=quality_profile, thresholds_path=thresholds_path
+        )
 
-    def _init_thresholds(self, quality_profile: str, thresholds_path: Optional[str]) -> None:
+    def _init_thresholds(
+        self, quality_profile: str, thresholds_path: Optional[str]
+    ) -> None:
         """
         YAML ファイルから評価の閾値テーブルをロードして、
         self.decision_thresholds にフラットな dict で格納する。
@@ -242,57 +270,94 @@ class PortraitQualityEvaluator:
             "noise_ok": float(decision.get("noise_ok", 0.5)),
             "noise_good": float(decision.get("noise_good", 0.75)),
             "face_noise_good": float(decision.get("face_noise_good", 0.75)),
-
             # ★ full body / shot_type 判定用（撮影距離・切れ具合）
-            "full_body_body_height_min": float(decision.get("full_body_body_height_min", 0.30)),
-            "full_body_cut_risk_max_for_shot_type": float(decision.get("full_body_cut_risk_max_for_shot_type", 0.90)),
-            "full_body_footroom_min_for_shot_type": float(decision.get("full_body_footroom_min_for_shot_type", 0.00)),
-
+            "full_body_body_height_min": float(
+                decision.get("full_body_body_height_min", 0.30)
+            ),
+            "full_body_cut_risk_max_for_shot_type": float(
+                decision.get("full_body_cut_risk_max_for_shot_type", 0.90)
+            ),
+            "full_body_footroom_min_for_shot_type": float(
+                decision.get("full_body_footroom_min_for_shot_type", 0.00)
+            ),
             # ★ seated（座り）ショット判定用
             "seated_center_y_min": float(decision.get("seated_center_y_min", 0.50)),
             "seated_center_y_max": float(decision.get("seated_center_y_max", 0.75)),
             "seated_footroom_max": float(decision.get("seated_footroom_max", 0.22)),
-            "seated_body_height_min": float(decision.get("seated_body_height_min", 0.30)),
-
+            "seated_body_height_min": float(
+                decision.get("seated_body_height_min", 0.30)
+            ),
             # ★ upper_body / face_only 判定用
-            "upper_body_headroom_min": float(decision.get("upper_body_headroom_min", 0.15)),
-            "upper_body_footroom_max": float(decision.get("upper_body_footroom_max", 0.15)),
-            "face_only_body_height_max": float(decision.get("face_only_body_height_max", 0.35)),
-            "center_side_margin_min": float(decision.get("center_side_margin_min", 0.02)),
-
+            "upper_body_headroom_min": float(
+                decision.get("upper_body_headroom_min", 0.15)
+            ),
+            "upper_body_footroom_max": float(
+                decision.get("upper_body_footroom_max", 0.15)
+            ),
+            "face_only_body_height_max": float(
+                decision.get("face_only_body_height_max", 0.35)
+            ),
+            "center_side_margin_min": float(
+                decision.get("center_side_margin_min", 0.02)
+            ),
             # full body（accept ルート用）
-            "full_body_face_noise_min": float(decision.get("full_body_face_noise_min", 0.5)),
-            "full_body_pose_min_100": float(decision.get("full_body_pose_min_100", 55.0)),
-            "full_body_cut_risk_max": float(decision.get("full_body_cut_risk_max", 0.6)),
-            "blurriness_min_full_body": float(decision.get("blurriness_min_full_body", 0.45)),
+            "full_body_face_noise_min": float(
+                decision.get("full_body_face_noise_min", 0.5)
+            ),
+            "full_body_pose_min_100": float(
+                decision.get("full_body_pose_min_100", 55.0)
+            ),
+            "full_body_cut_risk_max": float(
+                decision.get("full_body_cut_risk_max", 0.6)
+            ),
+            "blurriness_min_full_body": float(
+                decision.get("blurriness_min_full_body", 0.45)
+            ),
             "exposure_min_common": float(decision.get("exposure_min_common", 0.5)),
-            "full_body_footroom_min": float(decision.get("full_body_footroom_min", 0.0)),
-
+            "full_body_footroom_min": float(
+                decision.get("full_body_footroom_min", 0.0)
+            ),
             # full body 用コントラスト
-            "full_body_contrast_min": float(decision.get("full_body_contrast_min", 0.40)),
-            "full_body_face_contrast_min": float(decision.get("full_body_face_contrast_min", 0.50)),
-
+            "full_body_contrast_min": float(
+                decision.get("full_body_contrast_min", 0.40)
+            ),
+            "full_body_face_contrast_min": float(
+                decision.get("full_body_face_contrast_min", 0.50)
+            ),
             # composition ルート
             "composition_score_min": float(decision.get("composition_score_min", 0.75)),
             "framing_score_min": float(decision.get("framing_score_min", 0.5)),
             "lead_room_score_min": float(decision.get("lead_room_score_min", 0.10)),
-
             # face_quality ルート
-            "face_quality_exposure_min": float(decision.get("face_quality_exposure_min", 0.5)),
-            "face_quality_face_sharpness_min": float(decision.get("face_quality_face_sharpness_min", 0.75)),
-            "face_quality_contrast_min": float(decision.get("face_quality_contrast_min", 0.55)),
+            "face_quality_exposure_min": float(
+                decision.get("face_quality_exposure_min", 0.5)
+            ),
+            "face_quality_face_sharpness_min": float(
+                decision.get("face_quality_face_sharpness_min", 0.75)
+            ),
+            "face_quality_contrast_min": float(
+                decision.get("face_quality_contrast_min", 0.55)
+            ),
             "face_quality_blur_min": float(decision.get("face_quality_blur_min", 0.55)),
-            "face_quality_delta_face_sharpness_min": float(decision.get("face_quality_delta_face_sharpness_min", -10.0)),
-            "face_quality_yaw_max_abs_deg": float(decision.get("face_quality_yaw_max_abs_deg", 30.0)),
-
+            "face_quality_delta_face_sharpness_min": float(
+                decision.get("face_quality_delta_face_sharpness_min", -10.0)
+            ),
+            "face_quality_yaw_max_abs_deg": float(
+                decision.get("face_quality_yaw_max_abs_deg", 30.0)
+            ),
             # expression の最低ライン
             "expression_min": float(decision.get("expression_min", 0.5)),
-
             # technical ルート
-            "technical_contrast_min": float(decision.get("technical_contrast_min", 0.60)),
+            "technical_contrast_min": float(
+                decision.get("technical_contrast_min", 0.60)
+            ),
             "technical_blur_min": float(decision.get("technical_blur_min", 0.60)),
-            "technical_delta_face_sharpness_min": float(decision.get("technical_delta_face_sharpness_min", -15.0)),
-            "technical_exposure_min": float(decision.get("technical_exposure_min", 1.0)),
+            "technical_delta_face_sharpness_min": float(
+                decision.get("technical_delta_face_sharpness_min", -15.0)
+            ),
+            "technical_exposure_min": float(
+                decision.get("technical_exposure_min", 1.0)
+            ),
         }
 
     def evaluate(self) -> Dict[str, Any]:
@@ -301,7 +366,9 @@ class PortraitQualityEvaluator:
 
         try:
             if self.resized_2048_bgr_u8 is None:
-                self.logger.error("resized_2048_bgr_u8 が None です。評価をスキップします。")
+                self.logger.error(
+                    "resized_2048_bgr_u8 が None です。評価をスキップします。"
+                )
                 return {}
 
             # -------------------------
@@ -311,7 +378,9 @@ class PortraitQualityEvaluator:
             if self.skip_face_processing:
                 self.logger.info("顔処理をスキップします。")
             else:
-                face_result = self.face_processor.detect_faces(self.rgb_u8) or {"faces": []}
+                face_result = self.face_processor.detect_faces(self.rgb_u8) or {
+                    "faces": []
+                }
 
             faces = face_result.get("faces", []) or []
             results["face_detected"] = bool(faces)
@@ -339,21 +408,29 @@ class PortraitQualityEvaluator:
 
             results.update(body_result)
 
-            body_keypoints = body_result.get("keypoints") or body_result.get("body_keypoints") or []
+            body_keypoints = (
+                body_result.get("keypoints") or body_result.get("body_keypoints") or []
+            )
 
             # -------------------------
             # composition
             # -------------------------
-            results.update(self._evaluate_composition(self.rgb_u8, faces, body_keypoints))
+            results.update(
+                self._evaluate_composition(self.rgb_u8, faces, body_keypoints)
+            )
 
             # -------------------------
             # face attributes + face region metrics
             # -------------------------
             best_face = self.face_processor.get_best_face(faces)
             if best_face:
-                cropped_face_rgb_u8 = self.face_processor.crop_face(self.rgb_u8, best_face)
+                cropped_face_rgb_u8 = self.face_processor.crop_face(
+                    self.rgb_u8, best_face
+                )
                 if cropped_face_rgb_u8 is not None:
-                    cropped_face_bgr_u8 = cv2.cvtColor(cropped_face_rgb_u8, cv2.COLOR_RGB2BGR)
+                    cropped_face_bgr_u8 = cv2.cvtColor(
+                        cropped_face_rgb_u8, cv2.COLOR_RGB2BGR
+                    )
 
                     face_attrs = self.face_processor.extract_attributes(best_face) or {}
                     results["yaw"] = face_attrs.get("yaw", 0.0)
@@ -389,7 +466,9 @@ class PortraitQualityEvaluator:
                     )
                 else:
                     # 顔は検出されたが crop に失敗したケース：ログだけ残して global へ
-                    self.logger.warning("Face detected but crop_face returned None. Skip face-region metrics.")
+                    self.logger.warning(
+                        "Face detected but crop_face returned None. Skip face-region metrics."
+                    )
 
             # -------------------------
             # global metrics
@@ -410,7 +489,9 @@ class PortraitQualityEvaluator:
             self._add_expression_score(results)
             self._add_face_global_deltas(results)
 
-            accepted, reason = self.decide_accept_static(results, thresholds=self.decision_thresholds)
+            accepted, reason = self.decide_accept_static(
+                results, thresholds=self.decision_thresholds
+            )
             results["accepted_flag"] = accepted
             results["accepted_reason"] = reason
 
@@ -454,6 +535,7 @@ class PortraitQualityEvaluator:
         """
         顔と全身情報を基に構図の評価を実施する。
         """
+
         def _empty_payload(status: str) -> Dict[str, Any]:
             return {
                 "composition_rule_based_score": 0.0,
@@ -487,51 +569,61 @@ class PortraitQualityEvaluator:
         try:
             # 顔も全身も情報が全く無ければスキップ
             if not face_boxes and not body_keypoints:
-                self.logger.warning("構図評価スキップ：face_boxes も body_keypoints も空です。")
+                self.logger.warning(
+                    "構図評価スキップ：face_boxes も body_keypoints も空です。"
+                )
                 return _empty_payload(status=STATUS_NOT_COMPUTED)
 
             # CompositeCompositionEvaluator に丸投げ
-            result = self.composition_evaluator.evaluate(
-                image=image,
-                face_boxes=face_boxes,
-                body_keypoints=body_keypoints,
-            ) or {}
+            result = (
+                self.composition_evaluator.evaluate(
+                    image=image,
+                    face_boxes=face_boxes,
+                    body_keypoints=body_keypoints,
+                )
+                or {}
+            )
             self.logger.info(f"構図評価結果: {result}")
 
             # ここで出てくる status も SSOT に寄せておく（未知値の揺れ防止）
             status = normalize_eval_status(result.get("composition_status", STATUS_OK))
 
             return {
-                "composition_rule_based_score": result.get("composition_rule_based_score", 0.0),
+                "composition_rule_based_score": result.get(
+                    "composition_rule_based_score", 0.0
+                ),
                 "face_position_score": result.get("face_position_score", 0.0),
                 "framing_score": result.get("framing_score", 0.0),
                 "face_direction_score": result.get("face_direction_score", 0.0),
                 "eye_contact_score": result.get("eye_contact_score", 0.0),
-
                 "face_composition_raw": result.get("face_composition_raw"),
                 "face_composition_score": result.get("face_composition_score"),
-
                 "body_composition_raw": result.get("body_composition_raw"),
                 "body_composition_score": result.get("body_composition_score"),
-
                 "composition_raw": result.get("composition_raw"),
                 "composition_score": result.get("composition_score"),
                 "composition_status": status,
-
                 "main_subject_center_source": result.get("main_subject_center_source"),
                 "main_subject_center_x": result.get("main_subject_center_x"),
                 "main_subject_center_y": result.get("main_subject_center_y"),
-
                 "rule_of_thirds_raw": result.get("rule_of_thirds_raw"),
                 "rule_of_thirds_score": result.get("rule_of_thirds_score"),
-
-                "contrib_comp_composition_rule_based_score": result.get("contrib_comp_composition_rule_based_score"),
-                "contrib_comp_face_position_score": result.get("contrib_comp_face_position_score"),
+                "contrib_comp_composition_rule_based_score": result.get(
+                    "contrib_comp_composition_rule_based_score"
+                ),
+                "contrib_comp_face_position_score": result.get(
+                    "contrib_comp_face_position_score"
+                ),
                 "contrib_comp_framing_score": result.get("contrib_comp_framing_score"),
-                "contrib_comp_lead_room_score": result.get("contrib_comp_lead_room_score"),
-                "contrib_comp_body_composition_score": result.get("contrib_comp_body_composition_score"),
-                "contrib_comp_rule_of_thirds_score": result.get("contrib_comp_rule_of_thirds_score"),
-
+                "contrib_comp_lead_room_score": result.get(
+                    "contrib_comp_lead_room_score"
+                ),
+                "contrib_comp_body_composition_score": result.get(
+                    "contrib_comp_body_composition_score"
+                ),
+                "contrib_comp_rule_of_thirds_score": result.get(
+                    "contrib_comp_rule_of_thirds_score"
+                ),
                 "group_id": result.get("group_id", "unclassified"),
                 "subgroup_id": result.get("subgroup_id", -1),
             }
@@ -556,7 +648,9 @@ class PortraitQualityEvaluator:
     # =========================
     # utility
     # =========================
-    def _eval_metrics(self, image: np.ndarray, metrics, prefix: str, tag: str, evaluators_dict) -> Dict[str, Any]:
+    def _eval_metrics(
+        self, image: np.ndarray, metrics, prefix: str, tag: str, evaluators_dict
+    ) -> Dict[str, Any]:
         out: Dict[str, Any] = {}
         for name in metrics:
             evaluator = evaluators_dict.get(name)
@@ -675,7 +769,9 @@ class PortraitQualityEvaluator:
         if isinstance(gaze, (list, dict)):
             results["gaze"] = _to_json_str(gaze)
 
-    def _calc_lead_room_score(self, image: np.ndarray, best_face: Dict[str, Any], yaw: float) -> float:
+    def _calc_lead_room_score(
+        self, image: np.ndarray, best_face: Dict[str, Any], yaw: float
+    ) -> float:
         h, W = image.shape[:2]
         box = best_face.get("box") or best_face.get("bbox")
         if not box or len(box) != 4:
@@ -779,14 +875,18 @@ class PortraitQualityEvaluator:
             if not path or not isinstance(path, str):
                 return {}
             if not os.path.exists(path):
-                self.logger.warning(f"Evaluator config not found: {path} (use defaults)")
+                self.logger.warning(
+                    f"Evaluator config not found: {path} (use defaults)"
+                )
                 return {}
 
             with open(path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
 
             if not isinstance(data, dict):
-                self.logger.warning(f"Evaluator config is not a dict: {path} (use defaults)")
+                self.logger.warning(
+                    f"Evaluator config is not a dict: {path} (use defaults)"
+                )
                 return {}
 
             self.logger.info(f"Evaluator config loaded: {path}")

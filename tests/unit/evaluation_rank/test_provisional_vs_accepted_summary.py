@@ -32,8 +32,12 @@ def _approx(a: float, b: float, tol: float = 1e-9) -> None:
 def test_build_summary_counts_all_and_groups() -> None:
     rows: List[Dict[str, Any]] = [
         _r(file_name="a", accepted_flag=1, provisional_top_percent_flag=1),  # overlap
-        _r(file_name="b", accepted_flag=1, provisional_top_percent_flag=0),  # accepted_not_top
-        _r(file_name="c", accepted_flag=0, provisional_top_percent_flag=1),  # top_not_accepted
+        _r(
+            file_name="b", accepted_flag=1, provisional_top_percent_flag=0
+        ),  # accepted_not_top
+        _r(
+            file_name="c", accepted_flag=0, provisional_top_percent_flag=1
+        ),  # top_not_accepted
         _r(
             file_name="d",
             category="non_face",

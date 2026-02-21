@@ -68,6 +68,7 @@ ET.register_namespace("dc", NS["dc"])
 # CSV → XMP 用ユーティリティ（安全系）
 # =========================================================
 
+
 def safe_float(value: Any, default: float = 0.0) -> float:
     try:
         if value in ("", None):
@@ -155,7 +156,10 @@ COLOR_LABEL_MAP = {
     "": (None, None),
 }
 
-def normalize_lr_color_label(lr_color_label: str) -> Tuple[Optional[str], Optional[str]]:
+
+def normalize_lr_color_label(
+    lr_color_label: str,
+) -> Tuple[Optional[str], Optional[str]]:
     """
     lr_color_label ("Green"/"green") から key/display を推定（フォールバック用）
     """
@@ -175,6 +179,7 @@ def normalize_lr_label_key(key: str) -> Optional[str]:
 # =========================================================
 # ファイル探索ユーティリティ
 # =========================================================
+
 
 def find_csv(output_dir: Path, csv_glob: str, date: Optional[str]) -> Path:
     """
@@ -236,6 +241,7 @@ def build_nef_index(base_dir: Path) -> dict[str, Path]:
 # Pick の決め方（運用きれい化）
 # =========================================================
 
+
 def compute_pick_from_csv(
     *,
     pick_mode: str,
@@ -264,6 +270,7 @@ def compute_pick_from_csv(
 # =========================================================
 # XMP 操作ユーティリティ
 # =========================================================
+
 
 def find_target_description(root: ET.Element) -> Optional[ET.Element]:
     for desc in root.findall(".//rdf:Description", NS):
@@ -352,7 +359,9 @@ def _existing_keywords(desc: ET.Element) -> List[str]:
     return out
 
 
-def _ensure_dc_subject(desc: ET.Element, keywords: List[str], *, overwrite: bool) -> None:
+def _ensure_dc_subject(
+    desc: ET.Element, keywords: List[str], *, overwrite: bool
+) -> None:
     """
     keywords を dc:subject に反映。
     overwrite=False の場合は既存キーワードを尊重しつつ「無ければ追加」。
@@ -449,6 +458,7 @@ def merge_into_existing_xmp(
 # メイン処理
 # =========================================================
 
+
 def process_csv(
     csv_path: Path,
     nef_index: dict[str, Path],
@@ -486,7 +496,9 @@ def process_csv(
 
             # Rating：lr_rating を信頼（無ければ -1 扱い）
             lr_rating = safe_int(row.get("lr_rating", -1), default=-1)
-            rating = lr_rating if lr_rating >= 0 else safe_int(overall // 20, default=0)  # フォールバックは雑でOK
+            rating = (
+                lr_rating if lr_rating >= 0 else safe_int(overall // 20, default=0)
+            )  # フォールバックは雑でOK
 
             # Color：lr_labelcolor_key/display を最優先。無ければ lr_color_label から推定。
             lr_label_key = normalize_lr_label_key(get_str(row, "lr_labelcolor_key", ""))
@@ -541,10 +553,14 @@ def process_csv(
                     overwrite_keywords=overwrite_keywords,
                 )
 
-                print(f"🔁 MERGE {nef_name} ★{rating} Pick={pick} Color={label_display or ''} KW={'Y' if (write_keywords and lr_keywords) else 'N'}")
+                print(
+                    f"🔁 MERGE {nef_name} ★{rating} Pick={pick} Color={label_display or ''} KW={'Y' if (write_keywords and lr_keywords) else 'N'}"
+                )
             else:
                 if dry_run:
-                    print(f"[DRY] NEW {nef_name} ★{rating} Pick={pick} Color={label_display or ''} KW={'Y' if (write_keywords and lr_keywords) else 'N'}")
+                    print(
+                        f"[DRY] NEW {nef_name} ★{rating} Pick={pick} Color={label_display or ''} KW={'Y' if (write_keywords and lr_keywords) else 'N'}"
+                    )
                     continue
 
                 xmp = create_new_xmp(
@@ -554,28 +570,52 @@ def process_csv(
                     label_display,
                     keywords=keywords if write_keywords else None,
                 )
-                ET.ElementTree(xmp).write(xmp_path, encoding="utf-8", xml_declaration=True)
-                print(f"✨ NEW   {nef_name} ★{rating} Pick={pick} Color={label_display or ''} KW={'Y' if (write_keywords and lr_keywords) else 'N'}")
+                ET.ElementTree(xmp).write(
+                    xmp_path, encoding="utf-8", xml_declaration=True
+                )
+                print(
+                    f"✨ NEW   {nef_name} ★{rating} Pick={pick} Color={label_display or ''} KW={'Y' if (write_keywords and lr_keywords) else 'N'}"
+                )
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="CSV → Lightroom XMP batch (lr_* contract-driven)")
+    p = argparse.ArgumentParser(
+        description="CSV → Lightroom XMP batch (lr_* contract-driven)"
+    )
 
     p.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
     p.add_argument("--csv-glob", type=str, default=CSV_GLOB)
     p.add_argument("--image-root", type=Path, default=BASE_DIRECTORY_ROOT)
 
     # 対象日付（探索rootとCSVをこの日付に固定）
-    p.add_argument("--date", type=str, default=None, help="YYYY-MM-DD (探索rootとCSVをこの日付に固定)")
+    p.add_argument(
+        "--date",
+        type=str,
+        default=None,
+        help="YYYY-MM-DD (探索rootとCSVをこの日付に固定)",
+    )
 
-    p.add_argument("--dry-run", action="store_true", default=DRY_RUN, help="writeしない（表示のみ）")
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=DRY_RUN,
+        help="writeしない（表示のみ）",
+    )
     p.add_argument("--no-backup", action="store_true", help=".xmp.bak を作らない")
 
     # 強制更新系
     p.add_argument("--force-rating", action="store_true", help="Rating を強制上書き")
-    p.add_argument("--force-pick", action="store_true", help="Pick を強制上書き（注意）")
-    p.add_argument("--force-color", action="store_true", help="ColorLabel を強制上書き（注意）")
-    p.add_argument("--clear-color-if-pick0", action="store_true", help="pick=0 のとき色を消す（--force-colorと併用推奨）")
+    p.add_argument(
+        "--force-pick", action="store_true", help="Pick を強制上書き（注意）"
+    )
+    p.add_argument(
+        "--force-color", action="store_true", help="ColorLabel を強制上書き（注意）"
+    )
+    p.add_argument(
+        "--clear-color-if-pick0",
+        action="store_true",
+        help="pick=0 のとき色を消す（--force-colorと併用推奨）",
+    )
 
     # Pick運用
     p.add_argument(
@@ -587,8 +627,16 @@ def parse_args() -> argparse.Namespace:
     )
 
     # Keywords運用
-    p.add_argument("--write-keywords", action="store_true", help="lr_keywords を XMPキーワード(dc:subject)へ追記する")
-    p.add_argument("--overwrite-keywords", action="store_true", help="--write-keywords 時に既存キーワードを上書きする（注意）")
+    p.add_argument(
+        "--write-keywords",
+        action="store_true",
+        help="lr_keywords を XMPキーワード(dc:subject)へ追記する",
+    )
+    p.add_argument(
+        "--overwrite-keywords",
+        action="store_true",
+        help="--write-keywords 時に既存キーワードを上書きする（注意）",
+    )
 
     return p.parse_args()
 
@@ -612,7 +660,9 @@ def main():
     print(f"ImageRoot: {image_root}")
     print(f"DryRun   : {dry_run}")
     print(f"Backup   : {backup_xmp}")
-    print(f"Force    : rating={force_rating} pick={args.force_pick} color={args.force_color} clear_if_pick0={args.clear_color_if_pick0}")
+    print(
+        f"Force    : rating={force_rating} pick={args.force_pick} color={args.force_color} clear_if_pick0={args.clear_color_if_pick0}"
+    )
     print(f"PickMode : {args.pick_mode}")
     print(f"Keywords : write={args.write_keywords} overwrite={args.overwrite_keywords}")
     print("=====================================")

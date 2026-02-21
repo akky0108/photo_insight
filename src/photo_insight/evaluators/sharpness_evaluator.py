@@ -64,10 +64,12 @@ class SharpnessEvaluator:
                 - sharpness_eval_status
         """
         if image is None or not isinstance(image, np.ndarray) or image.size == 0:
-            self.logger.warning("SharpnessEvaluator: invalid image. fallback to neutral.")
+            self.logger.warning(
+                "SharpnessEvaluator: invalid image. fallback to neutral."
+            )
             return {
                 self.RAW_KEY: None,
-                self.SCORE_KEY: 0.5,   # ニュートラル
+                self.SCORE_KEY: 0.5,  # ニュートラル
                 "sharpness_eval_status": "invalid_input",
             }
 
@@ -116,7 +118,7 @@ class SharpnessEvaluator:
             self.logger.warning(f"SharpnessEvaluator: exception during evaluate: {e}")
             return {
                 self.RAW_KEY: None,
-                self.SCORE_KEY: 0.5,    # ニュートラル
+                self.SCORE_KEY: 0.5,  # ニュートラル
                 "sharpness_eval_status": "error",
             }
 

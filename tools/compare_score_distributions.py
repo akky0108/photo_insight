@@ -57,7 +57,9 @@ TECH_TARGET_RANGES = {
     0.25: (0.15, 0.25),
     0.0: (0.10, 0.15),
 }
-TECH_TARGET_CENTER = {lv: (lo + hi) / 2.0 for lv, (lo, hi) in TECH_TARGET_RANGES.items()}
+TECH_TARGET_CENTER = {
+    lv: (lo + hi) / 2.0 for lv, (lo, hi) in TECH_TARGET_RANGES.items()
+}
 
 
 def warn(msg: str) -> None:
@@ -137,7 +139,9 @@ def validate_score_series(
     range_max: float = 1.001,
 ) -> ScoreValidity:
     if not values:
-        return ScoreValidity(False, 0, 0.0, 0.0, float("nan"), float("nan"), "no numeric values")
+        return ScoreValidity(
+            False, 0, 0.0, 0.0, float("nan"), float("nan"), "no numeric values"
+        )
 
     n = len(values)
     min_v = min(values)
@@ -147,19 +151,42 @@ def validate_score_series(
     in_range_ratio = len(in_range) / n if n else 0.0
 
     if n < min_samples:
-        return ScoreValidity(False, n, in_range_ratio, 0.0, min_v, max_v, f"too few samples (n={n} < {min_samples})")
+        return ScoreValidity(
+            False,
+            n,
+            in_range_ratio,
+            0.0,
+            min_v,
+            max_v,
+            f"too few samples (n={n} < {min_samples})",
+        )
 
     # score列ならほぼ 0..1 に収まるはず。外れが多いなら誤認可能性高い。
     if in_range_ratio < 0.98:
-        return ScoreValidity(False, n, in_range_ratio, 0.0, min_v, max_v, f"in-range ratio too low ({in_range_ratio:.3f} < 0.98)")
+        return ScoreValidity(
+            False,
+            n,
+            in_range_ratio,
+            0.0,
+            min_v,
+            max_v,
+            f"in-range ratio too low ({in_range_ratio:.3f} < 0.98)",
+        )
 
     rounded = [round_to_quarter(v) for v in in_range]
     discrete = [v for v in rounded if v in DISCRETE_SET]
     discrete_ratio = len(discrete) / len(in_range) if in_range else 0.0
 
     if discrete_ratio < min_discrete_ratio:
-        return ScoreValidity(False, n, in_range_ratio, discrete_ratio, min_v, max_v,
-                             f"discrete ratio too low ({discrete_ratio:.3f} < {min_discrete_ratio})")
+        return ScoreValidity(
+            False,
+            n,
+            in_range_ratio,
+            discrete_ratio,
+            min_v,
+            max_v,
+            f"discrete ratio too low ({discrete_ratio:.3f} < {min_discrete_ratio})",
+        )
 
     return ScoreValidity(True, n, in_range_ratio, discrete_ratio, min_v, max_v, "ok")
 
@@ -195,7 +222,9 @@ def tech_target_flags(ratios: Dict[float, float]) -> Dict[float, str]:
 
 
 def tech_target_l1(ratios: Dict[float, float]) -> float:
-    return sum(abs(ratios.get(lv, 0.0) - TECH_TARGET_CENTER[lv]) for lv in DISCRETE_LEVELS)
+    return sum(
+        abs(ratios.get(lv, 0.0) - TECH_TARGET_CENTER[lv]) for lv in DISCRETE_LEVELS
+    )
 
 
 def ensure_dir(p: Path) -> None:
@@ -239,8 +268,12 @@ def main() -> int:
     ap.add_argument("--min-samples", type=int, default=50)
     ap.add_argument("--min-discrete-ratio", type=float, default=0.95)
 
-    ap.add_argument("--face-saturation-warn", type=float, default=0.80,
-                    help="face系で(0+1)飽和率がこの値を超えたら警告（ただしスキップしない）")
+    ap.add_argument(
+        "--face-saturation-warn",
+        type=float,
+        default=0.80,
+        help="face系で(0+1)飽和率がこの値を超えたら警告（ただしスキップしない）",
+    )
     args = ap.parse_args()
 
     out_dir = Path(args.out_dir)
@@ -280,8 +313,16 @@ def main() -> int:
         vals_a = collect_column_values(rows_a, score_col)
         vals_b = collect_column_values(rows_b, score_col)
 
-        v_a = validate_score_series(vals_a, min_samples=args.min_samples, min_discrete_ratio=args.min_discrete_ratio)
-        v_b = validate_score_series(vals_b, min_samples=args.min_samples, min_discrete_ratio=args.min_discrete_ratio)
+        v_a = validate_score_series(
+            vals_a,
+            min_samples=args.min_samples,
+            min_discrete_ratio=args.min_discrete_ratio,
+        )
+        v_b = validate_score_series(
+            vals_b,
+            min_samples=args.min_samples,
+            min_discrete_ratio=args.min_discrete_ratio,
+        )
 
         if not v_a.ok or not v_b.ok:
             warn(
@@ -302,10 +343,19 @@ def main() -> int:
         sat_b = saturation_ratio(ratios_b)
 
         is_face = score_col.startswith("face_")
-        is_tech = score_col in {"sharpness_score", "blurriness_score", "contrast_score", "noise_score"}
+        is_tech = score_col in {
+            "sharpness_score",
+            "blurriness_score",
+            "contrast_score",
+            "noise_score",
+        }
 
-        if is_face and (sat_a >= args.face_saturation_warn or sat_b >= args.face_saturation_warn):
-            warn(f"Face metric '{score_col}' extreme? saturation(0+1): A={sat_a:.3f}, B={sat_b:.3f} (warn>= {args.face_saturation_warn})")
+        if is_face and (
+            sat_a >= args.face_saturation_warn or sat_b >= args.face_saturation_warn
+        ):
+            warn(
+                f"Face metric '{score_col}' extreme? saturation(0+1): A={sat_a:.3f}, B={sat_b:.3f} (warn>= {args.face_saturation_warn})"
+            )
 
         row: Dict[str, object] = {
             "metric": score_col,
@@ -323,8 +373,16 @@ def main() -> int:
             "tech_target_l1_b": f"{tech_target_l1(ratios_b):.6f}" if is_tech else "",
         }
 
-        flags_a = tech_target_flags(ratios_a) if is_tech else {lv: "" for lv in DISCRETE_LEVELS}
-        flags_b = tech_target_flags(ratios_b) if is_tech else {lv: "" for lv in DISCRETE_LEVELS}
+        flags_a = (
+            tech_target_flags(ratios_a)
+            if is_tech
+            else {lv: "" for lv in DISCRETE_LEVELS}
+        )
+        flags_b = (
+            tech_target_flags(ratios_b)
+            if is_tech
+            else {lv: "" for lv in DISCRETE_LEVELS}
+        )
 
         for lv in DISCRETE_LEVELS:
             row[f"ratio_a_{lv}"] = f"{ratios_a.get(lv, 0.0):.4f}"

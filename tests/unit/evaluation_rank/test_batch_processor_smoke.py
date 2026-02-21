@@ -209,8 +209,12 @@ def test_evaluation_rank_batch_processor_smoke(tmp_path: Path, date: str) -> Non
 
     # percent is set for all rows
     percents = [float(r.get("provisional_top_percent") or 0.0) for r in rows]
-    assert all(p == 10.0 for p in percents), f"unexpected provisional_top_percent: {sorted(set(percents))}"
+    assert all(
+        p == 10.0 for p in percents
+    ), f"unexpected provisional_top_percent: {sorted(set(percents))}"
 
     # flag count uses ceil: 12 * 10% => 2
     flags = [int(float(r.get("provisional_top_percent_flag") or 0)) for r in rows]
-    assert sum(flags) == 2, f"expected 2 top-percent rows, got sum={sum(flags)} flags={flags}"
+    assert (
+        sum(flags) == 2
+    ), f"expected 2 top-percent rows, got sum={sum(flags)} flags={flags}"

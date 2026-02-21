@@ -10,6 +10,7 @@ from photo_insight.batch_processor.evaluation_rank import lightroom as lr
 # basic safety helpers
 # -------------------------
 
+
 @pytest.mark.parametrize(
     "value, expected",
     [
@@ -25,7 +26,7 @@ from photo_insight.batch_processor.evaluation_rank import lightroom as lr
         ("no", False),
         ("  y  ", True),
         ("  n  ", False),
-        ("2", True),     # int(float("2")) => 2 => True
+        ("2", True),  # int(float("2")) => 2 => True
         ("0.0", False),
         ("1.0", True),
         ("garbage", False),
@@ -72,7 +73,7 @@ def test_safe_int_flag(value, expected):
         (0, 0.0),
         (0.5, 50.0),
         (1.0, 100.0),
-        (1.1, 1.1),      # already 0-100
+        (1.1, 1.1),  # already 0-100
         (70, 70.0),
         ("0.25", 25.0),
         ("75", 75.0),
@@ -105,6 +106,7 @@ def test_score_to_rating(overall, expected):
 # -------------------------
 # reason inference
 # -------------------------
+
 
 @pytest.mark.parametrize(
     "reason, expected",
@@ -142,6 +144,7 @@ def test_infer_green_from_reason(reason, expected):
 # -------------------------
 # shorten_reason_for_lr
 # -------------------------
+
 
 def test_shorten_reason_converts_tags_commas_to_slash_and_strips_spaces():
     reason = "portrait group=A-1 o=80.82 tags=eye_contact, framing, expression"
@@ -185,97 +188,123 @@ def test_shorten_reason_keeps_tail_when_truncating():
 # choose_color_label rules
 # -------------------------
 
+
 def test_choose_color_label_green_overrides_everything():
-    assert lr.choose_color_label(
-        accepted_flag=1,
-        secondary_flag=1,
-        rating=0,
-        top_flag=0,
-        face_in_focus=False,
-        eye_state="half",
-    ) == "Green"
+    assert (
+        lr.choose_color_label(
+            accepted_flag=1,
+            secondary_flag=1,
+            rating=0,
+            top_flag=0,
+            face_in_focus=False,
+            eye_state="half",
+        )
+        == "Green"
+    )
 
 
 def test_choose_color_label_half_eye_is_red_when_not_accepted():
-    assert lr.choose_color_label(
-        accepted_flag=0,
-        secondary_flag=0,
-        rating=5,
-        top_flag=1,
-        face_in_focus=True,
-        eye_state="half",
-    ) == "Red"
+    assert (
+        lr.choose_color_label(
+            accepted_flag=0,
+            secondary_flag=0,
+            rating=5,
+            top_flag=1,
+            face_in_focus=True,
+            eye_state="half",
+        )
+        == "Red"
+    )
 
 
 def test_choose_color_label_secondary_is_yellow():
-    assert lr.choose_color_label(
-        accepted_flag=0,
-        secondary_flag=1,
-        rating=5,
-        top_flag=1,
-        face_in_focus=True,
-        eye_state="",
-    ) == "Yellow"
+    assert (
+        lr.choose_color_label(
+            accepted_flag=0,
+            secondary_flag=1,
+            rating=5,
+            top_flag=1,
+            face_in_focus=True,
+            eye_state="",
+        )
+        == "Yellow"
+    )
 
 
 def test_choose_color_label_closed_eye_is_yellow_when_not_accepted():
-    assert lr.choose_color_label(
-        accepted_flag=0,
-        secondary_flag=0,
-        rating=5,
-        top_flag=1,
-        face_in_focus=True,
-        eye_state="closed",
-    ) == "Yellow"
+    assert (
+        lr.choose_color_label(
+            accepted_flag=0,
+            secondary_flag=0,
+            rating=5,
+            top_flag=1,
+            face_in_focus=True,
+            eye_state="closed",
+        )
+        == "Yellow"
+    )
 
 
 def test_choose_color_label_clear_fail_red_when_low_rating_and_not_in_focus():
-    assert lr.choose_color_label(
-        accepted_flag=0,
-        secondary_flag=0,
-        rating=1,
-        top_flag=1,
-        face_in_focus=False,
-        eye_state="",
-    ) == "Red"
+    assert (
+        lr.choose_color_label(
+            accepted_flag=0,
+            secondary_flag=0,
+            rating=1,
+            top_flag=1,
+            face_in_focus=False,
+            eye_state="",
+        )
+        == "Red"
+    )
 
 
 def test_choose_color_label_top_flag_blue_when_not_accepted_and_not_secondary():
-    assert lr.choose_color_label(
-        accepted_flag=0,
-        secondary_flag=0,
-        rating=4,
-        top_flag=1,
-        face_in_focus=False,
-        eye_state="",
-    ) == "Blue"
+    assert (
+        lr.choose_color_label(
+            accepted_flag=0,
+            secondary_flag=0,
+            rating=4,
+            top_flag=1,
+            face_in_focus=False,
+            eye_state="",
+        )
+        == "Blue"
+    )
 
 
 def test_choose_color_label_face_in_focus_yellow_when_not_top():
-    assert lr.choose_color_label(
-        accepted_flag=0,
-        secondary_flag=0,
-        rating=4,
-        top_flag=0,
-        face_in_focus=True,
-        eye_state="",
-    ) == "Yellow"
+    assert (
+        lr.choose_color_label(
+            accepted_flag=0,
+            secondary_flag=0,
+            rating=4,
+            top_flag=0,
+            face_in_focus=True,
+            eye_state="",
+        )
+        == "Yellow"
+    )
 
 
 def test_choose_color_label_default_empty():
-    assert lr.choose_color_label(
-        accepted_flag=0,
-        secondary_flag=0,
-        rating=4,
-        top_flag=0,
-        face_in_focus=False,
-        eye_state="",
-    ) == ""
+    assert (
+        lr.choose_color_label(
+            accepted_flag=0,
+            secondary_flag=0,
+            rating=4,
+            top_flag=0,
+            face_in_focus=False,
+            eye_state="",
+        )
+        == ""
+    )
 
 
 # -------------------------
 # apply_lightroom_fields integration
 # -------------------------
+
 
 def _base_row(**kwargs):
     row = {
@@ -375,4 +404,6 @@ def test_apply_lightroom_fields_face_in_focus_yellow_when_not_top_and_not_second
     lr.apply_lightroom_fields(r, keyword_max_len=200)
 
     assert r["lr_color_label"] == "Yellow"
-    assert r["lr_keywords"] == ""  # Yellow でも effective_secondary/accepted じゃないので keywords は空の設計
+    assert (
+        r["lr_keywords"] == ""
+    )  # Yellow でも effective_secondary/accepted じゃないので keywords は空の設計

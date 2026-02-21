@@ -51,7 +51,9 @@ from github.GithubException import GithubException
 DEFAULT_LABEL_COLOR = "f29513"
 
 # --- body markers ---
-EXTERNAL_ID_RE = re.compile(r"<!--\s*photo_insight:external_id=([A-Za-z0-9_\-\.]+)\s*-->")
+EXTERNAL_ID_RE = re.compile(
+    r"<!--\s*photo_insight:external_id=([A-Za-z0-9_\-\.]+)\s*-->"
+)
 MANAGED_START = "<!-- managed:start -->"
 MANAGED_END = "<!-- managed:end -->"
 HUMAN_START = "<!-- human:start -->"
@@ -100,7 +102,9 @@ def load_issues_yml(path: str) -> List[IssueSpec]:
 
         _id = it.get("id")
         if not _id or not isinstance(_id, str):
-            raise ValueError(f"issues.yml: issues[{i}] missing required 'id' (external_id)")
+            raise ValueError(
+                f"issues.yml: issues[{i}] missing required 'id' (external_id)"
+            )
 
         title = it.get("title")
         if not title or not isinstance(title, str):
@@ -124,7 +128,9 @@ def load_issues_yml(path: str) -> List[IssueSpec]:
                 title=title.strip(),
                 body=body,
                 labels=normalize_labels(labels),
-                children=[c.strip() for c in children if isinstance(c, str) and c.strip()],
+                children=[
+                    c.strip() for c in children if isinstance(c, str) and c.strip()
+                ],
             )
         )
     return specs
@@ -162,7 +168,14 @@ def extract_external_id(body: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
-def build_managed_section(*, external_id: str, title: str, spec_body: str, subtasks_md: str = "", parent_ref_md: str = "") -> str:
+def build_managed_section(
+    *,
+    external_id: str,
+    title: str,
+    spec_body: str,
+    subtasks_md: str = "",
+    parent_ref_md: str = "",
+) -> str:
     """
     managed section is fully generated.
     - embeds external_id marker
@@ -208,9 +221,9 @@ def split_sections(body: str) -> Tuple[Optional[str], Optional[str], str]:
         b = s.find(block_end, a + len(block_start))
         if b == -1:
             return None, s
-        inner = s[a + len(block_start): b]
+        inner = s[a + len(block_start) : b]
         # remove the whole block including markers
-        new_s = s[:a] + s[b + len(block_end):]
+        new_s = s[:a] + s[b + len(block_end) :]
         return inner.strip("\n"), new_s
 
     managed, text2 = _extract(MANAGED_START, MANAGED_END, text)
@@ -251,7 +264,9 @@ def compose_full_body(*, new_managed: str, existing_body: Optional[str]) -> str:
 # -------------------------
 # GitHub helpers
 # -------------------------
-def ensure_labels(repo, existing_labels: Dict[str, Any], label_names: List[str], *, dry_run: bool) -> List[Any]:
+def ensure_labels(
+    repo, existing_labels: Dict[str, Any], label_names: List[str], *, dry_run: bool
+) -> List[Any]:
     label_objects = []
     for name in label_names:
         if name not in existing_labels:
@@ -306,7 +321,9 @@ def render_subtasks(parent: IssueSpec, child_issues: List[Any]) -> str:
     lines: List[str] = []
     lines.append("## Subtasks")
     lines.append("")
-    child_by_id: Dict[str, Any] = {extract_external_id((ci.body or "")) or "": ci for ci in child_issues}
+    child_by_id: Dict[str, Any] = {
+        extract_external_id((ci.body or "")) or "": ci for ci in child_issues
+    }
     # But child_issue body might not yet have marker if legacy; safer: use a passed map elsewhere.
     # Here we assume we pass correct child_issues in the same order as parent.children.
     for ci in child_issues:
@@ -324,8 +341,16 @@ def render_parent_ref(parent_issue: Any) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--repo", default="akky0108/photo_insight", help="owner/repo")
-    ap.add_argument("--issues-yml", default="", help="path to issues.yml (default: script_dir/issues.yml)")
-    ap.add_argument("--dry-run", action="store_true", help="do not create/update anything, just print actions")
+    ap.add_argument(
+        "--issues-yml",
+        default="",
+        help="path to issues.yml (default: script_dir/issues.yml)",
+    )
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="do not create/update anything, just print actions",
+    )
     args = ap.parse_args()
 
     load_dotenv()
@@ -350,7 +375,9 @@ def main() -> int:
     # existing issues by external_id
     ext_to_issue, dups = fetch_existing_by_external_id(repo)
     if dups:
-        err("Duplicate external_id detected in existing GitHub Issues. Please resolve first:")
+        err(
+            "Duplicate external_id detected in existing GitHub Issues. Please resolve first:"
+        )
         for ext, nums in dups.items():
             err(f"  external_id={ext}: issues={nums}")
         return 2
@@ -362,7 +389,9 @@ def main() -> int:
     created_or_updated: Dict[str, Any] = {}  # external_id -> issue
     failed: List[str] = []
 
-    def upsert(spec: IssueSpec, *, subtasks_md: str = "", parent_ref_md: str = "") -> Optional[Any]:
+    def upsert(
+        spec: IssueSpec, *, subtasks_md: str = "", parent_ref_md: str = ""
+    ) -> Optional[Any]:
         # managed content
         managed = build_managed_section(
             external_id=spec.id,
@@ -377,16 +406,24 @@ def main() -> int:
 
         if args.dry_run:
             if existing:
-                info(f"DRY-RUN update: #{existing.number} {spec.title} (external_id={spec.id}) labels={label_names}")
+                info(
+                    f"DRY-RUN update: #{existing.number} {spec.title} (external_id={spec.id}) labels={label_names}"
+                )
             else:
-                info(f"DRY-RUN create: {spec.title} (external_id={spec.id}) labels={label_names}")
+                info(
+                    f"DRY-RUN create: {spec.title} (external_id={spec.id}) labels={label_names}"
+                )
             return None
 
         try:
-            label_objects = ensure_labels(repo, existing_labels, label_names, dry_run=False)
+            label_objects = ensure_labels(
+                repo, existing_labels, label_names, dry_run=False
+            )
 
             if existing:
-                new_body = compose_full_body(new_managed=managed, existing_body=existing.body or "")
+                new_body = compose_full_body(
+                    new_managed=managed, existing_body=existing.body or ""
+                )
                 # update title/body/labels
                 existing.edit(title=spec.title, body=new_body, labels=label_names)
                 info(f"UPDATED: #{existing.number} {spec.title}")
@@ -394,7 +431,9 @@ def main() -> int:
 
             # create
             new_body = compose_full_body(new_managed=managed, existing_body="")
-            issue = repo.create_issue(title=spec.title, body=new_body, labels=label_names)
+            issue = repo.create_issue(
+                title=spec.title, body=new_body, labels=label_names
+            )
             info(f"CREATED: #{issue.number} {spec.title}")
             ext_to_issue[spec.id] = issue
             return issue
@@ -440,7 +479,9 @@ def main() -> int:
 
             # ensure child has parent ref in managed section
             child_parent_ref = render_parent_ref(parent_issue)
-            upsert(cs, parent_ref_md=child_parent_ref)  # re-upsert child with parent ref
+            upsert(
+                cs, parent_ref_md=child_parent_ref
+            )  # re-upsert child with parent ref
 
         # finally update parent with linked subtasks
         subtasks_md = render_subtasks(p, child_issues)

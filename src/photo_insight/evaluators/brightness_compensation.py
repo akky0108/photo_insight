@@ -17,8 +17,8 @@ def adjust_noise_by_brightness(noise_score: float, exposure_score: float) -> flo
 
     # 暗い画像: ノイズに少し甘くする（+補正、下がらない）
     if exp < 0.4:
-        t = (0.4 - exp) / 0.4          # 0〜1
-        relax = 0.15 * t               # 最大 +0.15
+        t = (0.4 - exp) / 0.4  # 0〜1
+        relax = 0.15 * t  # 最大 +0.15
         score = score + relax * (1.0 - score)
 
     return max(0.0, min(1.0, score))
@@ -39,8 +39,8 @@ def adjust_blur_by_brightness(blurriness_score: float, exposure_score: float) ->
 
     # 暗い画像: ブレに少し甘い補正（+補正、下がらない）
     if exp < 0.4:
-        t = (0.4 - exp) / 0.4          # 0〜1
-        relax = 0.10 * t               # 最大 +0.10
+        t = (0.4 - exp) / 0.4  # 0〜1
+        relax = 0.10 * t  # 最大 +0.10
         score = score + relax * (1.0 - score)
 
     return max(0.0, min(1.0, score))

@@ -27,7 +27,9 @@ class DataContractProcessor(BaseBatchProcessor):
 
 def test_setup_calls_load_data_once(tmp_path):
     config_path = _write_min_config(tmp_path)
-    p = DataContractProcessor(config_path=config_path, logger=MagicMock(), max_workers=2)
+    p = DataContractProcessor(
+        config_path=config_path, logger=MagicMock(), max_workers=2
+    )
 
     p.setup()
     assert p.load_calls == 1
@@ -37,7 +39,9 @@ def test_setup_calls_load_data_once(tmp_path):
 
 def test_process_does_not_reload_data(tmp_path):
     config_path = _write_min_config(tmp_path)
-    p = DataContractProcessor(config_path=config_path, logger=MagicMock(), max_workers=2)
+    p = DataContractProcessor(
+        config_path=config_path, logger=MagicMock(), max_workers=2
+    )
 
     p.setup()
     assert p.load_calls == 1

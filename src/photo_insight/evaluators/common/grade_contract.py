@@ -45,11 +45,9 @@ GRADE_NORMALIZE_MAP = {
     "very_blurry": GRADE_BAD,
     "blurry": GRADE_POOR,
     "slightly_blurry": GRADE_FAIR,
-
     # ありがちな揺れ
     "excellent+": GRADE_EXCELLENT,
     "very_good": GRADE_GOOD,
-
     # 欠損系
     "none": None,
     "null": None,
@@ -103,22 +101,20 @@ STATUS_NORMALIZE_MAP = {
     "invalid_input": STATUS_INVALID,
     "invalid_data": STATUS_INVALID,
     "error": STATUS_INVALID,
-
     # fallback 系の揺れ吸収
     "fallback_used": STATUS_FALLBACK,
     "fallback_used_with_default": STATUS_FALLBACK,
-
     "default": STATUS_FALLBACK,
-
     "not_computed": STATUS_NOT_COMPUTED,
     "not_computed_with_default": STATUS_NOT_COMPUTED,  # ★事故ポイントを吸収
-    "not_computed_default": STATUS_NOT_COMPUTED,       # 将来の揺れ予防（任意）
+    "not_computed_default": STATUS_NOT_COMPUTED,  # 将来の揺れ予防（任意）
 }
 
 
 # =========================
 # Utilities
 # =========================
+
 
 def normalize_score(score: Optional[float]) -> Optional[float]:
     """

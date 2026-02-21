@@ -64,6 +64,7 @@ jobs:
         run: |
           mkdir -p ci_logs/lint
           flake8 . \
+            --max-line-length=88 \
             --count \
             --statistics \
             --show-source \

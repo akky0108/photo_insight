@@ -65,7 +65,10 @@ def _assert_contract_for_contrast_result(r: dict) -> None:
 
     # score があるなら grade と整合する（score_to_grade がSSOT）
     if "contrast_score" in r and r.get("contrast_score") is not None:
-        assert r.get("contrast_grade") in (None, score_to_grade(r.get("contrast_score")))
+        assert r.get("contrast_grade") in (
+            None,
+            score_to_grade(r.get("contrast_score")),
+        )
 
 
 @pytest.mark.parametrize(
@@ -103,7 +106,9 @@ def _assert_contract_for_contrast_result(r: dict) -> None:
         ),
     ],
 )
-def test_contrast_evaluator_config_thresholds_affect_score(cfg, expected_score, expected_grade):
+def test_contrast_evaluator_config_thresholds_affect_score(
+    cfg, expected_score, expected_grade
+):
     """
     config の discretize_thresholds_raw により score/grade が変わることを保証する。
     std が約30になる画像を作って判定を安定化する。

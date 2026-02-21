@@ -3,7 +3,10 @@ from __future__ import annotations
 import numpy as np
 from photo_insight.utils.image_utils import ImageUtils
 
-from photo_insight.evaluators.common.raw_contract_utils import ensure_gray255, load_thresholds_sorted
+from photo_insight.evaluators.common.raw_contract_utils import (
+    ensure_gray255,
+    load_thresholds_sorted,
+)
 
 
 class ContrastEvaluator:
@@ -99,7 +102,7 @@ class ContrastEvaluator:
             f"{k}_raw": None,
             f"{k}_score": 0.0,
             f"{k}_grade": "bad",
-            f"{k}_eval_status": "invalid",   # default: invalid
+            f"{k}_eval_status": "invalid",  # default: invalid
             f"{k}_fallback_reason": "",
             "success": False,
         }

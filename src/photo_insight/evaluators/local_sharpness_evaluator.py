@@ -58,12 +58,16 @@ class LocalSharpnessEvaluator:
 
         # 代表値（平均と分位のブレンド）
         self.p_quantile: float = float(conf.get("representative_quantile", 0.80))
-        self.quantile_weight: float = float(conf.get("representative_quantile_weight", 0.7))
+        self.quantile_weight: float = float(
+            conf.get("representative_quantile_weight", 0.7)
+        )
         self.mean_weight: float = float(conf.get("representative_mean_weight", 0.3))
 
     def evaluate(self, image: np.ndarray) -> Dict[str, Any]:
         if image is None or not isinstance(image, np.ndarray) or image.size == 0:
-            self.logger.warning("LocalSharpnessEvaluator: invalid image. fallback to neutral.")
+            self.logger.warning(
+                "LocalSharpnessEvaluator: invalid image. fallback to neutral."
+            )
             return {
                 self.RAW_KEY: None,
                 self.SCORE_KEY: 0.5,
@@ -124,7 +128,9 @@ class LocalSharpnessEvaluator:
                     self.STATUS_KEY: "ok",
                     self.FALLBACK_KEY: "no_effective_patches",
                     "local_sharpness_patch_count": 0,
-                    "local_sharpness_edge_ratio_mean": float(np.mean(edge_ratios)) if edge_ratios else 0.0,
+                    "local_sharpness_edge_ratio_mean": (
+                        float(np.mean(edge_ratios)) if edge_ratios else 0.0
+                    ),
                 }
 
             arr = np.array(values, dtype=np.float64)
@@ -143,7 +149,6 @@ class LocalSharpnessEvaluator:
                 self.SCORE_KEY: score,
                 self.STD_KEY: std_v,
                 self.STATUS_KEY: "ok",
-
                 # デバッグ/分析用（ヘッダ無しならCSV出力側で無視してOK）
                 "local_sharpness_mean": mean_v,
                 "local_sharpness_p80": q_v,

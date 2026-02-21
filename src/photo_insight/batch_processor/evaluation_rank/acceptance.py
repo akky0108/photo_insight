@@ -13,6 +13,7 @@ Row = Dict[str, Any]
 # Utilities
 # ==============================
 
+
 def safe_float(value: Any) -> float:
     try:
         if value in ("", None):
@@ -70,7 +71,7 @@ def extract_contrib(prefix: str, r: Row) -> Dict[str, Any]:
         if not isinstance(k, str):
             continue
         if k.startswith(prefix):
-            out[k[len(prefix):]] = v
+            out[k[len(prefix) :]] = v
     return out
 
 
@@ -108,13 +109,18 @@ def reliability_score(row: Row) -> float:
     s = 0.0
 
     # 主に eval_status を見る（現行契約）
-    for k in ("noise_eval_status", "exposure_eval_status", "sharpness_eval_status", "contrast_eval_status"):
+    for k in (
+        "noise_eval_status",
+        "exposure_eval_status",
+        "sharpness_eval_status",
+        "contrast_eval_status",
+    ):
         if str(row.get(k, "")).strip().lower() == "ok":
             s += 1.0
 
     # --- blurriness: contract-first ---
     blur_status = str(row.get("blurriness_eval_status", "")).strip().lower()
-    blur_ok_contract = (blur_status == "ok")
+    blur_ok_contract = blur_status == "ok"
 
     # 旧互換（過去CSV/過去実装のフラグ群）
     blur_ok_legacy = (
@@ -146,6 +152,7 @@ def overall_sort_key(row: Row) -> Tuple[float, float, float, float, float, str]:
 # ==============================
 # Eye state policy (half/closed)
 # ==============================
+
 
 def apply_eye_state_policy(
     rows: List[Row],
@@ -228,10 +235,10 @@ def apply_eye_state_policy(
         r["eye_state"] = "ok"
 
 
-
 # ==============================
 # accepted_reason (pro tags)
 # ==============================
+
 
 def _shot_type(row: Row) -> str:
     return str(row.get("shot_type") or "").strip().lower()
@@ -281,7 +288,12 @@ def build_reason_pro(
     lead = safe_float(row.get("lead_room_score"))
     body = safe_float(row.get("body_composition_score"))
 
-    expr = safe_float(row.get("debug_expr_effective", row.get("debug_expression", row.get("expression_score", 0.0))))
+    expr = safe_float(
+        row.get(
+            "debug_expr_effective",
+            row.get("debug_expression", row.get("expression_score", 0.0)),
+        )
+    )
     half_pen = safe_float(row.get("debug_half_penalty", 0.0))
 
     tags: List[Tuple[str, float]] = []
@@ -328,7 +340,11 @@ def build_reason_pro(
         if lead >= 0.80:
             tags.append(("lead_room", lead))
 
-    focus = "face" if (cat == "portrait" and st not in ("full_body", "seated") and f >= c) else "comp"
+    focus = (
+        "face"
+        if (cat == "portrait" and st not in ("full_body", "seated") and f >= c)
+        else "comp"
+    )
     top = _topk_by_score({k: v for k, v in tags}, k=max_tags)
     top_txt = ", ".join(str(k) for k, _ in top if isinstance(k, str)) if top else ""
 
@@ -343,6 +359,7 @@ def build_reason_pro(
 # ==============================
 # Rules
 # ==============================
+
 
 @dataclass(frozen=True)
 class AcceptRules:
@@ -360,9 +377,9 @@ class AcceptRules:
     green_min_total: int = 3
 
     # ★新：枚数別の比率（デフォルトで有効化）
-    green_ratio_small: float = 0.30   # n <= green_count_small_max
-    green_ratio_mid: float = 0.25     # (small_max < n <= mid_max)
-    green_ratio_large: float = 0.20   # n > green_count_mid_max
+    green_ratio_small: float = 0.30  # n <= green_count_small_max
+    green_ratio_mid: float = 0.25  # (small_max < n <= mid_max)
+    green_ratio_large: float = 0.20  # n > green_count_mid_max
     green_count_small_max: int = 60
     green_count_mid_max: int = 120
 
@@ -383,6 +400,7 @@ class AcceptRules:
 # ==============================
 # Engine
 # ==============================
+
 
 class AcceptanceEngine:
     def __init__(self, rules: Optional[AcceptRules] = None) -> None:
@@ -431,7 +449,9 @@ class AcceptanceEngine:
         comp = safe_float(r.get("score_composition"))
 
         if st in ("full_body", "seated"):
-            return (comp >= 65.0 and face >= 60.0) or (comp >= 58.0 and safe_float(r.get("overall_score")) >= 72.0)
+            return (comp >= 65.0 and face >= 60.0) or (
+                comp >= 58.0 and safe_float(r.get("overall_score")) >= 72.0
+            )
 
         return (face >= 70.0 and comp >= 55.0) or (face >= 78.0 and comp >= 50.0)
 
@@ -482,7 +502,7 @@ class AcceptanceEngine:
 
         half_min = float(self.rules.eye_half_min)
         closed_min = float(self.rules.eye_closed_min)
-        return (half_min <= p < closed_min)
+        return half_min <= p < closed_min
 
     def _green_policy_ok(self, r: Row) -> bool:
         return self._green_content_ok(r) and (not self._green_eye_half_ng(r))
@@ -584,7 +604,11 @@ class AcceptanceEngine:
 
                 g_pick = max(
                     candidates,
-                    key=lambda g: (quotas[g], len(group_rows[g]), self._group_best_score(group_rows[g])),
+                    key=lambda g: (
+                        quotas[g],
+                        len(group_rows[g]),
+                        self._group_best_score(group_rows[g]),
+                    ),
                 )
                 quotas[g_pick] -= 1
                 total -= 1
@@ -640,7 +664,9 @@ class AcceptanceEngine:
                 g = str(r.get("accept_group") or "")
                 group_rows.setdefault(g, []).append(r)
 
-            quotas = self._compute_group_quotas(group_rows, green_total_global=green_total)
+            quotas = self._compute_group_quotas(
+                group_rows, green_total_global=green_total
+            )
 
             for g, rs in group_rows.items():
                 if accepted_count >= green_total:
@@ -688,11 +714,27 @@ class AcceptanceEngine:
         # --------------------------
         # secondary（Yellow）: percentile ベース（運用互換）
         # --------------------------
-        portrait_scores = [safe_float(r.get("overall_score")) for r in rows if r.get("category") == "portrait"]
-        non_face_scores = [safe_float(r.get("overall_score")) for r in rows if r.get("category") == "non_face"]
+        portrait_scores = [
+            safe_float(r.get("overall_score"))
+            for r in rows
+            if r.get("category") == "portrait"
+        ]
+        non_face_scores = [
+            safe_float(r.get("overall_score"))
+            for r in rows
+            if r.get("category") == "non_face"
+        ]
 
-        portrait_sec_thr = percentile(portrait_scores, self.rules.portrait_secondary_percentile) if portrait_scores else 0.0
-        non_face_sec_thr = percentile(non_face_scores, self.rules.non_face_secondary_percentile) if non_face_scores else 0.0
+        portrait_sec_thr = (
+            percentile(portrait_scores, self.rules.portrait_secondary_percentile)
+            if portrait_scores
+            else 0.0
+        )
+        non_face_sec_thr = (
+            percentile(non_face_scores, self.rules.non_face_secondary_percentile)
+            if non_face_scores
+            else 0.0
+        )
 
         for r in rows:
             if safe_int_flag(r.get("accepted_flag")) == 1:
@@ -732,14 +774,38 @@ class AcceptanceEngine:
         # --------------------------
         # （ログ用）primary percentile thresholds
         # --------------------------
-        portrait_scores = [safe_float(r.get("overall_score")) for r in rows if r.get("category") == "portrait"]
-        non_face_scores = [safe_float(r.get("overall_score")) for r in rows if r.get("category") == "non_face"]
+        portrait_scores = [
+            safe_float(r.get("overall_score"))
+            for r in rows
+            if r.get("category") == "portrait"
+        ]
+        non_face_scores = [
+            safe_float(r.get("overall_score"))
+            for r in rows
+            if r.get("category") == "non_face"
+        ]
 
-        portrait_thr = percentile(portrait_scores, self.rules.portrait_percentile) if portrait_scores else 0.0
-        non_face_thr = percentile(non_face_scores, self.rules.non_face_percentile) if non_face_scores else 0.0
+        portrait_thr = (
+            percentile(portrait_scores, self.rules.portrait_percentile)
+            if portrait_scores
+            else 0.0
+        )
+        non_face_thr = (
+            percentile(non_face_scores, self.rules.non_face_percentile)
+            if non_face_scores
+            else 0.0
+        )
 
-        portrait_sec_thr = percentile(portrait_scores, self.rules.portrait_secondary_percentile) if portrait_scores else 0.0
-        non_face_sec_thr = percentile(non_face_scores, self.rules.non_face_secondary_percentile) if non_face_scores else 0.0
+        portrait_sec_thr = (
+            percentile(portrait_scores, self.rules.portrait_secondary_percentile)
+            if portrait_scores
+            else 0.0
+        )
+        non_face_sec_thr = (
+            percentile(non_face_scores, self.rules.non_face_secondary_percentile)
+            if non_face_scores
+            else 0.0
+        )
 
         return {
             "portrait": float(portrait_thr),
@@ -749,7 +815,9 @@ class AcceptanceEngine:
             "green_total": float(green_total),
             "green_ratio_effective": float(green_ratio_global),
             "total_n": float(total_n),
-            "green_per_group_enabled": 1.0 if bool(self.rules.green_per_group_enabled) else 0.0,
+            "green_per_group_enabled": (
+                1.0 if bool(self.rules.green_per_group_enabled) else 0.0
+            ),
         }
 
     # --------------------------

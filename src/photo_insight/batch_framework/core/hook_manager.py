@@ -23,6 +23,7 @@ class HookType(Enum):
 
 class HookExecutionError(RuntimeError):
     """Raised when one or more hooks fail."""
+
     def __init__(self, hook_type: HookType, errors: List[BaseException]):
         self.hook_type = hook_type
         self.errors = errors
@@ -42,7 +43,9 @@ class HookManager:
     """
 
     def __init__(self, max_workers: int = 2, logger=None):
-        self.hooks: Dict[HookType, List[Hook]] = {hook_type: [] for hook_type in HookType}
+        self.hooks: Dict[HookType, List[Hook]] = {
+            hook_type: [] for hook_type in HookType
+        }
         self.max_workers = max(1, int(max_workers or 0))
         self.logger = logger
 

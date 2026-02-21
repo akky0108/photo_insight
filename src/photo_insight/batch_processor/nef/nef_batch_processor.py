@@ -8,7 +8,10 @@ from collections import defaultdict
 
 from photo_insight.file_handler.exif_file_handler import ExifFileHandler
 from photo_insight.batch_framework.base_batch import BaseBatchProcessor
-from photo_insight.batch_framework.utils.io_utils import group_by_key, write_csv_with_lock
+from photo_insight.batch_framework.utils.io_utils import (
+    group_by_key,
+    write_csv_with_lock,
+)
 
 ExifData = Dict[str, str]
 
@@ -42,10 +45,14 @@ class NEFFileBatchProcess(BaseBatchProcessor):
         self.output_directory = self.config.get("output_directory", "temp")
 
         # config: base_directory を正とし、互換として base_directory_root も許可
-        base_dir = self.config.get("base_directory") or self.config.get("base_directory_root")
+        base_dir = self.config.get("base_directory") or self.config.get(
+            "base_directory_root"
+        )
         if not base_dir:
             # 安定運用優先：意図しない場所を探索しない
-            raise ValueError("config key 'base_directory' is required (or legacy 'base_directory_root').")
+            raise ValueError(
+                "config key 'base_directory' is required (or legacy 'base_directory_root')."
+            )
         self.base_directory_path = Path(base_dir)
 
         self._csv_locks: Dict[str, Lock] = defaultdict(Lock)
@@ -79,33 +86,48 @@ class NEFFileBatchProcess(BaseBatchProcessor):
             session_name = Path(target_dir).name  # 例: 2026-02-17
 
         # run_ctx があり、かつ persist_run_results が有効なら runs 配下へ
-        use_run_dir = bool(getattr(self, "_persist_run_results", False)) and getattr(self, "run_ctx", None) is not None
+        use_run_dir = (
+            bool(getattr(self, "_persist_run_results", False))
+            and getattr(self, "run_ctx", None) is not None
+        )
         if use_run_dir:
             # 例: runs/YYYY-MM-DD/<run_id>/artifacts/nef/<session>
-            self.temp_dir = Path(self.run_ctx.out_dir) / "artifacts" / "nef" / session_name
+            self.temp_dir = (
+                Path(self.run_ctx.out_dir) / "artifacts" / "nef" / session_name
+            )
         else:
             # フォールバック（従来通り）
-            self.temp_dir = Path(self.project_root) / self.output_directory / session_name
+            self.temp_dir = (
+                Path(self.project_root) / self.output_directory / session_name
+            )
 
         self.temp_dir.mkdir(parents=True, exist_ok=True)
         self.logger.info(f"NEF output dir: {self.temp_dir}")
 
         base_dir = self.base_directory_path
         if not base_dir.exists():
-            self.handle_error(f"ディレクトリが見つかりません: {base_dir}", raise_exception=True)
+            self.handle_error(
+                f"ディレクトリが見つかりません: {base_dir}", raise_exception=True
+            )
 
         target_dir = getattr(self, "target_dir", None)
         if target_dir:
             # target_dir 指定時はそれだけに絞る（安定運用・ログ明確化）
             td = Path(target_dir)
             if not td.exists():
-                self.handle_error(f"target_dir が見つかりません: {td}", raise_exception=True)
+                self.handle_error(
+                    f"target_dir が見つかりません: {td}", raise_exception=True
+                )
             self.target_dirs = [td]
-            self.logger.info(f"初期設定完了: target_dir 指定のため単一セッションのみ (session={td.name})")
+            self.logger.info(
+                f"初期設定完了: target_dir 指定のため単一セッションのみ (session={td.name})"
+            )
         else:
             # 直下のディレクトリを対象とする（撮影セッション単位の想定）
             self.target_dirs = [d for d in base_dir.iterdir() if d.is_dir()]
-            self.logger.info(f"初期設定完了: 画像ディレクトリ {base_dir} (sessions={len(self.target_dirs)})")
+            self.logger.info(
+                f"初期設定完了: 画像ディレクトリ {base_dir} (sessions={len(self.target_dirs)})"
+            )
 
         # Base契約: setup() -> self.data = self.get_data() -> after_data_loaded(self.data)
         super().setup()
@@ -181,7 +203,9 @@ class NEFFileBatchProcess(BaseBatchProcessor):
     # ------------------------------------------------------------
     # batch processing
     # ------------------------------------------------------------
-    def _generate_batches(self, data: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
+    def _generate_batches(
+        self, data: List[Dict[str, Any]]
+    ) -> List[List[Dict[str, Any]]]:
         grouped = group_by_key(data, "subdir_name")
         return list(grouped.values())
 
@@ -236,7 +260,9 @@ class NEFFileBatchProcess(BaseBatchProcessor):
     def filter_exif_data(self, raw_files: List[Dict[str, Any]]) -> List[ExifData]:
         results: List[ExifData] = []
         for raw in raw_files:
-            filtered: ExifData = {field: str(raw.get(field, "N/A")) for field in self.exif_fields}
+            filtered: ExifData = {
+                field: str(raw.get(field, "N/A")) for field in self.exif_fields
+            }
             results.append(filtered)
         return results
 

@@ -17,6 +17,7 @@ from photo_insight.batch_processor.evaluation_rank.contract import (
 # repo root detection
 # =========================
 
+
 def find_repo_root(start: Path) -> Path:
     """
     `.git` を辿ってリポジトリルートを見つける。
@@ -36,6 +37,7 @@ PROJECT_ROOT = find_repo_root(Path(__file__))
 # helpers
 # =========================
 
+
 def _read_csv_header(path: Path) -> list[str]:
     with path.open("r", encoding="utf-8", newline="") as f:
         reader = csv.reader(f)
@@ -51,7 +53,9 @@ def _latest_csv(dir_path: Path, pattern: str) -> Path | None:
     """
     if not dir_path.exists():
         return None
-    files = sorted(dir_path.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
+    files = sorted(
+        dir_path.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True
+    )
     return files[0] if files else None
 
 
@@ -64,7 +68,9 @@ def _csvs_newest_first(dir_path: Path, pattern: str) -> list[Path]:
     return sorted(dir_path.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
 
 
-def _find_first_matching_header(paths: list[Path], expected: list[str]) -> tuple[Path | None, list[str] | None]:
+def _find_first_matching_header(
+    paths: list[Path], expected: list[str]
+) -> tuple[Path | None, list[str] | None]:
     """
     候補CSV群のうち、expected と完全一致するヘッダを持つ最初のCSVを返す。
     """
@@ -79,14 +85,17 @@ def _find_first_matching_header(paths: list[Path], expected: list[str]) -> tuple
 # contract sanity checks
 # =========================
 
+
 def test_input_contract_has_no_duplicates():
-    assert len(INPUT_REQUIRED_COLUMNS) == len(set(INPUT_REQUIRED_COLUMNS)), \
-        "INPUT_REQUIRED_COLUMNS has duplicates"
+    assert len(INPUT_REQUIRED_COLUMNS) == len(
+        set(INPUT_REQUIRED_COLUMNS)
+    ), "INPUT_REQUIRED_COLUMNS has duplicates"
 
 
 def test_output_contract_has_no_duplicates():
-    assert len(OUTPUT_COLUMNS) == len(set(OUTPUT_COLUMNS)), \
-        "OUTPUT_COLUMNS has duplicates"
+    assert len(OUTPUT_COLUMNS) == len(
+        set(OUTPUT_COLUMNS)
+    ), "OUTPUT_COLUMNS has duplicates"
 
 
 def test_output_contract_includes_accepted_reason_once():
@@ -96,6 +105,7 @@ def test_output_contract_includes_accepted_reason_once():
 # =========================
 # core columns existence
 # =========================
+
 
 @pytest.mark.parametrize(
     "col",
@@ -117,6 +127,7 @@ def test_output_contract_has_core_columns(col: str):
 # order invariants
 # =========================
 
+
 def test_contract_output_order_is_fixed_snapshot():
     """
     列順が変わるとLightroom運用や後段分析が壊れるので、ここで固定する。
@@ -129,6 +140,7 @@ def test_contract_output_order_is_fixed_snapshot():
 # =========================
 # sample CSV validation (optional)
 # =========================
+
 
 def test_sample_csv_headers_match_contract_if_present():
     """

@@ -18,7 +18,7 @@ def _make_texture_uint8(h: int = 256, w: int = 256, seed: int = 0) -> np.ndarray
     rng = np.random.default_rng(seed)
     yy, xx = np.mgrid[0:h, 0:w]
     grad = (xx / max(w - 1, 1)) * 160.0 + (yy / max(h - 1, 1)) * 40.0  # 緩い勾配
-    noise = rng.normal(loc=0.0, scale=12.0, size=(h, w))               # 細かい揺らぎ
+    noise = rng.normal(loc=0.0, scale=12.0, size=(h, w))  # 細かい揺らぎ
     img = grad + noise
     img = np.clip(img, 0, 255).astype(np.uint8)
     return img
@@ -143,9 +143,7 @@ def test_scale_invariant_float_vs_uint8():
     ev = LocalContrastEvaluator()
 
     # テスト用パターン
-    img_uint8 = np.random.randint(
-        0, 256, size=(256, 256, 3), dtype=np.uint8
-    )
+    img_uint8 = np.random.randint(0, 256, size=(256, 256, 3), dtype=np.uint8)
 
     img_float = img_uint8.astype(np.float32) / 255.0
 

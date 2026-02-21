@@ -126,6 +126,7 @@ INPUT_REQUIRED_COLUMNS = [
     "accepted_reason",
 ]
 
+
 def validate_input_contract(*, header: Sequence[str], csv_path: Path) -> None:
     """
     入力CSVの契約（INPUT_REQUIRED_COLUMNS）を満たしているかを検証する。

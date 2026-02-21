@@ -80,8 +80,11 @@ def test_signal_handler_triggers_cleanup():
     expected_msg = f"Received shutdown signal {signal.Signals(signal.SIGINT).name}. Executing cleanup..."
     mock_logger.info.assert_any_call(expected_msg)
 
+
 def test_process_handles_batch_failures_gracefully(tmp_path, caplog):
-    from tests.integration.dummy_batch_processor import DummyBatchProcessorWithFailingBatch
+    from tests.integration.dummy_batch_processor import (
+        DummyBatchProcessorWithFailingBatch,
+    )
 
     config_path = tmp_path / "config.json"
     config_path.write_text(json.dumps({"batch_size": 2}))
@@ -89,8 +92,7 @@ def test_process_handles_batch_failures_gracefully(tmp_path, caplog):
     config_manager = ConfigManager(config_path=str(config_path))
 
     processor = DummyBatchProcessorWithFailingBatch(
-        hook_manager=MagicMock(),
-        config_manager=config_manager
+        hook_manager=MagicMock(), config_manager=config_manager
     )
 
     with caplog.at_level("ERROR"):
@@ -108,8 +110,11 @@ def test_process_handles_batch_failures_gracefully(tmp_path, caplog):
         for message in caplog.messages
     ), "Expected error log not found"
 
+
 def test_process_handles_batch_failures_gracefully_with_detailed_log(tmp_path, caplog):
-    from tests.integration.dummy_batch_processor import DummyBatchProcessorWithFailingBatch
+    from tests.integration.dummy_batch_processor import (
+        DummyBatchProcessorWithFailingBatch,
+    )
 
     config_path = tmp_path / "config.json"
     config_path.write_text(json.dumps({"batch_size": 2}))
@@ -117,8 +122,7 @@ def test_process_handles_batch_failures_gracefully_with_detailed_log(tmp_path, c
     config_manager = ConfigManager(config_path=str(config_path))
 
     processor = DummyBatchProcessorWithFailingBatch(
-        hook_manager=MagicMock(),
-        config_manager=config_manager
+        hook_manager=MagicMock(), config_manager=config_manager
     )
 
     # DEBUG レベルも拾うために設定
@@ -149,6 +153,7 @@ def test_process_handles_batch_failures_gracefully_with_detailed_log(tmp_path, c
         r.exc_info is not None for r in error_records
     ), "Expected exc_info (stack trace) in error logs"
 
+
 @pytest.mark.parametrize("invalid_value", [None, 0])
 def test_max_workers_invalid_values_are_corrected(invalid_value):
     # モックを用意
@@ -161,14 +166,14 @@ def test_max_workers_invalid_values_are_corrected(invalid_value):
     processor = DummyBatchProcessor(
         hook_manager=dummy_hook_manager,
         config_manager=dummy_config_manager,
-        max_workers=invalid_value
+        max_workers=invalid_value,
     )
     assert processor.max_workers == 1
 
     processor = DummyBatchProcessor(
         hook_manager=dummy_hook_manager,
         config_manager=dummy_config_manager,
-        max_workers=0
+        max_workers=0,
     )
     assert processor.max_workers == 1
 
@@ -181,8 +186,7 @@ def test_process_returns_aggregated_results(tmp_path):
     config_manager = ConfigManager(config_path=str(config_path))
 
     processor = DummyBatchProcessorWithResult(
-        hook_manager=MagicMock(),
-        config_manager=config_manager
+        hook_manager=MagicMock(), config_manager=config_manager
     )
 
     processor.process()
@@ -206,8 +210,7 @@ def test_process_summary_logging(caplog, tmp_path):
     config_manager = ConfigManager(config_path=str(config_path))
 
     processor = DummyBatchProcessorWithResult(
-        hook_manager=MagicMock(),
-        config_manager=config_manager
+        hook_manager=MagicMock(), config_manager=config_manager
     )
 
     with caplog.at_level(logging.INFO):
@@ -221,9 +224,7 @@ def test_summarize_results_works_as_expected():
     from unittest.mock import MagicMock
 
     processor = DummyBatchProcessor(
-        hook_manager=MagicMock(),
-        config_manager=MagicMock(),
-        logger=MagicMock()
+        hook_manager=MagicMock(), config_manager=MagicMock(), logger=MagicMock()
     )
 
     sample_results = [

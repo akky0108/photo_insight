@@ -24,11 +24,17 @@ def processor(tmp_path):
                     self.memory_threshold_exceeded = False
                     self.completed_all_batches = False
 
-                    self.memory_threshold = self.config_manager.get_memory_threshold(default=90)
-                    self.logger.info(f"Memory usage threshold set to {self.memory_threshold}% from config.")
+                    self.memory_threshold = self.config_manager.get_memory_threshold(
+                        default=90
+                    )
+                    self.logger.info(
+                        f"Memory usage threshold set to {self.memory_threshold}% from config."
+                    )
 
                 def load_image_data(self):
-                    return [{"file_name": "img1.jpg", "orientation": "1", "bit_depth": "8"}]
+                    return [
+                        {"file_name": "img1.jpg", "orientation": "1", "bit_depth": "8"}
+                    ]
 
                 def get_data(self, target_dir=None):
                     self.image_data = self.load_image_data()
@@ -48,7 +54,7 @@ def processor(tmp_path):
             proc.config = {
                 "batch_size": 2,
                 "output_directory": str(out_dir),
-                "picture_root": str(picture_root),   # ★ここが重要
+                "picture_root": str(picture_root),  # ★ここが重要
                 # "base_directory_root" はこのコードパスでは使われないので不要
             }
             return proc
@@ -73,12 +79,16 @@ def test_setup_sets_memory_threshold(processor):
 
     # Assert
     assert processor.memory_threshold == 85
-    processor.logger.info.assert_any_call("Memory usage threshold set to 85% from config.")
+    processor.logger.info.assert_any_call(
+        "Memory usage threshold set to 85% from config."
+    )
 
 
 def test_setup_uses_default_memory_threshold_when_not_configured(processor):
     # Arrange
-    processor.config_manager.get_memory_threshold.return_value = 90  # 明示的にデフォルト返す
+    processor.config_manager.get_memory_threshold.return_value = (
+        90  # 明示的にデフォルト返す
+    )
 
     # Act
     processor.setup()
@@ -138,7 +148,9 @@ def test_execute_full_flow(processor):
     processor.cleanup = MagicMock()
     processor.logger = MagicMock()
 
-    processor.get_data = MagicMock(return_value=[{"file_name": "dummy.jpg", "orientation": "1", "bit_depth": "8"}])
+    processor.get_data = MagicMock(
+        return_value=[{"file_name": "dummy.jpg", "orientation": "1", "bit_depth": "8"}]
+    )
     processor.config_manager = MagicMock()
     processor.config_manager.get.side_effect = lambda k, default=None: {
         "batch_size": 2,
@@ -251,8 +263,7 @@ def test_get_data_filters_processed_images(tmp_path):
     # ★ setup() は呼ばない
     processor.processed_images = {"b.NEF"}
 
-    result = processor.load_data()   # ← ここが正解
+    result = processor.load_data()  # ← ここが正解
     file_names = [d["file_name"] for d in result]
 
     assert set(file_names) == {"a.NEF", "c.NEF"}
-

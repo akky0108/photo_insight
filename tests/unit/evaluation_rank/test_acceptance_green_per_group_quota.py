@@ -1,7 +1,10 @@
 import math
 import pytest
 
-from photo_insight.batch_processor.evaluation_rank.acceptance import AcceptanceEngine, AcceptRules
+from photo_insight.batch_processor.evaluation_rank.acceptance import (
+    AcceptanceEngine,
+    AcceptRules,
+)
 
 
 def _row(
@@ -25,7 +28,6 @@ def _row(
         "subgroup_id": subgroup_id,
         "shot_type": shot_type,
         "face_detected": face_detected,
-
         "overall_score": overall,
         "score_face": face,
         "score_composition": comp,
@@ -57,9 +59,13 @@ def test_green_total_global_is_preserved():
 
     rows = []
     for i in range(75):
-        rows.append(_row(f"A_{i}.NEF", group_id="A", subgroup_id="1", overall=80 - i * 0.01))
+        rows.append(
+            _row(f"A_{i}.NEF", group_id="A", subgroup_id="1", overall=80 - i * 0.01)
+        )
     for i in range(75):
-        rows.append(_row(f"B_{i}.NEF", group_id="B", subgroup_id="1", overall=79 - i * 0.01))
+        rows.append(
+            _row(f"B_{i}.NEF", group_id="B", subgroup_id="1", overall=79 - i * 0.01)
+        )
 
     eng.apply_accepted_flags(rows)
     assert _count_green(rows) == 30
@@ -73,10 +79,28 @@ def test_green_is_not_all_taken_by_one_group():
     rows = []
     # A-1: 120 strong
     for i in range(120):
-        rows.append(_row(f"A_{i}.NEF", group_id="A", subgroup_id="1", overall=90 - i * 0.01, face=80, comp=60))
+        rows.append(
+            _row(
+                f"A_{i}.NEF",
+                group_id="A",
+                subgroup_id="1",
+                overall=90 - i * 0.01,
+                face=80,
+                comp=60,
+            )
+        )
     # B-1: 30 weak-ish
     for i in range(30):
-        rows.append(_row(f"B_{i}.NEF", group_id="B", subgroup_id="1", overall=70 - i * 0.01, face=75, comp=58))
+        rows.append(
+            _row(
+                f"B_{i}.NEF",
+                group_id="B",
+                subgroup_id="1",
+                overall=70 - i * 0.01,
+                face=75,
+                comp=58,
+            )
+        )
 
     eng.apply_accepted_flags(rows)
     by = _count_green_by_group(rows)
@@ -90,7 +114,7 @@ def test_when_global_smaller_than_groups_pick_strong_groups_first():
     # Force global green_total=2 while having 4 groups
     rules = AcceptRules(
         green_per_group_enabled=True,
-        green_ratio_small=0.01,   # make global tiny
+        green_ratio_small=0.01,  # make global tiny
         green_ratio_mid=0.01,
         green_ratio_large=0.01,
         green_min_total=0,
@@ -124,12 +148,41 @@ def test_eye_half_is_not_selected_as_green():
 
     rows = []
     # Group A-1 has 3 candidates; top one is half-eye -> should be skipped
-    rows.append(_row("A_bad.NEF", group_id="A", subgroup_id="1", overall=95, eye_prob=0.90, eye_sz=120))  # half range
-    rows.append(_row("A_ok1.NEF", group_id="A", subgroup_id="1", overall=94, eye_prob=0.10, eye_sz=120))
-    rows.append(_row("A_ok2.NEF", group_id="A", subgroup_id="1", overall=93, eye_prob=0.10, eye_sz=120))
+    rows.append(
+        _row(
+            "A_bad.NEF",
+            group_id="A",
+            subgroup_id="1",
+            overall=95,
+            eye_prob=0.90,
+            eye_sz=120,
+        )
+    )  # half range
+    rows.append(
+        _row(
+            "A_ok1.NEF",
+            group_id="A",
+            subgroup_id="1",
+            overall=94,
+            eye_prob=0.10,
+            eye_sz=120,
+        )
+    )
+    rows.append(
+        _row(
+            "A_ok2.NEF",
+            group_id="A",
+            subgroup_id="1",
+            overall=93,
+            eye_prob=0.10,
+            eye_sz=120,
+        )
+    )
 
     # Keep global small to see behavior clearly
-    rules2 = rules.__class__(**{**rules.__dict__, "green_ratio_small": 0.67, "green_min_total": 0})
+    rules2 = rules.__class__(
+        **{**rules.__dict__, "green_ratio_small": 0.67, "green_min_total": 0}
+    )
     eng = AcceptanceEngine(rules2)
 
     eng.apply_accepted_flags(rows)
@@ -140,16 +193,36 @@ def test_eye_half_is_not_selected_as_green():
 
 def test_backfill_fills_when_group_quota_cannot_be_met_by_content_gate():
     # Group A has only content-gate-failing rows; B has good rows.
-    rules = AcceptRules(green_per_group_enabled=True, green_per_group_min_each=1, green_min_total=0)
+    rules = AcceptRules(
+        green_per_group_enabled=True, green_per_group_min_each=1, green_min_total=0
+    )
     eng = AcceptanceEngine(rules)
 
     rows = []
     # A-1 fails content gate: face low & comp low
     for i in range(10):
-        rows.append(_row(f"A_{i}.NEF", group_id="A", subgroup_id="1", overall=90 - i, face=40, comp=40))
+        rows.append(
+            _row(
+                f"A_{i}.NEF",
+                group_id="A",
+                subgroup_id="1",
+                overall=90 - i,
+                face=40,
+                comp=40,
+            )
+        )
     # B-1 passes
     for i in range(10):
-        rows.append(_row(f"B_{i}.NEF", group_id="B", subgroup_id="1", overall=80 - i, face=75, comp=58))
+        rows.append(
+            _row(
+                f"B_{i}.NEF",
+                group_id="B",
+                subgroup_id="1",
+                overall=80 - i,
+                face=75,
+                comp=58,
+            )
+        )
 
     # total=20 => ratio_small 0.30 => 6
     eng.apply_accepted_flags(rows)

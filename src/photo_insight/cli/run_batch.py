@@ -39,16 +39,21 @@ def _load_processor_by_alias(name: str) -> Type[BaseBatchProcessor]:
 
     if key in ("nef", "nef_file", "nef_file_batch"):
         from photo_insight.batch_processor.nef_batch_process import NEFFileBatchProcess
+
         return NEFFileBatchProcess
 
     if key in ("evaluation_rank", "rank", "eval_rank"):
         from photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_processor import (
             EvaluationRankBatchProcessor,
         )
+
         return EvaluationRankBatchProcessor
 
     if key in ("portrait_quality", "quality", "portrait"):
-        from photo_insight.portrait_quality_batch_processor import PortraitQualityBatchProcessor
+        from photo_insight.portrait_quality_batch_processor import (
+            PortraitQualityBatchProcessor,
+        )
+
         return PortraitQualityBatchProcessor
 
     raise KeyError(f"Unknown processor alias: {name}")
@@ -186,7 +191,9 @@ def _extract_runtime_overrides(exec_kwargs: Dict[str, Any]) -> Dict[str, Any]:
     return injected
 
 
-def _apply_runtime_overrides(proc: BaseBatchProcessor, injected: Dict[str, Any]) -> None:
+def _apply_runtime_overrides(
+    proc: BaseBatchProcessor, injected: Dict[str, Any]
+) -> None:
     """
     本実行時のみ、processor インスタンスに注入する。
     """
@@ -196,7 +203,7 @@ def _apply_runtime_overrides(proc: BaseBatchProcessor, injected: Dict[str, Any])
     if "target_dir" in injected:
         # strでもPathでも来るので Path 化
         setattr(proc, "target_dir", Path(injected["target_dir"]))
-        
+
 
 # -------------------------
 # CLI
@@ -215,16 +222,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # common knobs (BaseBatchProcessor ctor)
-    p.add_argument("--config", dest="config_path", default="config/config.prod.yaml", help="Config file path")
+    p.add_argument(
+        "--config",
+        dest="config_path",
+        default="config/config.prod.yaml",
+        help="Config file path",
+    )
     p.add_argument("--max-workers", type=int, default=2)
-    p.add_argument("--config-env", default=None, help="ConfigManager env name (optional)")
+    p.add_argument(
+        "--config-env", default=None, help="ConfigManager env name (optional)"
+    )
     p.add_argument(
         "--config-paths",
         default=None,
         help="Comma-separated config paths (optional). e.g. config.base.yaml,config.prod.yaml",
     )
 
-    p.add_argument("--dry-run", action="store_true", help="Resolve processor and kwargs then exit")
+    p.add_argument(
+        "--dry-run", action="store_true", help="Resolve processor and kwargs then exit"
+    )
     return p
 
 

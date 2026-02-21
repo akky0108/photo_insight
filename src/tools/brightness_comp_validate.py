@@ -214,7 +214,9 @@ def _iter_csv_rows(paths: Sequence[Path]) -> Iterable[Dict[str, Any]]:
 # =========================
 
 
-def compute_checks_for_group(rows: List[Dict[str, Any]], spec: MetricSpec) -> Dict[str, Any]:
+def compute_checks_for_group(
+    rows: List[Dict[str, Any]], spec: MetricSpec
+) -> Dict[str, Any]:
     xs_brightness: List[float] = []
     ys_before: List[float] = []
     ys_adj: List[float] = []
@@ -232,7 +234,9 @@ def compute_checks_for_group(rows: List[Dict[str, Any]], spec: MetricSpec) -> Di
         ys_adj.append(float(adj))
         deltas.append(float(d))
 
-    xs_brightness, ys_before, ys_adj, deltas = _filter_pairs(xs_brightness, ys_before, ys_adj, deltas)
+    xs_brightness, ys_before, ys_adj, deltas = _filter_pairs(
+        xs_brightness, ys_before, ys_adj, deltas
+    )
 
     n = len(deltas)
     if n == 0:
@@ -256,7 +260,9 @@ def compute_checks_for_group(rows: List[Dict[str, Any]], spec: MetricSpec) -> Di
     }
 
 
-def compute_pass_fail(*, metrics_summary: Dict[str, Any], rules: Dict[str, Any]) -> Dict[str, Any]:
+def compute_pass_fail(
+    *, metrics_summary: Dict[str, Any], rules: Dict[str, Any]
+) -> Dict[str, Any]:
     """
     metrics_summary:
       {metric: {group: {n, corr_before_vs_adj, p95_abs_delta, corr_brightness_vs_delta}}}
@@ -267,7 +273,9 @@ def compute_pass_fail(*, metrics_summary: Dict[str, Any], rules: Dict[str, Any])
 
     thr_corr_min = float(checks_cfg.get("corr_before_vs_adj_min", 0.90))
     thr_p95_max = float(checks_cfg.get("p95_abs_delta_max", 0.25))
-    thr_corr_brightness_max = float(checks_cfg.get("corr_brightness_vs_delta_max", -0.20))
+    thr_corr_brightness_max = float(
+        checks_cfg.get("corr_brightness_vs_delta_max", -0.20)
+    )
 
     result = "pass"
     fail_reasons: List[str] = []
@@ -290,9 +298,21 @@ def compute_pass_fail(*, metrics_summary: Dict[str, Any], rules: Dict[str, Any])
 
             group_checks: Dict[str, Any] = {
                 "n": n,
-                "corr_before_vs_adj_min": {"value": c1, "threshold": thr_corr_min, "pass": None},
-                "p95_abs_delta_max": {"value": p95, "threshold": thr_p95_max, "pass": None},
-                "corr_brightness_vs_delta_max": {"value": c2, "threshold": thr_corr_brightness_max, "pass": None},
+                "corr_before_vs_adj_min": {
+                    "value": c1,
+                    "threshold": thr_corr_min,
+                    "pass": None,
+                },
+                "p95_abs_delta_max": {
+                    "value": p95,
+                    "threshold": thr_p95_max,
+                    "pass": None,
+                },
+                "corr_brightness_vs_delta_max": {
+                    "value": c2,
+                    "threshold": thr_corr_brightness_max,
+                    "pass": None,
+                },
                 "group_result": None,
                 "group_fail_reasons": [],
                 "group_skip_reason": "",
@@ -306,7 +326,9 @@ def compute_pass_fail(*, metrics_summary: Dict[str, Any], rules: Dict[str, Any])
                     continue
                 # skipしない設定の場合は fail 寄りで続行
                 group_checks["group_result"] = "fail"
-                group_checks["group_fail_reasons"].append(f"insufficient_n({n} < {min_n})")
+                group_checks["group_fail_reasons"].append(
+                    f"insufficient_n({n} < {min_n})"
+                )
 
             # ここから評価開始
             any_evaluated = True
@@ -576,10 +598,16 @@ def run(
 
         # rows for this metric: only from used_files
         used_set = set(used_files)
-        rows_metric_all = [r for r in all_rows_all_files if str(r.get("_source_csv") or "") in used_set]
+        rows_metric_all = [
+            r for r in all_rows_all_files if str(r.get("_source_csv") or "") in used_set
+        ]
 
         # group split (this metric only)
-        groups_metric: Dict[str, List[Dict[str, Any]]] = {"all": [], "face": [], "non_face": []}
+        groups_metric: Dict[str, List[Dict[str, Any]]] = {
+            "all": [],
+            "face": [],
+            "non_face": [],
+        }
         for r in rows_metric_all:
             g = _group_name(r)
             groups_metric["all"].append(r)
@@ -605,7 +633,11 @@ def run(
                 pairs_rows.append(
                     {
                         "file_name": str(r.get("file_name") or r.get("filename") or ""),
-                        "group": "face" if _safe_bool01(r.get("face_detected")) == 1 else "non_face",
+                        "group": (
+                            "face"
+                            if _safe_bool01(r.get("face_detected")) == 1
+                            else "non_face"
+                        ),
                         "metric": metric,
                         "brightness": b,
                         "before": before,
@@ -667,7 +699,9 @@ def run(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Validate brightness-compensation behavior and emit SSOT artifacts.")
+    parser = argparse.ArgumentParser(
+        description="Validate brightness-compensation behavior and emit SSOT artifacts."
+    )
     parser.add_argument(
         "--ranking_glob",
         required=True,

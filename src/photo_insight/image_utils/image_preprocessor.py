@@ -13,7 +13,7 @@ class ImagePreprocessor:
         logger: Optional[Logger] = None,
         is_raw: bool = False,
         gamma: Optional[float] = None,
-        assume_ndarray_bgr: bool = True
+        assume_ndarray_bgr: bool = True,
     ):
         self.logger = logger or Logger("ImagePreprocessor")
         self.image_loader = ImageLoader(logger=self.logger)
@@ -48,17 +48,14 @@ class ImagePreprocessor:
             "original": rgb,
             "resized_2048": rgb_2048,
             "resized_1024": rgb_1024,
-
             # 追加（BGR）
             "original_bgr": bgr,
             "resized_2048_bgr": bgr_2048,
             "resized_1024_bgr": bgr_1024,
-
             # ★評価用（uint8）
             "original_u8": self._to_uint8(rgb),
             "resized_2048_u8": self._to_uint8(rgb_2048),
             "resized_1024_u8": self._to_uint8(rgb_1024),
-
             "original_bgr_u8": self._to_uint8(bgr),
             "resized_2048_bgr_u8": self._to_uint8(bgr_2048),
             "resized_1024_bgr_u8": self._to_uint8(bgr_1024),
@@ -71,7 +68,11 @@ class ImagePreprocessor:
                 image_input, output_bps=16 if self.is_raw else 8
             )
         elif isinstance(image_input, np.ndarray):
-            if not self.assume_ndarray_bgr and image_input.ndim == 3 and image_input.shape[-1] == 3:
+            if (
+                not self.assume_ndarray_bgr
+                and image_input.ndim == 3
+                and image_input.shape[-1] == 3
+            ):
                 # ndarrayはRGBとして渡される契約のときだけ変換
                 return cv2.cvtColor(image_input, cv2.COLOR_RGB2BGR)
             return image_input
@@ -153,4 +154,3 @@ class ImagePreprocessor:
         if x.max() <= 1.5:
             x *= 255.0
         return np.clip(x, 0, 255).astype(np.uint8)
-

@@ -11,7 +11,9 @@ import json
 from threading import Lock
 
 
-def group_by_key(data: List[Dict[str, Any]], key: str) -> Dict[str, List[Dict[str, Any]]]:
+def group_by_key(
+    data: List[Dict[str, Any]], key: str
+) -> Dict[str, List[Dict[str, Any]]]:
     grouped = defaultdict(list)
     for item in data:
         group_value = item.get(key, "unknown")
@@ -27,7 +29,9 @@ def _file_needs_header(path: Path) -> bool:
         return True
 
 
-def _iter_extra_keys(rows: Iterable[Dict[str, Any]], fieldnames: List[str]) -> List[str]:
+def _iter_extra_keys(
+    rows: Iterable[Dict[str, Any]], fieldnames: List[str]
+) -> List[str]:
     """fieldnames 以外に含まれているキー（参考ログ用）。"""
     fset = set(fieldnames)
     extras = set()
@@ -49,7 +53,11 @@ def _ensure_logger(logger):
 
 
 def _ensure_lock(lock):
-    return lock if isinstance(lock, Lock.__class__) or hasattr(lock, "__enter__") else Lock()
+    return (
+        lock
+        if isinstance(lock, Lock.__class__) or hasattr(lock, "__enter__")
+        else Lock()
+    )
     # ↑ Lock() は C実装で型判定が微妙なため「context managerならOK」も許容
 
 
@@ -98,11 +106,15 @@ def write_csv_with_lock(
     fn = list(fieldnames) if fieldnames is not None else []
     if not fn:
         fn = _infer_fieldnames(data)
-        logger.warning(f"CSV出力: fieldnames が空のため推定しました: {fn} -> {file_path}")
+        logger.warning(
+            f"CSV出力: fieldnames が空のため推定しました: {fn} -> {file_path}"
+        )
 
     extra_keys = _iter_extra_keys(data, fn)
     if extra_keys:
-        logger.warning(f"CSV出力: fieldnames外のキーを無視します: {extra_keys} -> {file_path}")
+        logger.warning(
+            f"CSV出力: fieldnames外のキーを無視します: {extra_keys} -> {file_path}"
+        )
 
     for attempt in range(retries):
         try:

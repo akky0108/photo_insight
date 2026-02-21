@@ -40,9 +40,7 @@ class RuleOfThirdsEvaluator:
             raise TypeError(f"image must be numpy.ndarray, got {type(image)}")
 
         if image.ndim not in (2, 3):
-            raise ValueError(
-                f"image must be 2D or 3D array, got ndim={image.ndim}"
-            )
+            raise ValueError(f"image must be 2D or 3D array, got ndim={image.ndim}")
 
         self.image = image
         self.height, self.width = image.shape[:2]

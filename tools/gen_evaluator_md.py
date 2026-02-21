@@ -56,7 +56,9 @@ def load_json(path: Path) -> dict:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Markdown generator (template + JSON spec)")
+    parser = argparse.ArgumentParser(
+        description="Markdown generator (template + JSON spec)"
+    )
 
     parser.add_argument(
         "--spec",
@@ -82,7 +84,7 @@ def main() -> None:
         "--required-keys",
         default="",
         help=(
-            "required keys を JSON で指定（例: '[\"slug\",\"title\",\"sections\"]'）。"
+            'required keys を JSON で指定（例: \'["slug","title","sections"]\'）。'
             "未指定なら evaluator 用の既定キーを使う。"
         ),
     )
@@ -104,7 +106,9 @@ def main() -> None:
     if args.required_keys:
         try:
             required_keys = json.loads(args.required_keys)
-            if not isinstance(required_keys, list) or not all(isinstance(x, str) for x in required_keys):
+            if not isinstance(required_keys, list) or not all(
+                isinstance(x, str) for x in required_keys
+            ):
                 raise ValueError
         except Exception:
             raise ValueError("--required-keys must be a JSON list of strings")

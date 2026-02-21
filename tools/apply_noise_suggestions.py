@@ -86,7 +86,9 @@ def extract_noise_sigmas_from_params(data: Dict[str, Any]) -> NoiseSigmas:
     noise = data["noise"]
     thr = noise.get("thresholds")
     if not isinstance(thr, list) or len(thr) != 4:
-        raise ValueError("params json noise.thresholds must be a list of 4 floats [t0,t1,t2,t3]")
+        raise ValueError(
+            "params json noise.thresholds must be a list of 4 floats [t0,t1,t2,t3]"
+        )
 
     t0, t1, t2, t3 = [float(x) for x in thr]
     # A: sigma軸（lower_is_better）に対して
@@ -162,7 +164,9 @@ def patch_yaml_text_config(text: str, sig: NoiseSigmas) -> str:
     # find top-level "noise:" line (no indentation)
     noise_idx = None
     for i, ln in enumerate(lines):
-        if ln.startswith("noise:") and (ln.strip() == "noise:" or ln.startswith("noise:\n")):
+        if ln.startswith("noise:") and (
+            ln.strip() == "noise:" or ln.startswith("noise:\n")
+        ):
             noise_idx = i
             break
 
@@ -229,11 +233,17 @@ def patch_yaml_text_config(text: str, sig: NoiseSigmas) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--params", required=True, help="new_params_used.json (score_dist_tune output)")
+    ap.add_argument(
+        "--params", required=True, help="new_params_used.json (score_dist_tune output)"
+    )
     ap.add_argument("--config", required=True, help="config/evaluator_thresholds.yaml")
     ap.add_argument("--apply", action="store_true", help="actually write changes")
     ap.add_argument("--no-backup", action="store_true", help="disable .bak backup")
-    ap.add_argument("--strict", action="store_true", help="fail if raw_spec is not lower_is_better for noise")
+    ap.add_argument(
+        "--strict",
+        action="store_true",
+        help="fail if raw_spec is not lower_is_better for noise",
+    )
     args = ap.parse_args()
 
     params_path = Path(args.params)
@@ -282,7 +292,9 @@ def main() -> int:
         # no yaml lib or empty file -> text patch
         new_text = patch_yaml_text_config(old_text, sig)
 
-    diff = unified_diff(old_text, new_text, fromfile=str(config_path), tofile=str(config_path))
+    diff = unified_diff(
+        old_text, new_text, fromfile=str(config_path), tofile=str(config_path)
+    )
     if diff.strip():
         print(diff)
     else:
@@ -301,7 +313,9 @@ def main() -> int:
         print(f"[INFO] backup: {bak}")
 
     config_path.write_text(new_text, encoding="utf-8")
-    print(f"[INFO] applied: good_sigma={sig.good_sigma}, warn_sigma={sig.warn_sigma} -> {config_path}")
+    print(
+        f"[INFO] applied: good_sigma={sig.good_sigma}, warn_sigma={sig.warn_sigma} -> {config_path}"
+    )
     return 0
 
 
