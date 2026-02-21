@@ -16,7 +16,8 @@ from photo_insight.batch_framework.base_batch import BaseBatchProcessor
 # Reserved keys (runner-owned)
 # -------------------------
 # These keys are owned by the runner/CLI and must NOT be passed via unknown args.
-# NOTE: run_date/date are handled separately as runtime overrides (allowed in unknown args).
+# NOTE: run_date/date are handled separately as runtime overrides 
+#       (allowed in unknown args).
 _RESERVED_UNKNOWN_KEYS = {
     "processor",
     "config",
@@ -132,7 +133,8 @@ def _parse_unknown_args(unknown: list[str]) -> Dict[str, Any]:
         # Disallow collisions with runner/CLI-owned keys
         if key in _RESERVED_UNKNOWN_KEYS:
             raise ValueError(
-                f"'{token}' is a reserved runner/CLI option and cannot be passed as an unknown arg."
+                f"'{token}' is a reserved runner/CLI option and "
+                f"cannot be passed as an unknown arg."
             )
 
         # flag only
@@ -218,7 +220,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--processor",
         required=True,
-        help="Processor alias (nef/evaluation_rank/portrait_quality) OR dotted path (pkg.mod:Class).",
+        help="Processor alias (nef/evaluation_rank/portrait_quality) OR dotted path (pkg.mod:Class).", # noqa: E501
     )
 
     # common knobs (BaseBatchProcessor ctor)
@@ -235,7 +237,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--config-paths",
         default=None,
-        help="Comma-separated config paths (optional). e.g. config.base.yaml,config.prod.yaml",
+        help="Comma-separated config paths (optional). e.g. config.base.yaml,config.prod.yaml", # noqa: E501
     )
 
     p.add_argument(

@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 import mediapipe as mp
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any
 
 
 class FullBodyDetector:

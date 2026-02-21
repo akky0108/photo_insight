@@ -16,7 +16,7 @@ from photo_insight.batch_processor.evaluation_rank.acceptance import AcceptanceE
 from photo_insight.batch_processor.evaluation_rank.analysis.rejected_reason_stats import (
     RejectedReasonAnalyzer,
     write_rejected_reason_summary_csv,
-)
+) # noqa: E501
 from photo_insight.batch_processor.evaluation_rank.contract import (
     validate_input_contract,
 )
@@ -269,7 +269,10 @@ def _normalize_row_inplace(row: Dict[str, Any]) -> None:
             row["main_subject_center_source_parsed"] = (
                 parts[1] if len(parts) >= 2 else None
             )
-            src_reason = f"center_calc_failed:{row.get('main_subject_center_source_parsed') or 'unknown'}"
+            src_reason = (
+                f"center_calc_failed:"
+                f"{row.get('main_subject_center_source_parsed') or 'unknown'}"
+            )
             row["main_subject_center_invalid_reason"] = src_reason
         else:
             row.setdefault("main_subject_center_status", None)
@@ -741,7 +744,8 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
             )
             if portrait_all:
                 self.logger.info(
-                    f"[prov_vs_acc] portrait total={portrait_all.total} {_fmt_rates(portrait_all)}"
+                    f"[prov_vs_acc] portrait total={portrait_all.total} "
+                    f"{_fmt_rates(portrait_all)}"
                 )
 
             # 3) gap_top3（cat/grp のみ対象）
@@ -760,7 +764,8 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                 for rr in top3:
                     parts.append(
                         f"{rr.category}/{rr.accept_group} "
-                        f"gap={_gap(rr):.3f} (A={rr.accepted_rate:.3f} P={rr.provisional_rate:.3f} f1={rr.f1:.3f})"
+                        f"gap={_gap(rr):.3f} (A={rr.accepted_rate:.3f} "
+                        f"P={rr.provisional_rate:.3f} f1={rr.f1:.3f})"
                     )
                 self.logger.info("[prov_vs_acc] gap_top3: " + " | ".join(parts))
 
@@ -884,7 +889,8 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                 self.logger.info(
                     f"[provisional_top_percent] enabled p={p:.1f} k={provisional}/{total} "
                     f"accepted={accepted} overlap={overlap} "
-                    f"accepted_not_top={accepted_not_top} top_not_accepted={top_not_accepted} "
+                    f"accepted_not_top={accepted_not_top} "
+                    f"top_not_accepted={top_not_accepted} "
                     f"| portrait(k={pp}/{len(portraits)} acc={pa} ov={pov}) "
                     f"non_face(k={np_}/{len(non_faces)} acc={na} ov={nov})"
                 )

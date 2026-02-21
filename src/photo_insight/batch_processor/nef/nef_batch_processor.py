@@ -51,7 +51,8 @@ class NEFFileBatchProcess(BaseBatchProcessor):
         if not base_dir:
             # 安定運用優先：意図しない場所を探索しない
             raise ValueError(
-                "config key 'base_directory' is required (or legacy 'base_directory_root')."
+                "config key 'base_directory' "
+                "is required (or legacy 'base_directory_root')."
             )
         self.base_directory_path = Path(base_dir)
 
@@ -126,7 +127,8 @@ class NEFFileBatchProcess(BaseBatchProcessor):
             # 直下のディレクトリを対象とする（撮影セッション単位の想定）
             self.target_dirs = [d for d in base_dir.iterdir() if d.is_dir()]
             self.logger.info(
-                f"初期設定完了: 画像ディレクトリ {base_dir} (sessions={len(self.target_dirs)})"
+                f"初期設定完了: 画像ディレクトリ {base_dir} "
+                f"(sessions={len(self.target_dirs)})"
             )
 
         # Base契約: setup() -> self.data = self.get_data() -> after_data_loaded(self.data)
@@ -186,7 +188,8 @@ class NEFFileBatchProcess(BaseBatchProcessor):
         data: List[Dict[str, Any]] = []
         for path in raw_files:
             # Base/テスト/ログ/シリアライズで扱いやすいよう、path は str を正とする
-            # ★重要: target_dir 指定時は subdir_name を session_name に固定（ネストしても撮影日単位に揃う）
+            # ★重要: target_dir 指定時は subdir_name を session_name に固定
+            # （ネストしても撮影日単位に揃う）
             subdir_name = session_name or path.parent.name
             data.append(
                 {
