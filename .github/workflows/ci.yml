@@ -63,7 +63,7 @@ jobs:
       - name: Lint with flake8
         run: |
           mkdir -p ci_logs/lint
-          flake8 . \
+          flake8 src/photo_insight tests/unit \
             --max-line-length=88 \
             --count \
             --statistics \

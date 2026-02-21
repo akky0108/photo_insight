@@ -101,7 +101,10 @@ class CompositeCompositionEvaluator(BaseCompositionEvaluator):
             face_boxes = []
         if not isinstance(face_boxes, list):
             return self._invalid_result(
-                reason=f"invalid_input:face_boxes_type_mismatch:{type(face_boxes).__name__}",
+                reason=(
+                    f"invalid_input:face_boxes_type_mismatch:"
+                    f"{type(face_boxes).__name__}"
+                ),
                 face_results={},
                 body_results={},
             )
@@ -116,7 +119,10 @@ class CompositeCompositionEvaluator(BaseCompositionEvaluator):
             body_keypoints = []
         if not isinstance(body_keypoints, list):
             return self._invalid_result(
-                reason=f"invalid_input:body_keypoints_type_mismatch:{type(body_keypoints).__name__}",
+                reason=(
+                    f"invalid_input:body_keypoints_type_mismatch:"
+                    f"{type(body_keypoints).__name__}"
+                ),
                 face_results={},
                 body_results={},
             )
@@ -247,13 +253,17 @@ class CompositeCompositionEvaluator(BaseCompositionEvaluator):
         # -------------------------
         self.logger.info(
             "Composite composition evaluation completed. "
-            f"composition_raw={composition_raw}, composition_score={composition_score}, "
-            f"composition_status={status}, composition_eval_status={composition_eval_status}, "
+            f"composition_raw={composition_raw}, "
+            f"composition_score={composition_score}, "
+            f"composition_status={status}, "
+            f"composition_eval_status={composition_eval_status}, "
             f"composition_invalid_reason={composition_invalid_reason}, "
             f"rot_raw={rule_of_thirds_raw}, center={main_subject_center}, "
-            f"center_source={main_subject_center_source}, center_status={main_subject_center_status}, "
+            f"center_source={main_subject_center_source}, "
+            f"center_status={main_subject_center_status}, "
             f"center_invalid_reason={main_subject_center_invalid_reason}, "
-            f"face_boxes_n={len(face_boxes)}, body_keypoints_n={len(body_keypoints)}, "
+            f"face_boxes_n={len(face_boxes)}, "
+            f"body_keypoints_n={len(body_keypoints)}, "
             f"img_w={w}, img_h={h}"
         )
 

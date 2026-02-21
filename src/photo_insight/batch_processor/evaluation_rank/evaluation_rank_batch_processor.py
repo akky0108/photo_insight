@@ -12,37 +12,37 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from photo_insight.batch_framework.base_batch import BaseBatchProcessor
-from photo_insight.batch_processor.evaluation_rank.acceptance import AcceptanceEngine
-from photo_insight.batch_processor.evaluation_rank.analysis.rejected_reason_stats import (
+from .acceptance import AcceptanceEngine
+from .analysis.rejected_reason_stats import (
     RejectedReasonAnalyzer,
     write_rejected_reason_summary_csv,
-)  # noqa: E501
-from photo_insight.batch_processor.evaluation_rank.contract import (
+)
+from .contract import (
     validate_input_contract,
-)  # noqa: E501
-from photo_insight.batch_processor.evaluation_rank.lightroom import (
+)
+from .lightroom import (
     apply_lightroom_fields,
-)  # noqa: E501
-from photo_insight.batch_processor.evaluation_rank.scoring import (
+)
+from .scoring import (
     EvaluationScorer,
     apply_half_closed_penalty_to_expression,
     half_closed_eye_penalty_proxy,
     parse_gaze_y,
     score01,
-)  # noqa: E501
-from photo_insight.batch_processor.evaluation_rank.writer import write_ranking_csv
-from photo_insight.batch_processor.evaluation_rank.analysis.provisional_vs_accepted import (
+)
+from .writer import write_ranking_csv
+from .analysis.provisional_vs_accepted import (
     build_provisional_vs_accepted_summary,
     write_provisional_vs_accepted_summary_csv,
-)  # noqa: E501
+)
 from photo_insight.evaluators.common.grade_contract import (
     GRADE_ENUM,
     normalize_eval_status,
     score_to_grade,
 )  # noqa: E501
-from photo_insight.batch_processor.evaluation_rank.provisional import (
+from .provisional import (
     apply_provisional_top_percent,
-)  # noqa: E501
+)
 
 
 # =========================
