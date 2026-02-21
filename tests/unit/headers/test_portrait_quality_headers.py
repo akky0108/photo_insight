@@ -1,6 +1,7 @@
 # tests/unit/headers/test_portrait_quality_headers.py
 from photo_insight.portrait_quality_header import PortraitQualityHeaderGenerator
 
+
 def test_all_headers_include_acceptance_and_deltas():
     headers = PortraitQualityHeaderGenerator().get_all_headers()
 
@@ -15,8 +16,11 @@ def test_all_headers_include_acceptance_and_deltas():
     for key in expected_keys:
         assert key in headers, f"{key} is missing from CSV headers"
 
+
 def test_save_results_writes_acceptance_columns(tmp_path):
-    from photo_insight.portrait_quality_batch_processor import PortraitQualityBatchProcessor
+    from photo_insight.portrait_quality_batch_processor import (
+        PortraitQualityBatchProcessor,
+    )
 
     p = PortraitQualityBatchProcessor(config_path=None, logger=None)
     out = tmp_path / "out.csv"

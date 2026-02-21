@@ -5,14 +5,14 @@ import warnings
 from typing import Optional
 from pathlib import Path
 from photo_insight.utils.app_logger import AppLogger
-from photo_insight.photo_eval_env_manager.envmerge.exceptions import(
+from photo_insight.photo_eval_env_manager.envmerge.exceptions import (
     VersionMismatchError,
-    DuplicatePackageError
+    DuplicatePackageError,
 )
 from photo_insight.constants.env_constants import (
     DEFAULT_PYTHON_VERSION,
     GPU_PACKAGE_REPLACEMENTS,
-    is_gpu_package
+    is_gpu_package,
 )
 from collections import Counter, defaultdict
 
@@ -28,7 +28,7 @@ class EnvMerger:
         pip_json: Path = None,
         cpu_only: bool = False,
         strict: bool = False,
-        env_name: str = "photo_eval_env"
+        env_name: str = "photo_eval_env",
     ):
         self.base_yml = base_yml
         self.pip_json = pip_json
@@ -96,8 +96,12 @@ class EnvMerger:
         conda/pip の同名パッケージ間のバージョン矛盾を検出（strict 時）。
         """
         conda_strs = [d for d in self.conda_deps if isinstance(d, str)]
-        self._check_duplicate_packages(conda_strs, source="conda", allow_exact_duplicates=not self.strict)
-        self._check_duplicate_packages(self.pip_deps, source="pip", allow_exact_duplicates=not self.strict)
+        self._check_duplicate_packages(
+            conda_strs, source="conda", allow_exact_duplicates=not self.strict
+        )
+        self._check_duplicate_packages(
+            self.pip_deps, source="pip", allow_exact_duplicates=not self.strict
+        )
 
         pip_versions = self._parse_pip_versions()
         for conda_pkg in self.conda_deps:
@@ -105,16 +109,18 @@ class EnvMerger:
             if name in pip_versions:
                 pip_version = pip_versions[name]
                 if self.strict and version and pip_version and version != pip_version:
-                    raise VersionMismatchError(f"{name}: conda={version}, pip={pip_version}")
+                    raise VersionMismatchError(
+                        f"{name}: conda={version}, pip={pip_version}"
+                    )
                 # ★ 警告: condaにバージョンなし、pipにあり
                 if not version and pip_version:
                     warnings.warn(
                         f"[警告] {name} に pip 側でのみバージョン指定 ({pip_version}) が見つかりましたが、conda 側にバージョン指定がありません。",
-                        stacklevel=2
+                        stacklevel=2,
                     )
 
         self._deduplicate_pip_deps()
-        self._normalize_conda_versions()    
+        self._normalize_conda_versions()
 
         # 依存関係を安定化させるためにソート
         self.conda_deps = sorted(self.conda_deps, key=str)
@@ -128,7 +134,9 @@ class EnvMerger:
         self._validate_dependencies()
 
         if self.pip_deps:
-            self.conda_deps = [d for d in self.conda_deps if not (isinstance(d, dict) and "pip" in d)]
+            self.conda_deps = [
+                d for d in self.conda_deps if not (isinstance(d, dict) and "pip" in d)
+            ]
             self.conda_deps.append({"pip": self.pip_deps})
 
     # ------------------------
@@ -190,7 +198,9 @@ class EnvMerger:
                             f"→ Please specify format explicitly using format='json' or 'txt'."
                         )
             else:
-                raise ValueError(f"[ERROR] Unknown format '{format}'. Use 'json', 'txt', or None for auto-detect.")
+                raise ValueError(
+                    f"[ERROR] Unknown format '{format}'. Use 'json', 'txt', or None for auto-detect."
+                )
 
         except Exception as e:
             self.logger.exception(f"Failed to load pip file: {path}")
@@ -202,7 +212,9 @@ class EnvMerger:
     # 出力系
     # ------------------------
 
-    def export(self, final_yml: Optional[Path], requirements_txt: Optional[Path]) -> None:
+    def export(
+        self, final_yml: Optional[Path], requirements_txt: Optional[Path]
+    ) -> None:
         """
         現在の依存関係を YAML と requirements.txt に書き出す。
         """
@@ -245,7 +257,8 @@ class EnvMerger:
         """
         exclude_set = {x.lower() for x in exclude}
         return [
-            pkg for pkg in self.pip_deps
+            pkg
+            for pkg in self.pip_deps
             if re.split(r"[=<>!~]+", pkg, maxsplit=1)[0].lower() not in exclude_set
         ]
 
@@ -274,7 +287,9 @@ class EnvMerger:
         def get_pkg_name(pkg: str) -> str:
             return re.split(r"[=<>!~]+", pkg, 1)[0].lower()
 
-        filtered_pip = [pkg for pkg in self.pip_deps if get_pkg_name(pkg) not in exclude_set]
+        filtered_pip = [
+            pkg for pkg in self.pip_deps if get_pkg_name(pkg) not in exclude_set
+        ]
         return self.build_env_dict(pip_overrides=filtered_pip)
 
     # ------------------------
@@ -292,12 +307,14 @@ class EnvMerger:
             pkg_name, sep, ver = dep.partition("==")
             if pkg_name in unique:
                 if self.strict and unique[pkg_name] != dep:
-                    raise VersionMismatchError(f"Conflicting versions for {pkg_name}: {unique[pkg_name]} vs {dep}")
+                    raise VersionMismatchError(
+                        f"Conflicting versions for {pkg_name}: {unique[pkg_name]} vs {dep}"
+                    )
             else:
                 unique[pkg_name] = dep
 
         self.pip_deps = list(unique.values())
-        
+
     def _parse_conda_yaml(self, data: dict) -> tuple[list[str | dict], list[str]]:
         deps = data.get("dependencies", [])
         conda, pip = [], []
@@ -315,7 +332,11 @@ class EnvMerger:
                 return [f"{pkg['name']}=={pkg['version']}" for pkg in json_data]
         except json.JSONDecodeError:
             pass
-        return [line.strip() for line in content.strip().splitlines() if line and not line.startswith("#")]
+        return [
+            line.strip()
+            for line in content.strip().splitlines()
+            if line and not line.startswith("#")
+        ]
 
     def _parse_pip_versions(self) -> dict:
         versions = {}
@@ -351,7 +372,11 @@ class EnvMerger:
         return dep.strip(), None
 
     def _normalize_and_deduplicate_python(self) -> None:
-        python_indices = [i for i, dep in enumerate(self.conda_deps) if isinstance(dep, str) and dep.lower().startswith("python")]
+        python_indices = [
+            i
+            for i, dep in enumerate(self.conda_deps)
+            if isinstance(dep, str) and dep.lower().startswith("python")
+        ]
 
         if not python_indices:
             self.logger.info("Adding python=3.10 to dependencies")
@@ -446,10 +471,7 @@ class EnvMerger:
         self.conda_deps = new_conda
 
     def _check_duplicate_packages(
-        self,
-        packages: list[str],
-        source: str,
-        allow_exact_duplicates: bool = False
+        self, packages: list[str], source: str, allow_exact_duplicates: bool = False
     ) -> None:
         """
         パッケージリスト内の重複パッケージ名（バージョン含む）を検出し、エラーを投げる。

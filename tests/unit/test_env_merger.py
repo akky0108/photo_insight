@@ -1,11 +1,13 @@
 import pytest
 import yaml
 import warnings
-from pathlib import Path
 from photo_insight.photo_eval_env_manager.envmerge.env_merger import EnvMerger
-from photo_insight.photo_eval_env_manager.envmerge.exceptions import VersionMismatchError, DuplicatePackageError
+from photo_insight.photo_eval_env_manager.envmerge.exceptions import (
+    VersionMismatchError,
+)
 
 # === 基本マージ処理のテスト ===
+
 
 def test_merge_from_sources_basic(tmp_path):
     """Conda + Pip の両ファイルから環境をマージする基本ケース"""
@@ -36,6 +38,7 @@ requests==2.31.0
     assert "flask==2.1.0" in merger.pip_deps
     assert merger.pip_deps.count("requests==2.31.0") == 1  # 重複は除去されている
 
+
 def test_python_version_upgraded_from_3_9_to_3_10(tmp_path):
     """python=3.9 が python=3.10 に正規化されるか検証"""
     env_yml = tmp_path / "environment.yml"
@@ -56,6 +59,7 @@ dependencies:
 
     assert "python=3.10" in merger.conda_deps
     assert "python=3.9" not in merger.conda_deps
+
 
 def test_pip_duplicate_deduplication(tmp_path):
     """pipパッケージが複数ソースに存在しても重複が除去されることを検証"""
@@ -80,6 +84,7 @@ flask==2.1.0
 
     assert merger.pip_deps.count("requests==2.31.0") == 1
     assert "flask==2.1.0" in merger.pip_deps
+
 
 def test_export_sorted_pip_deps(tmp_path):
     """requirements.txt に出力される pip 依存がソート済みであることを検証"""
@@ -109,6 +114,7 @@ numpy==1.24.0
     lines = [line.strip() for line in out_req.read_text().splitlines() if line.strip()]
     assert lines == sorted(lines)
 
+
 def test_resolve_prefers_first_version_when_strict_false():
     """strict=False 時は最初のバージョンが優先される"""
     merger = EnvMerger(base_yml=None, pip_json=None, strict=False)
@@ -119,6 +125,7 @@ def test_resolve_prefers_first_version_when_strict_false():
     assert "flask==2.0.0" in merger.pip_deps
     assert "flask==2.1.0" not in merger.pip_deps
     assert merger.pip_deps.count("flask==2.0.0") == 1
+
 
 def test_deduplicate_pip_deps_non_strict():
     """strict=False の場合、最初のバージョンを優先して pip の重複が除去される"""
@@ -134,6 +141,7 @@ def test_deduplicate_pip_deps_non_strict():
     assert merger.pip_deps.count("requests==2.30.0") == 1
     assert "flask==2.1.0" in merger.pip_deps
 
+
 def test_deduplicate_pip_deps_strict_conflict():
     """strict=True の場合、pip に同一パッケージ名で異なるバージョンが存在するとエラー"""
     merger = EnvMerger(strict=True)
@@ -146,6 +154,7 @@ def test_deduplicate_pip_deps_strict_conflict():
         merger._deduplicate_pip_deps()
 
     assert "requests" in str(e.value)
+
 
 def test_resolve_warns_on_missing_conda_version(tmp_path):
     """conda 側にバージョンがなく pip 側にだけあるときに警告が出るか検証"""
@@ -169,6 +178,7 @@ dependencies:
         warning_msgs = [str(warning.message) for warning in w]
 
     assert any("requests に pip 側でのみバージョン指定" in msg for msg in warning_msgs)
+
 
 def test_save_ci_yaml_excludes_and_sorts(tmp_path):
     """save_ci_yaml() が除外リストを反映し、pip セクションをソートして出力するかを確認"""
@@ -199,8 +209,11 @@ dependencies:
     assert "numpy==1.23.0" in content
 
     ci_dict = yaml.safe_load(content)
-    pip_deps = next(d["pip"] for d in ci_dict["dependencies"] if isinstance(d, dict) and "pip" in d)
+    pip_deps = next(
+        d["pip"] for d in ci_dict["dependencies"] if isinstance(d, dict) and "pip" in d
+    )
     assert pip_deps == sorted(pip_deps)
+
 
 def test_save_ci_yaml_sets_env_name(tmp_path):
     """CI 出力で env_name が 'ci-env' に強制されることを確認"""
@@ -220,6 +233,7 @@ dependencies:
 
     content = yaml.safe_load(ci_yml.read_text())
     assert content["name"] == "ci-env"
+
 
 def test_sorted_deps_after_resolve(tmp_path):
     """resolve() 後に conda/pip の依存関係が昇順ソートされることを確認"""
@@ -245,6 +259,7 @@ dependencies:
     assert merger.conda_deps == sorted(merger.conda_deps, key=str)
     assert merger.pip_deps == sorted(merger.pip_deps)
 
+
 def test_filter_for_ci_with_various_versions():
     """除外対象にバージョン付き・比較演算子付きがあっても正しく除去できるか"""
     merger = EnvMerger()
@@ -252,7 +267,7 @@ def test_filter_for_ci_with_various_versions():
         "Flask==2.1.0",
         "requests>=2.30.0",
         "numpy!=1.24.0",
-        "PyTest~=7.2"
+        "PyTest~=7.2",
     ]
     filtered = merger.filter_for_ci(exclude=["flask", "pytest"])
 
@@ -260,6 +275,7 @@ def test_filter_for_ci_with_various_versions():
     assert "PyTest~=7.2" not in filtered
     assert "requests>=2.30.0" in filtered
     assert "numpy!=1.24.0" in filtered
+
 
 def test_replace_gpu_packages_cpu_only():
     """GPU パッケージが CPU 対応に置換されるか確認"""
@@ -270,6 +286,7 @@ def test_replace_gpu_packages_cpu_only():
 
     assert merger.conda_deps == ["pytorch-cpu"]
     assert merger.pip_deps == ["torch-cpu==2.1.0"]
+
 
 def test_filter_for_ci_case_insensitive():
     """除外リストが大文字小文字を区別せず適用されることを確認"""

@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 import mediapipe as mp
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any
 
 
 class FullBodyDetector:
@@ -141,11 +141,10 @@ class FullBodyDetector:
             "headroom_ratio": headroom_ratio,
             "footroom_ratio": footroom_ratio,
             "side_margin_min_ratio": side_margin_min_ratio,
-            "body_height_ratio": body_height_ratio,          # ★ 追加
-            "body_center_y_ratio": body_center_y_ratio,      # ★ 追加
+            "body_height_ratio": body_height_ratio,  # ★ 追加
+            "body_center_y_ratio": body_center_y_ratio,  # ★ 追加
             "full_body_cut_risk": full_body_cut_risk,
         }
-
 
     def draw_landmarks(self, image: np.ndarray) -> np.ndarray:
         """

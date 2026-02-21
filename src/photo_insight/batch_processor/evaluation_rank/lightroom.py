@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-
 # Lightroom（日本語ラベルセット想定）: 表示名マップ
 LR_LABEL_DISPLAY_JA = {
     "red": "レッド",
@@ -119,7 +118,15 @@ def _infer_secondary_from_reason(reason: str) -> int:
     if not reason:
         return 0
     s = str(reason).strip()
-    return 1 if (s.startswith("SEC:") or s.startswith("SEC-RESCUE:") or s.startswith("ACC-SEC-FILL:")) else 0
+    return (
+        1
+        if (
+            s.startswith("SEC:")
+            or s.startswith("SEC-RESCUE:")
+            or s.startswith("ACC-SEC-FILL:")
+        )
+        else 0
+    )
 
 
 def _infer_green_from_reason(reason: str) -> int:
@@ -229,7 +236,7 @@ def shorten_reason_for_lr(reason: str, *, max_len: int = 90) -> str:
     tail_len = max(20, max_len // 4)
     # ただし max_len を超えないように
     tail_len = min(tail_len, max_len - 2)  # "…" + head の余地
-    head_len = max_len - 1 - tail_len      # "…" 1文字分
+    head_len = max_len - 1 - tail_len  # "…" 1文字分
 
     return s[:head_len] + "…" + s[-tail_len:]
 
@@ -264,10 +271,16 @@ def apply_lightroom_fields(row: Dict[str, Any], *, keyword_max_len: int = 90) ->
 
     # ★矛盾吸収：reason から推定
     inferred_green = _infer_green_from_reason(reason_norm) if accepted_flag == 0 else 0
-    inferred_secondary = _infer_secondary_from_reason(reason_norm) if (accepted_flag == 0 and secondary_flag == 0) else 0
+    inferred_secondary = (
+        _infer_secondary_from_reason(reason_norm)
+        if (accepted_flag == 0 and secondary_flag == 0)
+        else 0
+    )
 
     effective_accepted_flag = 1 if accepted_flag == 1 or inferred_green == 1 else 0
-    effective_secondary_flag = 1 if secondary_flag == 1 or inferred_secondary == 1 else 0
+    effective_secondary_flag = (
+        1 if secondary_flag == 1 or inferred_secondary == 1 else 0
+    )
 
     # eye_state は acceptance 側で付く（無ければ空）
     eye_state = str(row.get("eye_state") or "").strip().lower()
@@ -275,7 +288,9 @@ def apply_lightroom_fields(row: Dict[str, Any], *, keyword_max_len: int = 90) ->
     face_detected = safe_bool(row.get("face_detected"))
     face_sharp_score = safe_float(row.get("face_sharpness_score"))
     face_sharp_100 = to_0_100(face_sharp_score)
-    face_in_focus = bool(face_detected and face_sharp_100 >= FACE_SHARPNESS_FOCUS_THRESHOLD)
+    face_in_focus = bool(
+        face_detected and face_sharp_100 >= FACE_SHARPNESS_FOCUS_THRESHOLD
+    )
 
     label = choose_color_label(
         accepted_flag=effective_accepted_flag,

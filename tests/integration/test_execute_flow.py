@@ -1,7 +1,6 @@
 from tests.integration.dummy_batch_processor import DummyBatchProcessor
 
 
-
 def test_execute_runs_all_phases():
     processor = DummyBatchProcessor()
 

@@ -12,6 +12,7 @@ GPU_PACKAGE_REPLACEMENTS = {
     "pytorch-cuda": None,
 }
 
+
 def is_gpu_package(pkg_name: str) -> bool:
     """
     指定されたパッケージ名が GPU 専用パッケージかどうかを判定する。

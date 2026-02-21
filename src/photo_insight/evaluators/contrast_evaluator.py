@@ -3,7 +3,10 @@ from __future__ import annotations
 import numpy as np
 from photo_insight.utils.image_utils import ImageUtils
 
-from photo_insight.evaluators.common.raw_contract_utils import ensure_gray255, load_thresholds_sorted
+from photo_insight.evaluators.common.raw_contract_utils import (
+    ensure_gray255,
+    load_thresholds_sorted,
+)
 
 
 class ContrastEvaluator:
@@ -66,7 +69,10 @@ class ContrastEvaluator:
             try:
                 self.logger.debug(
                     f"[ContrastEvaluator thresholds_key={self.metric_key}] "
-                    f"poor:{self.t_poor}, fair:{self.t_fair}, good:{self.t_good}, excellent:{self.t_excellent}"
+                    f"poor:{self.t_poor}, "
+                    f"fair:{self.t_fair}, "
+                    f"good:{self.t_good}, "
+                    f"excellent:{self.t_excellent}"
                 )
             except Exception:
                 pass
@@ -99,7 +105,7 @@ class ContrastEvaluator:
             f"{k}_raw": None,
             f"{k}_score": 0.0,
             f"{k}_grade": "bad",
-            f"{k}_eval_status": "invalid",   # default: invalid
+            f"{k}_eval_status": "invalid",  # default: invalid
             f"{k}_fallback_reason": "",
             "success": False,
         }

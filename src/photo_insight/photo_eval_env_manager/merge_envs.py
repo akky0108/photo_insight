@@ -231,7 +231,6 @@ def run_cli(args, logger):
         strict=args.strict,
         cpu_only=args.cpu_only,
         logger=logger,
-        
     )
 
 

@@ -78,10 +78,14 @@ class NoiseEvaluator:
                     "[NoiseEvaluator] config applied: "
                     f"downsample_long_edge={self.downsample_long_edge}, "
                     f"gaussian_sigma={self.gaussian_sigma}, "
-                    f"midtone_min={self.midtone_min}, midtone_max={self.midtone_max}, "
-                    f"grad_thr={self.grad_thr}, min_mask_ratio={self.min_mask_ratio}, "
-                    f"good_sigma={self.good_sigma}, warn_sigma={self.warn_sigma}, "
-                    f"fallback_mode={self.fallback_mode}, fallback_score={self.fallback_score}"
+                    f"midtone_min={self.midtone_min}, "
+                    f"midtone_max={self.midtone_max}, "
+                    f"grad_thr={self.grad_thr}, "
+                    f"min_mask_ratio={self.min_mask_ratio}, "
+                    f"good_sigma={self.good_sigma}, "
+                    f"warn_sigma={self.warn_sigma}, "
+                    f"fallback_mode={self.fallback_mode}, "
+                    f"fallback_score={self.fallback_score}"
                 )
             except Exception:
                 pass
@@ -91,6 +95,7 @@ class NoiseEvaluator:
         config["noise"] から各種パラメータを上書きする。
         変換できない値は無視（事故防止）。
         """
+
         def _set_int(attr: str, key: str) -> None:
             if key not in noise_cfg:
                 return
@@ -171,7 +176,9 @@ class NoiseEvaluator:
             - image_dtype: 入力画像のdtype文字列表現
         """
         if not isinstance(image, np.ndarray):
-            raise ValueError("Invalid input: expected a numpy array representing an image.")
+            raise ValueError(
+                "Invalid input: expected a numpy array representing an image."
+            )
         if image.size == 0:
             return self._fallback_result(reason="empty_image")
 
@@ -179,7 +186,9 @@ class NoiseEvaluator:
         luma01, dtype_info = self._to_luma01(image)
 
         # 2. 解像度を揃える
-        luma01_ds, ds_size = self._downsample_long_edge(luma01, self.downsample_long_edge)
+        luma01_ds, ds_size = self._downsample_long_edge(
+            luma01, self.downsample_long_edge
+        )
 
         # 3. 残差 = luma - ガウシアン平滑
         residual = self._residual(luma01_ds, self.gaussian_sigma)
@@ -223,21 +232,26 @@ class NoiseEvaluator:
 
         return {
             # --- 意味スコア（decide_accept で使う想定） ---
-            "noise_score": float(noise_score),   # 1.0 / 0.75 / 0.5 / 0.25 / 0.0
-            "noise_grade": grade,                # "excellent"〜"bad"
-
+            "noise_score": float(noise_score),  # 1.0 / 0.75 / 0.5 / 0.25 / 0.0
+            "noise_grade": grade,  # "excellent"〜"bad"
             # --- 生値(raw) ---
-            "noise_sigma_midtone": float(sigma_midtone) if sigma_midtone is not None and np.isfinite(sigma_midtone) else None,
+            "noise_sigma_midtone": (
+                float(sigma_midtone)
+                if sigma_midtone is not None and np.isfinite(sigma_midtone)
+                else None
+            ),
             "noise_sigma_used": float(sigma_used) if np.isfinite(sigma_used) else None,
             "noise_mask_ratio": mask_ratio,
-
             # 契約: raw は「高いほど良い」
-            "noise_raw": float(-sigma_used) if (sigma_used is not None and np.isfinite(sigma_used)) else None,
-
+            "noise_raw": (
+                float(-sigma_used)
+                if (sigma_used is not None and np.isfinite(sigma_used))
+                else None
+            ),
             # --- メタ情報（フォールバック・条件の追跡用） ---
-            "noise_eval_status": status,               # "ok" / "fallback"
+            "noise_eval_status": status,  # "ok" / "fallback"
             "noise_fallback_reason": fallback_reason,  # None or str
-            "downsampled_size": ds_size,               # (h, w)
+            "downsampled_size": ds_size,  # (h, w)
             "image_dtype": dtype_info,
         }
 
@@ -273,7 +287,9 @@ class NoiseEvaluator:
         g01 = np.clip(g01, 0.0, 1.0)
         return g01, dtype_info
 
-    def _downsample_long_edge(self, img: np.ndarray, long_edge: int) -> Tuple[np.ndarray, Tuple[int, int]]:
+    def _downsample_long_edge(
+        self, img: np.ndarray, long_edge: int
+    ) -> Tuple[np.ndarray, Tuple[int, int]]:
         """
         長辺を long_edge に揃える（縮小のみ）。解像度依存性を減らす。
         """
@@ -379,7 +395,7 @@ class NoiseEvaluator:
         """
         return {
             "noise_score": float(self.fallback_score),  # 通常は 0.5
-            "noise_grade": "fair",                     # 5 段階の真ん中に相当
+            "noise_grade": "fair",  # 5 段階の真ん中に相当
             "noise_sigma_midtone": None,
             "noise_sigma_used": None,
             "noise_raw": None,

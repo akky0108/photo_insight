@@ -68,10 +68,14 @@ class BlurrinessEvaluator:
         self.laplacian_ksize = int(laplacian_ksize)
         self.gaussian_ksize = int(gaussian_ksize)
         self.gaussian_sigma = float(gaussian_sigma)
-        self.clip_percentile = float(clip_percentile) if clip_percentile is not None else None
+        self.clip_percentile = (
+            float(clip_percentile) if clip_percentile is not None else None
+        )
 
         # --- normalize weights to avoid future accidents ---
-        ws = np.array([self.grad_weight, self.lap_weight, self.diff_weight], dtype=np.float32)
+        ws = np.array(
+            [self.grad_weight, self.lap_weight, self.diff_weight], dtype=np.float32
+        )
         s = float(ws.sum())
         if s > 0:
             ws = ws / s
@@ -105,12 +109,20 @@ class BlurrinessEvaluator:
         # optional param overrides from config
         # (safe: ignore if missing / wrong type)
         try:
-            feature_cfg = blur_cfg.get("feature_params", {}) if isinstance(blur_cfg, dict) else {}
+            feature_cfg = (
+                blur_cfg.get("feature_params", {}) if isinstance(blur_cfg, dict) else {}
+            )
             if isinstance(feature_cfg, dict):
                 self.sobel_ksize = int(feature_cfg.get("sobel_ksize", self.sobel_ksize))
-                self.laplacian_ksize = int(feature_cfg.get("laplacian_ksize", self.laplacian_ksize))
-                self.gaussian_ksize = int(feature_cfg.get("gaussian_ksize", self.gaussian_ksize))
-                self.gaussian_sigma = float(feature_cfg.get("gaussian_sigma", self.gaussian_sigma))
+                self.laplacian_ksize = int(
+                    feature_cfg.get("laplacian_ksize", self.laplacian_ksize)
+                )
+                self.gaussian_ksize = int(
+                    feature_cfg.get("gaussian_ksize", self.gaussian_ksize)
+                )
+                self.gaussian_sigma = float(
+                    feature_cfg.get("gaussian_sigma", self.gaussian_sigma)
+                )
                 cp = feature_cfg.get("clip_percentile", self.clip_percentile)
                 self.clip_percentile = float(cp) if cp is not None else None
         except Exception:
@@ -128,16 +140,20 @@ class BlurrinessEvaluator:
             try:
                 self.logger.debug(
                     "[BlurrinessEvaluator] discretize_thresholds_raw="
-                    f"bad:{self.t_bad}, poor:{self.t_poor}, fair:{self.t_fair}, good:{self.t_good}"
+                    f"bad:{self.t_bad}, poor:{self.t_poor}, fair:{self.t_fair}, "
+                    f"good:{self.t_good}"
                 )
                 self.logger.debug(
                     "[BlurrinessEvaluator] raw_contract="
-                    f"direction:{self.RAW_DIRECTION}, transform:{self.RAW_TRANSFORM}, higher_is_better:{self.HIGHER_IS_BETTER}"
+                    f"direction:{self.RAW_DIRECTION}, transform:{self.RAW_TRANSFORM}, "
+                    f"higher_is_better:{self.HIGHER_IS_BETTER}"
                 )
                 self.logger.debug(
                     "[BlurrinessEvaluator] weights="
-                    f"grad:{self.grad_weight:.3f}, lap:{self.lap_weight:.3f}, diff:{self.diff_weight:.3f}"
-                    f" | ksizes sobel:{self.sobel_ksize}, lap:{self.laplacian_ksize}, gauss:{self.gaussian_ksize}"
+                    f"grad:{self.grad_weight:.3f}, lap:{self.lap_weight:.3f}, "
+                    f"diff:{self.diff_weight:.3f}"
+                    f" | ksizes sobel:{self.sobel_ksize}, lap:{self.laplacian_ksize}, "
+                    f"gauss:{self.gaussian_ksize}"
                     f" | clip_percentile:{self.clip_percentile}"
                 )
             except Exception:
@@ -274,7 +290,9 @@ class BlurrinessEvaluator:
                 result["blurriness_fallback_reason"] = "non_finite_raw"
                 return result
 
-            blurriness_score, blurriness_grade = self._to_score_and_grade(float(blurriness_raw))
+            blurriness_score, blurriness_grade = self._to_score_and_grade(
+                float(blurriness_raw)
+            )
 
             result.update(
                 {

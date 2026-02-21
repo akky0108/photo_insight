@@ -4,13 +4,14 @@ from __future__ import annotations
 import os
 import csv
 import gc
-from pathlib import Path
 from typing import Any, List, Dict, Optional, Union
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from photo_insight.batch_framework.base_batch import BaseBatchProcessor
 from photo_insight.image_loader import ImageLoader
-from photo_insight.evaluators.portrait_quality.portrait_quality_evaluator import PortraitQualityEvaluator
+from photo_insight.evaluators.portrait_quality.portrait_quality_evaluator import (
+    PortraitQualityEvaluator,
+)
 from photo_insight.portrait_quality_header import PortraitQualityHeaderGenerator
 from photo_insight.monitoring.memory_monitor import MemoryMonitor
 
@@ -59,7 +60,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         if logger is not None:
             self.logger = logger
         else:
-            self.logger = self.config_manager.get_logger("PortraitQualityBatchProcessor")
+            self.logger = self.config_manager.get_logger(
+                "PortraitQualityBatchProcessor"
+            )
 
         self.memory_monitor = MemoryMonitor(self.logger)
         self.date = date
@@ -130,7 +133,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
         if self.date:
             if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", self.date):
-                raise ValueError(f"Invalid date format: {self.date} (expected YYYY-MM-DD)")
+                raise ValueError(
+                    f"Invalid date format: {self.date} (expected YYYY-MM-DD)"
+                )
             year = self.date[:4]
             self.base_directory = os.path.join(picture_root, year, self.date)
         else:
@@ -139,17 +144,31 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             )
 
         if self.date:
-            self.image_csv_file = os.path.join(self.output_directory, f"{self.date}_raw_exif_data.csv")
-            self.result_csv_file = os.path.join(self.output_directory, f"evaluation_results_{self.date}.csv")
-            self.processed_images_file = os.path.join(self.output_directory, f"processed_images_{self.date}.txt")
+            self.image_csv_file = os.path.join(
+                self.output_directory, f"{self.date}_raw_exif_data.csv"
+            )
+            self.result_csv_file = os.path.join(
+                self.output_directory, f"evaluation_results_{self.date}.csv"
+            )
+            self.processed_images_file = os.path.join(
+                self.output_directory, f"processed_images_{self.date}.txt"
+            )
         else:
-            self.image_csv_file = os.path.join(self.output_directory, "nef_exif_data.csv")
-            self.result_csv_file = os.path.join(self.output_directory, "evaluation_results.csv")
-            self.processed_images_file = os.path.join(self.output_directory, "processed_images.txt")
+            self.image_csv_file = os.path.join(
+                self.output_directory, "nef_exif_data.csv"
+            )
+            self.result_csv_file = os.path.join(
+                self.output_directory, "evaluation_results.csv"
+            )
+            self.processed_images_file = os.path.join(
+                self.output_directory, "processed_images.txt"
+            )
 
         # 入力元は作らない。存在しないなら即落として設定ミスを早期発見する。
         if not self.base_directory or not os.path.isdir(self.base_directory):
-            raise FileNotFoundError(f"Base directory does not exist: {self.base_directory}")
+            raise FileNotFoundError(
+                f"Base directory does not exist: {self.base_directory}"
+            )
 
         self.logger.info(f"ベースディレクトリ: {self.base_directory}")
 
@@ -166,7 +185,8 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
         if self.result_csv_file and os.path.exists(self.result_csv_file):
             self.logger.info(
-                f"Result file exists: {self.result_csv_file} — continuing from previous run."
+                f"Result file exists: {self.result_csv_file} — "
+                f"continuing from previous run."
             )
 
     def load_image_data(self) -> List[Dict[str, str]]:
@@ -177,7 +197,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             List[Dict[str, str]]: 画像情報のリスト
         """
         if not self.image_csv_file:
-            self.logger.warning("image_csv_file is not set. Proceeding with empty data.")
+            self.logger.warning(
+                "image_csv_file is not set. Proceeding with empty data."
+            )
             return []
 
         self.logger.info(f"Loading image data from {self.image_csv_file}")
@@ -219,12 +241,15 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         self._total_images_to_process = len(data)
         if self.processed_images:
             self.logger.info(
-                f"Found {len(self.processed_images)} previously processed images. Resuming from there."
+                f"Found {len(self.processed_images)} previously processed images. "
+                f"Resuming from there."
             )
         else:
             self.logger.info("No previously processed images found. Starting fresh.")
 
-        self.logger.info(f"Memory usage threshold set to {self.memory_threshold}% from config.")
+        self.logger.info(
+            f"Memory usage threshold set to {self.memory_threshold}% from config."
+        )
         self.logger.info(f"Total images to process: {self._total_images_to_process}")
 
     def _process_batch(self, batch: List[Dict[str, str]]) -> List[Dict[str, Any]]:
@@ -235,10 +260,16 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         """
         # 未処理画像のみ残す
         with self._processed_lock:
-            batch = [img for img in batch if img.get("file_name") not in self.processed_images]
+            batch = [
+                img
+                for img in batch
+                if img.get("file_name") not in self.processed_images
+            ]
 
         if not batch:
-            self.logger.debug("All images in this batch are already processed. Skipping.")
+            self.logger.debug(
+                "All images in this batch are already processed. Skipping."
+            )
             return []
 
         # 並列／直列処理
@@ -259,7 +290,8 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         mem_usage = self.memory_monitor.get_memory_usage()
         if mem_usage > self.memory_threshold:
             self.logger.warning(
-                f"Memory usage {mem_usage:.1f}% exceeded threshold ({self.memory_threshold}%). "
+                f"Memory usage {mem_usage:.1f}% "
+                f"exceeded threshold ({self.memory_threshold}%). "
                 f"Will stop after this batch."
             )
             self.memory_threshold_exceeded = True
@@ -340,7 +372,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             self.logger.error(f"Error processing image {file_name}: {e}", exc_info=True)
         return None
 
-    def _process_single_image(self, img_info: Dict[str, str]) -> Optional[Dict[str, Any]]:
+    def _process_single_image(
+        self, img_info: Dict[str, str]
+    ) -> Optional[Dict[str, Any]]:
         try:
             if not self.base_directory:
                 raise RuntimeError("base_directory is not set")
@@ -355,10 +389,15 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                 self._mark_as_processed(img_info["file_name"])
                 return result
         except Exception as e:
-            self.logger.error(f"Failed to process image {img_info.get('file_name')}: {e}", exc_info=True)
+            self.logger.error(
+                f"Failed to process image {img_info.get('file_name')}: {e}",
+                exc_info=True,
+            )
         return None
 
-    def _process_batch_serial(self, batch: List[Dict[str, str]]) -> List[Dict[str, Any]]:
+    def _process_batch_serial(
+        self, batch: List[Dict[str, str]]
+    ) -> List[Dict[str, Any]]:
         results: List[Dict[str, Any]] = []
         for img_info in batch:
             result = self._process_single_image(img_info)
@@ -366,7 +405,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                 results.append(result)
         return results
 
-    def _process_batch_parallel(self, batch: List[Dict[str, str]]) -> List[Dict[str, Any]]:
+    def _process_batch_parallel(
+        self, batch: List[Dict[str, str]]
+    ) -> List[Dict[str, Any]]:
         results: List[Dict[str, Any]] = []
         with ThreadPoolExecutor(max_workers=self.max_workers or 2) as executor:
             future_to_img = {
@@ -380,10 +421,11 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                     result = future.result()
                     if result:
                         results.append(result)
-                except Exception as e:
+                except Exception:
                     # 1枚の例外でバッチ全体が落ちないようにする
-                    self.logger.error(
-                        f"[Parallel] Failed to process image {img_info.get('file_name')}: {e}",
+                    self.logger.exception(
+                        f"[Parallel] Failed to process image "
+                        f"{img_info.get('file_name')}",
                         exc_info=True,
                     )
                     continue
@@ -410,7 +452,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             self.processed_images.add(file_name)
             self.logger.debug(f"Marked as processed: {file_name}")
 
-    def save_results(self, results: List[Dict[str, Union[str, float, bool]]], file_path: str) -> None:
+    def save_results(
+        self, results: List[Dict[str, Union[str, float, bool]]], file_path: str
+    ) -> None:
         """
         画像評価の結果を CSV ファイルに保存する。
         """
@@ -423,7 +467,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
         with self.get_lock():
             with open(file_path, "a", newline="", encoding="utf-8") as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=fieldnames, extrasaction="ignore")
+                writer = csv.DictWriter(
+                    csvfile, fieldnames=fieldnames, extrasaction="ignore"
+                )
                 if not file_exists:
                     writer.writeheader()
 
@@ -436,9 +482,13 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         全件処理が完了していれば、一時ファイルを削除する。
         """
         super().cleanup()
-        self.logger.info("Cleaning up PortraitQualityBatchProcessor-specific resources.")
+        self.logger.info(
+            "Cleaning up PortraitQualityBatchProcessor-specific resources."
+        )
 
-        processed_this_run = len(self.processed_images) - int(self._start_processed_count or 0)
+        processed_this_run = len(self.processed_images) - int(
+            self._start_processed_count or 0
+        )
         remaining_count = int(self._total_images_to_process or 0) - processed_this_run
         if remaining_count < 0:
             remaining_count = 0
@@ -451,11 +501,16 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             )
         elif getattr(self, "completed_all_batches", False):
             self.logger.info(
-                f"All batches processed successfully. Total processed images: {processed_this_run}"
+                f"All batches processed successfully. "
+                f"Total processed images: {processed_this_run}"
             )
 
         processed_file = getattr(self, "processed_images_file", None)
-        if getattr(self, "completed_all_batches", False) and processed_file and os.path.exists(processed_file):
+        if (
+            getattr(self, "completed_all_batches", False)
+            and processed_file
+            and os.path.exists(processed_file)
+        ):
             self.logger.info(f"Removing processed images file: {processed_file}")
             os.remove(processed_file)
 
@@ -470,7 +525,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         """
         raw_data = self.load_image_data()
         with self._processed_lock:
-            return [d for d in raw_data if d.get("file_name") not in self.processed_images]
+            return [
+                d for d in raw_data if d.get("file_name") not in self.processed_images
+            ]
 
 
 if __name__ == "__main__":
@@ -483,21 +540,32 @@ if __name__ == "__main__":
         "--config_path",
         type=str,
         default=None,
-        help="Config file path (optional). If omitted, ConfigManager uses CONFIG_ENV / defaults.",
+        help=(
+            "Config file path (optional). If omitted, ConfigManager uses "
+            "CONFIG_ENV / defaults."
+        ),
     )
     parser.add_argument(
         "--config_env",
         type=str,
         default=None,
-        help="Config environment (e.g. prod/test). If omitted, CONFIG_ENV env-var may be used.",
+        help=(
+            "Config environment (e.g. prod/test). If omitted, "
+            "CONFIG_ENV env-var may be used."
+        ),
     )
     parser.add_argument(
         "--config_paths",
         nargs="*",
         default=None,
-        help="Optional explicit config file list (applied in order; supports extends).",
+        help=(
+            "Optional explicit config file list "
+            "(applied in order; supports extends)."
+        ),
     )
-    parser.add_argument("--date", type=str, help="Specify the date for directory and file names.")
+    parser.add_argument(
+        "--date", type=str, help="Specify the date for directory and file names."
+    )
     parser.add_argument("--max_workers", type=int, help="Number of worker threads")
     parser.add_argument("--batch_size", type=int, help="Override batch size")
     args = parser.parse_args()

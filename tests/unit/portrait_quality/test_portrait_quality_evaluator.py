@@ -2,7 +2,9 @@ import os
 import numpy as np
 import cv2
 import pytest
-from photo_insight.evaluators.portrait_quality.portrait_quality_evaluator import PortraitQualityEvaluator
+from photo_insight.evaluators.portrait_quality.portrait_quality_evaluator import (
+    PortraitQualityEvaluator,
+)
 from photo_insight.utils.app_logger import Logger
 
 ASSETS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../assets"))
@@ -14,7 +16,16 @@ def create_dummy_face_image(width=512, height=512):
 
     center = (width // 2, height // 2)
     axes = (100, 130)
-    cv2.ellipse(img, center, axes, angle=0, startAngle=0, endAngle=360, color=(0, 0, 0), thickness=3)
+    cv2.ellipse(
+        img,
+        center,
+        axes,
+        angle=0,
+        startAngle=0,
+        endAngle=360,
+        color=(0, 0, 0),
+        thickness=3,
+    )
     cv2.circle(img, (center[0] - 40, center[1] - 30), 10, (0, 0, 0), -1)
     cv2.circle(img, (center[0] + 40, center[1] - 30), 10, (0, 0, 0), -1)
     cv2.ellipse(img, (center[0], center[1] + 50), (40, 20), 0, 0, 180, (0, 0, 0), 3)
@@ -77,7 +88,9 @@ def test_portrait_quality_evaluation(filename, expected_face_detected):
 
     assert isinstance(result, dict), "結果は辞書であるべき"
     assert "face_detected" in result, "'face_detected' キーが存在しない"
-    assert result["face_detected"] == expected_face_detected, f"顔検出結果が期待と異なります: {filename}"
+    assert (
+        result["face_detected"] == expected_face_detected
+    ), f"顔検出結果が期待と異なります: {filename}"
 
     for key in ["sharpness_score", "blurriness_score", "contrast_score"]:
         assert key in result, f"{key} が結果に含まれていません"

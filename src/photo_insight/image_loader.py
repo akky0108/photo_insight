@@ -39,7 +39,8 @@ class ImageLoader:
         :param filepath: 画像ファイルのパス
         :param output_bps: RAW画像のビット深度 (デフォルト: 8)
         :param apply_exif_rotation: EXIFの回転情報を適用するかどうか
-        :param orientation: 事前に取得したEXIFのOrientation値（RAW画像のみ）。通常の画像はNoneでOK。
+        :param orientation: 事前に取得したEXIFのOrientation値（RAW画像のみ）。
+            通常の画像はNoneでOK。
         :return: 読み込まれた画像のnumpy配列
         """
         ext = os.path.splitext(filepath)[-1].lower()
@@ -59,7 +60,8 @@ class ImageLoader:
                     and orientation != raw_orientation
                 ):
                     self.logger.warning(
-                        f"Orientation mismatch: provided={orientation}, detected={raw_orientation} for {filepath}"
+                        f"Orientation mismatch: provided={orientation}, "
+                        f"detected={raw_orientation} for {filepath}"
                     )
                     orientation = raw_orientation  # 信頼できる方を使う（ここでは rawpy の値を採用）
             else:

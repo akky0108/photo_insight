@@ -58,13 +58,11 @@ def test_run_cli_basic(tmp_path, logger):
     pip_path = tmp_path / "req.txt"
     output_path = tmp_path / "merged.yml"
 
-    conda_path.write_text(
-        """
+    conda_path.write_text("""
 name: test-env
 dependencies:
   - numpy=1.21.0
-"""
-    )
+""")
 
     pip_path.write_text("requests==2.31.0")
 
@@ -116,7 +114,9 @@ def test_run_cli_strict_mode_conflict(tmp_path, logger):
         log_level="INFO",
     )
 
-    from photo_insight.photo_eval_env_manager.envmerge.exceptions import VersionMismatchError
+    from photo_insight.photo_eval_env_manager.envmerge.exceptions import (
+        VersionMismatchError,
+    )
 
     with pytest.raises(VersionMismatchError):
         run_cli(args, logger)
@@ -137,7 +137,10 @@ def test_run_cli_duplicate_version_conflict(tmp_path, logger):
         log_level="INFO",
     )
 
-    from photo_insight.photo_eval_env_manager.envmerge.exceptions import VersionMismatchError
+    from photo_insight.photo_eval_env_manager.envmerge.exceptions import (
+        VersionMismatchError,
+    )
+
     with pytest.raises(VersionMismatchError):
         run_cli(args, logger)
 

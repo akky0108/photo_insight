@@ -48,8 +48,8 @@ class ProvisionalVsAcceptedSummaryRow:
     top_not_accepted_rate: float
 
     # ---- alignment metrics ----
-    precision: float   # overlap / provisional
-    recall: float      # overlap / accepted
+    precision: float  # overlap / provisional
+    recall: float  # overlap / accepted
     f1: float
 
     # ---- score stats ----
@@ -80,7 +80,9 @@ def build_provisional_vs_accepted_summary(
         buckets[(cat, grp)].append(r)
         cat_buckets[cat].append(r)
 
-    def _summarize(cat: str, grp: str, items: List[Dict[str, Any]]) -> ProvisionalVsAcceptedSummaryRow:
+    def _summarize(
+        cat: str, grp: str, items: List[Dict[str, Any]]
+    ) -> ProvisionalVsAcceptedSummaryRow:
         total = len(items)
 
         # percent は代表値として先頭から拾う（全行同一想定だが、違っても落ちない）
@@ -91,13 +93,27 @@ def build_provisional_vs_accepted_summary(
 
         if total == 0:
             return ProvisionalVsAcceptedSummaryRow(
-                category=cat, accept_group=grp, percent=p,
-                total=0, accepted=0, provisional=0, overlap=0,
-                accepted_not_top=0, top_not_accepted=0,
-                accepted_rate=0.0, provisional_rate=0.0, overlap_rate=0.0,
-                accepted_not_top_rate=0.0, top_not_accepted_rate=0.0,
-                precision=0.0, recall=0.0, f1=0.0,
-                mean_overall=0.0, mean_face=0.0, mean_comp=0.0, mean_tech=0.0,
+                category=cat,
+                accept_group=grp,
+                percent=p,
+                total=0,
+                accepted=0,
+                provisional=0,
+                overlap=0,
+                accepted_not_top=0,
+                top_not_accepted=0,
+                accepted_rate=0.0,
+                provisional_rate=0.0,
+                overlap_rate=0.0,
+                accepted_not_top_rate=0.0,
+                top_not_accepted_rate=0.0,
+                precision=0.0,
+                recall=0.0,
+                f1=0.0,
+                mean_overall=0.0,
+                mean_face=0.0,
+                mean_comp=0.0,
+                mean_tech=0.0,
             )
 
         accepted = provisional = overlap = 0
@@ -134,24 +150,20 @@ def build_provisional_vs_accepted_summary(
             category=cat,
             accept_group=grp,
             percent=p,
-
             total=total,
             accepted=accepted,
             provisional=provisional,
             overlap=overlap,
             accepted_not_top=accepted_not_top,
             top_not_accepted=top_not_accepted,
-
             accepted_rate=accepted_rate,
             provisional_rate=provisional_rate,
             overlap_rate=overlap_rate,
             accepted_not_top_rate=accepted_not_top_rate,
             top_not_accepted_rate=top_not_accepted_rate,
-
             precision=precision,
             recall=recall,
             f1=f1,
-
             mean_overall=_safe_div(sum_overall, denom_total),
             mean_face=_safe_div(sum_face, denom_total),
             mean_comp=_safe_div(sum_comp, denom_total),
@@ -186,16 +198,27 @@ def write_provisional_vs_accepted_summary_csv(
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     header = [
-        "category", "accept_group", "provisional_top_percent",
-        "total", "accepted", "provisional", "overlap",
-        "accepted_not_top", "top_not_accepted",
-
-        "accepted_rate", "provisional_rate", "overlap_rate",
-        "accepted_not_top_rate", "top_not_accepted_rate",
-
-        "precision", "recall", "f1",
-
-        "mean_overall", "mean_face", "mean_comp", "mean_tech",
+        "category",
+        "accept_group",
+        "provisional_top_percent",
+        "total",
+        "accepted",
+        "provisional",
+        "overlap",
+        "accepted_not_top",
+        "top_not_accepted",
+        "accepted_rate",
+        "provisional_rate",
+        "overlap_rate",
+        "accepted_not_top_rate",
+        "top_not_accepted_rate",
+        "precision",
+        "recall",
+        "f1",
+        "mean_overall",
+        "mean_face",
+        "mean_comp",
+        "mean_tech",
     ]
     lines = [",".join(header) + "\n"]
 
@@ -206,24 +229,20 @@ def write_provisional_vs_accepted_summary_csv(
                     str(r.category),
                     str(r.accept_group),
                     f"{r.percent:.2f}",
-
                     str(r.total),
                     str(r.accepted),
                     str(r.provisional),
                     str(r.overlap),
                     str(r.accepted_not_top),
                     str(r.top_not_accepted),
-
                     f"{r.accepted_rate:.6f}",
                     f"{r.provisional_rate:.6f}",
                     f"{r.overlap_rate:.6f}",
                     f"{r.accepted_not_top_rate:.6f}",
                     f"{r.top_not_accepted_rate:.6f}",
-
                     f"{r.precision:.6f}",
                     f"{r.recall:.6f}",
                     f"{r.f1:.6f}",
-
                     f"{r.mean_overall:.4f}",
                     f"{r.mean_face:.4f}",
                     f"{r.mean_comp:.4f}",

@@ -50,6 +50,7 @@ def test_execute_hooks_with_exception_collects_errors():
     assert isinstance(errors[0], RuntimeError)
     assert "Test hook error" in str(errors[0])
 
+
 def test_serial_hooks_run_in_order():
     results = []
 
@@ -72,6 +73,7 @@ def test_serial_hooks_run_in_order():
     # priority順に直列で実行されているか確認
     assert results == ["1", "2", "3"]
 
+
 def test_parallel_hooks_all_execute():
     results = []
 
@@ -79,6 +81,7 @@ def test_parallel_hooks_all_execute():
         def hook():
             time.sleep(0.05)  # 並列確認用に少し待つ
             results.append(name)
+
         return hook
 
     manager = HookManager(max_workers=3)
@@ -90,6 +93,7 @@ def test_parallel_hooks_all_execute():
 
     # 実行順は問わないがすべて呼ばれている
     assert sorted(results) == ["A", "B", "C"]
+
 
 def test_mixed_parallel_and_serial_hooks():
     results = []

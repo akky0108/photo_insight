@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 
 from photo_insight.evaluators.noise_evaluator import NoiseEvaluator
 
@@ -65,6 +64,7 @@ def test_noise_evaluator_fallback():
     assert "noise_raw" in r
     assert r["noise_score"] == ev.fallback_score
 
+
 def test_noise_evaluator_config_overrides_affect_discretize():
     cfg_a = {"noise": {"good_sigma": 0.010, "warn_sigma": 0.018}}
     cfg_b = {"noise": {"good_sigma": 0.020, "warn_sigma": 0.030}}
@@ -78,8 +78,16 @@ def test_noise_evaluator_config_overrides_affect_discretize():
 
     # 閾値が緩い(b)ほどスコアは高く（または同等に）なりやすい
     assert score_b >= score_a
-    assert grade_a in ("excellent", "good", "fair", "poor", "bad", "warn")  # guard fallback含む
+    assert grade_a in (
+        "excellent",
+        "good",
+        "fair",
+        "poor",
+        "bad",
+        "warn",
+    )  # guard fallback含む
     assert grade_b in ("excellent", "good", "fair", "poor", "bad", "warn")
+
 
 def test_noise_raw_is_negative_sigma_used_contract(monkeypatch):
     cfg = {"noise": {"good_sigma": 0.010, "warn_sigma": 0.018, "min_mask_ratio": 0.0}}
@@ -89,10 +97,16 @@ def test_noise_raw_is_negative_sigma_used_contract(monkeypatch):
     fixed_sigma = 0.0123
 
     # 内部処理を固定化して evaluate の出力契約だけを見る
-    monkeypatch.setattr(ev, "_to_luma01", lambda image: (np.zeros((64, 64), dtype=np.float32), "uint8"))
-    monkeypatch.setattr(ev, "_downsample_long_edge", lambda luma01, le: (luma01, (64, 64)))
+    monkeypatch.setattr(
+        ev, "_to_luma01", lambda image: (np.zeros((64, 64), dtype=np.float32), "uint8")
+    )
+    monkeypatch.setattr(
+        ev, "_downsample_long_edge", lambda luma01, le: (luma01, (64, 64))
+    )
     monkeypatch.setattr(ev, "_residual", lambda luma01, sigma: np.zeros_like(luma01))
-    monkeypatch.setattr(ev, "_build_mask", lambda luma01: np.ones_like(luma01, dtype=bool))
+    monkeypatch.setattr(
+        ev, "_build_mask", lambda luma01: np.ones_like(luma01, dtype=bool)
+    )
     monkeypatch.setattr(ev, "_mad_sigma", lambda x: fixed_sigma)
 
     r = ev.evaluate(img)

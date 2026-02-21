@@ -11,12 +11,12 @@ from typing import Any, Dict, Type, Optional
 
 from photo_insight.batch_framework.base_batch import BaseBatchProcessor
 
-
 # -------------------------
 # Reserved keys (runner-owned)
 # -------------------------
 # These keys are owned by the runner/CLI and must NOT be passed via unknown args.
-# NOTE: run_date/date are handled separately as runtime overrides (allowed in unknown args).
+# NOTE: run_date/date are handled separately as runtime overrides
+#       (allowed in unknown args).
 _RESERVED_UNKNOWN_KEYS = {
     "processor",
     "config",
@@ -39,16 +39,21 @@ def _load_processor_by_alias(name: str) -> Type[BaseBatchProcessor]:
 
     if key in ("nef", "nef_file", "nef_file_batch"):
         from photo_insight.batch_processor.nef_batch_process import NEFFileBatchProcess
+
         return NEFFileBatchProcess
 
     if key in ("evaluation_rank", "rank", "eval_rank"):
-        from photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_processor import (
+        from photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_processor import (  # noqa: E501,E402
             EvaluationRankBatchProcessor,
         )
+
         return EvaluationRankBatchProcessor
 
     if key in ("portrait_quality", "quality", "portrait"):
-        from photo_insight.portrait_quality_batch_processor import PortraitQualityBatchProcessor
+        from photo_insight.portrait_quality_batch_processor import (
+            PortraitQualityBatchProcessor,
+        )
+
         return PortraitQualityBatchProcessor
 
     raise KeyError(f"Unknown processor alias: {name}")
@@ -127,7 +132,8 @@ def _parse_unknown_args(unknown: list[str]) -> Dict[str, Any]:
         # Disallow collisions with runner/CLI-owned keys
         if key in _RESERVED_UNKNOWN_KEYS:
             raise ValueError(
-                f"'{token}' is a reserved runner/CLI option and cannot be passed as an unknown arg."
+                f"'{token}' is a reserved runner/CLI option and "
+                f"cannot be passed as an unknown arg."
             )
 
         # flag only
@@ -186,7 +192,9 @@ def _extract_runtime_overrides(exec_kwargs: Dict[str, Any]) -> Dict[str, Any]:
     return injected
 
 
-def _apply_runtime_overrides(proc: BaseBatchProcessor, injected: Dict[str, Any]) -> None:
+def _apply_runtime_overrides(
+    proc: BaseBatchProcessor, injected: Dict[str, Any]
+) -> None:
     """
     本実行時のみ、processor インスタンスに注入する。
     """
@@ -196,7 +204,7 @@ def _apply_runtime_overrides(proc: BaseBatchProcessor, injected: Dict[str, Any])
     if "target_dir" in injected:
         # strでもPathでも来るので Path 化
         setattr(proc, "target_dir", Path(injected["target_dir"]))
-        
+
 
 # -------------------------
 # CLI
@@ -211,20 +219,31 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--processor",
         required=True,
-        help="Processor alias (nef/evaluation_rank/portrait_quality) OR dotted path (pkg.mod:Class).",
+        help=(
+            "Processor alias (nef/evaluation_rank/portrait_quality) OR dotted path (pkg.mod:Class)."  # noqa: E501
+        ),
     )
 
     # common knobs (BaseBatchProcessor ctor)
-    p.add_argument("--config", dest="config_path", default="config/config.prod.yaml", help="Config file path")
+    p.add_argument(
+        "--config",
+        dest="config_path",
+        default="config/config.prod.yaml",
+        help="Config file path",
+    )
     p.add_argument("--max-workers", type=int, default=2)
-    p.add_argument("--config-env", default=None, help="ConfigManager env name (optional)")
+    p.add_argument(
+        "--config-env", default=None, help="ConfigManager env name (optional)"
+    )
     p.add_argument(
         "--config-paths",
         default=None,
-        help="Comma-separated config paths (optional). e.g. config.base.yaml,config.prod.yaml",
+        help="Comma-separated config paths (optional). e.g. config.base.yaml,config.prod.yaml",  # noqa: E501
     )
 
-    p.add_argument("--dry-run", action="store_true", help="Resolve processor and kwargs then exit")
+    p.add_argument(
+        "--dry-run", action="store_true", help="Resolve processor and kwargs then exit"
+    )
     return p
 
 

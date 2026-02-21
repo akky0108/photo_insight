@@ -135,9 +135,12 @@ def test_merge_envs_logs_exception_on_version_mismatch():
     mock_logger.exception.assert_called_once()
 
 
-@pytest.mark.parametrize("pip_path,expected_pkgs", [
-    ("tests/fixtures/requirements.txt", ["torch-cpu==1.9.0", "flask==2.0.1"]),
-])
+@pytest.mark.parametrize(
+    "pip_path,expected_pkgs",
+    [
+        ("tests/fixtures/requirements.txt", ["torch-cpu==1.9.0", "flask==2.0.1"]),
+    ],
+)
 def test_merge_envs_with_explicit_pip_format(pip_path, expected_pkgs):
     merge_envs(
         base_yml=BASE_YML,

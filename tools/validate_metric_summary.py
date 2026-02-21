@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#tools/validate_metric_summary.py
+# tools/validate_metric_summary.py
 # -*- coding: utf-8 -*-
 
 """
@@ -77,7 +77,9 @@ def _is_true(x: Any) -> bool:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--summary-csv", default="temp/score_dist_tune_out/metric_summary.csv")
+    ap.add_argument(
+        "--summary-csv", default="temp/score_dist_tune_out/metric_summary.csv"
+    )
 
     # hard fail thresholds (TECH only)
     ap.add_argument("--sat-limit-tech", type=float, default=0.4)
@@ -176,7 +178,9 @@ def main() -> int:
         if mtype == "tech":
             d_l1 = _to_float(r.get("delta_tech_target_l1"))
             if d_l1 is not None and d_l1 > 0:
-                warns.append(f"{metric}: tech_target_l1 worsened (delta={d_l1:+.6f} > 0)")
+                warns.append(
+                    f"{metric}: tech_target_l1 worsened (delta={d_l1:+.6f} > 0)"
+                )
 
             tmr = _to_float(r.get("new_target_match_ratio"))
             if tmr is not None and tmr < args.target_match_warn:

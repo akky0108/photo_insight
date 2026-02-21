@@ -46,10 +46,12 @@ class InsightFaceDetector(BaseFaceDetector):
                 gaze_vector = self._estimate_gaze_vector(yaw, pitch)
 
                 # ★ 追加：閉眼推定
-                eye_lap_var, eye_closed_prob, eye_patch_size = self._estimate_eye_closed(
-                    image=image,
-                    box=box,
-                    landmarks=landmarks,
+                eye_lap_var, eye_closed_prob, eye_patch_size = (
+                    self._estimate_eye_closed(
+                        image=image,
+                        box=box,
+                        landmarks=landmarks,
+                    )
                 )
 
                 results.append(
@@ -140,9 +142,9 @@ class InsightFaceDetector(BaseFaceDetector):
         box: List[int],
         landmarks: Dict[str, Tuple[int, int]],
         # 調整パラメータ（まずは固定でOK）
-        patch_scale: float = 0.18,     # bbox幅に対するpatchサイズ
-        t_closed: float = 60.0,        # lap_var がこれ未満なら閉眼寄り
-        t_open: float = 200.0,         # lap_var がこれ以上なら開眼寄り
+        patch_scale: float = 0.18,  # bbox幅に対するpatchサイズ
+        t_closed: float = 60.0,  # lap_var がこれ未満なら閉眼寄り
+        t_open: float = 200.0,  # lap_var がこれ以上なら開眼寄り
     ) -> Tuple[float, float, int]:
         """
         5点ランドマーク(left_eye/right_eye)付近のパッチから
