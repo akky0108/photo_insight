@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Callable, Dict, List, NamedTuple, Optional
+from typing import Callable, Dict, List, NamedTuple
 from concurrent.futures import ThreadPoolExecutor
 
 
@@ -39,7 +39,8 @@ class HookManager:
     - execute_hooks() returns List[BaseException] (empty if ok)
     - caller can choose:
         - raise_on_error=True -> raise HookExecutionError if any error
-        - fail_fast=True      -> stop serial hooks on first error (parallel still collects if reached)
+        - fail_fast=True      -> stop serial hooks on first error 
+          (parallel still collects if reached)
     """
 
     def __init__(self, max_workers: int = 2, logger=None):

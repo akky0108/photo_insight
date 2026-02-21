@@ -203,7 +203,8 @@ class BaseBatchProcessor(ABC):
                     ensure_dirs=False,  # ★重要: ここで作らない
                 )
                 self.logger.info(
-                    f"[{self.__class__.__name__}] RunContext prepared: {self.run_ctx.out_dir}"
+                    f"[{self.__class__.__name__}] RunContext prepared:"
+                    f"{self.run_ctx.out_dir}"
                 )
         except Exception as e:
             self.logger.error(f"RunContext init failed: {e}", exc_info=True)
@@ -229,7 +230,8 @@ class BaseBatchProcessor(ABC):
             )
             duration = time.time() - self.start_time
             self.logger.info(
-                f"[{self.__class__.__name__}] Batch process completed in {duration:.2f} seconds."
+                f"[{self.__class__.__name__}] Batch process completed in"
+                f"{duration:.2f} seconds."
             )
 
             if errors:
@@ -281,7 +283,10 @@ class BaseBatchProcessor(ABC):
             func()
             duration = time.time() - start_time
             self.logger.info(
-                f"[{self.__class__.__name__}] {name.capitalize()} phase completed in {duration:.2f} seconds."
+                (
+                    f"[{self.__class__.__name__}] {name.capitalize()} phase completed in "
+                    f"{duration:.2f} seconds."
+                )
             )
         except Exception as e:
             self.logger.error(
@@ -388,7 +393,8 @@ class BaseBatchProcessor(ABC):
             for i, batch in enumerate(batches):
                 if self._should_stop_processing():
                     self.logger.warning(
-                        f"[{self.__class__.__name__}] Stopping before batch {i + 1} due to interrupt condition."
+                        f"[{self.__class__.__name__}] Stopping before batch "
+                        f"{i + 1} due to interrupt condition."
                     )
                     break
 
@@ -403,12 +409,13 @@ class BaseBatchProcessor(ABC):
                         all_results.extend(batch_results)
                 except Exception as e:
                     self.logger.error(
-                        f"[{self.__class__.__name__}] [Batch {batch_idx}] Failed in thread: {e}",
+                        f"[{self.__class__.__name__}] [Batch {batch_idx}] Failed in thread",
                         exc_info=True,
                     )
                     truncated = str(batch_data)[:100]
                     self.logger.debug(
-                        f"[{self.__class__.__name__}] [Batch {batch_idx}] Failed batch data (truncated): {truncated}"
+                        f"[{self.__class__.__name__}] [Batch {batch_idx}] Failed batch data "
+                        f"(truncated): {truncated}"
                     )
                     failed_batches.append(batch_idx)
 
@@ -428,7 +435,8 @@ class BaseBatchProcessor(ABC):
 
         if failed_batches:
             self.logger.warning(
-                f"[{self.__class__.__name__}] Processing completed with failures in batches: {failed_batches}"
+                f"[{self.__class__.__name__}] Processing completed with failures "
+                f"in batches: {failed_batches}"
             )
         else:
             self.logger.info(

@@ -832,7 +832,7 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                     )
 
             def _count_stats(
-                items: list[dict[str, Any]]
+                items: list[dict[str, Any]],
             ) -> tuple[int, int, int, int, int]:
                 a = p = ov = 0
                 for r in items:

@@ -547,7 +547,7 @@ def thresholds_list_to_mapping(
 
 
 def build_evaluator_config_from_chosen_params(
-    chosen_params_out: Dict[str, Dict]
+    chosen_params_out: Dict[str, Dict],
 ) -> Dict[str, Dict]:
     """
     chosen_params_out（new_params_used.json 相当）から evaluator config（YAML用dict）を組み立てる。
@@ -597,7 +597,7 @@ def build_evaluator_config_from_chosen_params(
 
 
 def build_thresholds_dict_for_acceptance(
-    chosen_params_out: Dict[str, Dict]
+    chosen_params_out: Dict[str, Dict],
 ) -> Dict[str, Any]:
     """
     acceptance.decide_accept(..., thresholds=...) に渡すための dict を（できる範囲で）構築する。

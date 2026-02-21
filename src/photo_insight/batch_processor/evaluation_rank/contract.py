@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Sequence
+from typing import Sequence
 
 # =========================
 # INPUT / OUTPUT Contract
@@ -138,7 +138,8 @@ def validate_input_contract(*, header: Sequence[str], csv_path: Path) -> None:
         preview = ", ".join(missing[:20])
         suffix = "" if len(missing) <= 20 else f" ...(+{len(missing) - 20})"
         raise ValueError(
-            f"Input CSV contract violation: missing {len(missing)} columns in {csv_path}: "
+            f"Input CSV contract violation: missing {len(missing)} columns in "
+            f"{csv_path}: "
             f"{preview}{suffix}"
         )
 

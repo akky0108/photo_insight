@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Union
 
@@ -390,12 +389,13 @@ class ConfigManager:
                 return value
             if self.logger:
                 self.logger.warning(
-                    f"Invalid memory_threshold: {value}. Using default: {default}"
+                    f"Invalid memory_threshold: {value}. " f"Using default: {default}"
                 )
         except (ValueError, TypeError):
             if self.logger:
                 self.logger.warning(
-                    f"Invalid memory_threshold format: {value}. Using default: {default}"
+                    f"Invalid memory_threshold format: {value}. "
+                    f"Using default: {default}"
                 )
         return default
 
@@ -420,7 +420,7 @@ class ConfigManager:
         # 1) try project Logger
         # -----------------------------
         try:
-            from photo_insight.utils.app_logger import Logger as AppLogger  # type: ignore
+            from photo_insight.utils.app_logger import Logger as AppLogger  # type: ignore  # noqa: E501,E402
 
             return AppLogger(
                 project_root=self.project_root,

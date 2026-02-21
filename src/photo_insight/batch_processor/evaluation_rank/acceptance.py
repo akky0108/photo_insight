@@ -103,7 +103,8 @@ def reliability_score(row: Row) -> float:
     score は落とさず主指標として使い、同点付近の tie-break に使う。
 
     改善①:
-      blurriness は旧フラグ群より、現行契約の blurriness_eval_status == "ok" を優先して拾う。
+      blurriness は旧フラグ群より、
+      現行契約の blurriness_eval_status == "ok" を優先して拾う。
       （旧互換フラグも残す）
     """
     s = 0.0
@@ -163,9 +164,12 @@ def apply_eye_state_policy(
 ) -> None:
     """
     目状態ポリシー（最終上書き）
-    - half_min <= eye_closed_prob < closed_min : 半目 → accepted_flag=0 & secondary_accept_flag=0（採用不可）
-    - eye_closed_prob >= closed_min            : 完全閉眼 → 注意（採用は落とさない / Yellow推奨はLR側で）
-    - eye_patch_size < eye_patch_min           : 信頼性不足 → unknown扱い（何もしない）
+    - half_min <= eye_closed_prob < closed_min: 
+      半目 → accepted_flag=0 & secondary_accept_flag=0（採用不可）
+    - eye_closed_prob >= closed_min: 
+      完全閉眼 → 注意（採用は落とさない / Yellow推奨はLR側で）
+    - eye_patch_size < eye_patch_min :
+      信頼性不足 → unknown扱い（何もしない）
     期待する入力:
       row 直下に 'eye_closed_prob_best','eye_patch_size_best' が入っている
       （無ければ何もしない）
@@ -351,7 +355,8 @@ def build_reason_pro(
     return (
         f"{cat} group={grp} st={st} "
         f"rank={green_rank}/{green_total} "
-        f"o={format_score(overall)} f={format_score(f)} c={format_score(c)} t={format_score(t)} "
+        f"o={format_score(overall)} f={format_score(f)} c={format_score(c)} "
+        f"t={format_score(t)} "
         f"focus={focus} tags={top_txt}"
     )
 

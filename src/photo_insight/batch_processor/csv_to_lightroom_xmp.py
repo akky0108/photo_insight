@@ -21,7 +21,7 @@ import csv
 import shutil
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Optional, Tuple, Dict, Any, List
+from typing import Optional, Tuple, Any, List
 
 # =========================================================
 # 設定（CLIで上書き可能）
@@ -228,7 +228,8 @@ def build_nef_index(base_dir: Path) -> dict[str, Path]:
 
     if dup:
         sample = list(dup.items())[:5]
-        print("⚠️ Duplicate NEF names detected under the search root. (showing up to 5)")
+        print("⚠️ Duplicate NEF names detected under the search root. "
+              "(showing up to 5)")
         for name, paths in sample:
             print(f"  - {name}:")
             for pp in paths:
@@ -320,11 +321,11 @@ def create_new_xmp(
 
 def _clear_color_attrs(desc: ET.Element) -> None:
     k = f"{{{NS['photoshop']}}}LabelColor"
-    l = f"{{{NS['xmp']}}}Label"
+    label_tag = f"{{{NS['xmp']}}}Label"
     if k in desc.attrib:
         del desc.attrib[k]
-    if l in desc.attrib:
-        del desc.attrib[l]
+    if label_tag in desc.attrib:
+        del desc.attrib[label_tag]
 
 
 def _get_or_create_bag(desc: ET.Element) -> ET.Element:
@@ -554,12 +555,14 @@ def process_csv(
                 )
 
                 print(
-                    f"🔁 MERGE {nef_name} ★{rating} Pick={pick} Color={label_display or ''} KW={'Y' if (write_keywords and lr_keywords) else 'N'}"
+                    f"🔁 MERGE {nef_name} ★{rating} Pick={pick} Color={label_display or ''} "
+                    f"KW={'Y' if (write_keywords and lr_keywords) else 'N'}"
                 )
             else:
                 if dry_run:
                     print(
-                        f"[DRY] NEW {nef_name} ★{rating} Pick={pick} Color={label_display or ''} KW={'Y' if (write_keywords and lr_keywords) else 'N'}"
+                        f"[DRY] NEW {nef_name} ★{rating} Pick={pick} Color={label_display or ''} "
+                        f"KW={'Y' if (write_keywords and lr_keywords) else 'N'}"
                     )
                     continue
 
@@ -574,7 +577,8 @@ def process_csv(
                     xmp_path, encoding="utf-8", xml_declaration=True
                 )
                 print(
-                    f"✨ NEW   {nef_name} ★{rating} Pick={pick} Color={label_display or ''} KW={'Y' if (write_keywords and lr_keywords) else 'N'}"
+                    f"✨ NEW   {nef_name} ★{rating} Pick={pick} Color={label_display or ''} "
+                    f"KW={'Y' if (write_keywords and lr_keywords) else 'N'}"
                 )
 
 
@@ -661,7 +665,8 @@ def main():
     print(f"DryRun   : {dry_run}")
     print(f"Backup   : {backup_xmp}")
     print(
-        f"Force    : rating={force_rating} pick={args.force_pick} color={args.force_color} clear_if_pick0={args.clear_color_if_pick0}"
+        f"Force    : rating={force_rating} pick={args.force_pick} "
+        f"color={args.force_color} clear_if_pick0={args.clear_color_if_pick0}"
     )
     print(f"PickMode : {args.pick_mode}")
     print(f"Keywords : write={args.write_keywords} overwrite={args.overwrite_keywords}")
