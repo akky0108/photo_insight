@@ -1,7 +1,7 @@
 # tests/unit/batch_framework/test_base_batch_stop_reason.py
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from unittest.mock import MagicMock
 
 import pytest
