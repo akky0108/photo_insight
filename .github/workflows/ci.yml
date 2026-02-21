@@ -64,14 +64,10 @@ jobs:
         run: |
           mkdir -p ci_logs/lint
           flake8 src/photo_insight tests/unit \
-            --config .flake8 \
-            --exclude tests/unit/tools,src/photo_insight/photo_eval_env_manager \
-            --max-line-length=88 \
             --count \
             --statistics \
             --show-source \
             --format="%(path)s::%(code)s::%(row)d::%(col)d::%(text)s" \
-            --extend-ignore=E203,W503 \
             > ci_logs/lint/flake8.log 2>&1
 
       - name: Upload flake8 log
@@ -84,7 +80,7 @@ jobs:
       - name: Check formatting with black
         run: |
           mkdir -p ci_logs/format
-          black --check . > ci_logs/format/black.log 2>&1
+          black --check --diff . > ci_logs/format/black.log 2>&1
 
       - name: Upload black log
         if: always()
