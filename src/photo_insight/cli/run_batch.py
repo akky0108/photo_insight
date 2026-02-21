@@ -50,7 +50,7 @@ def _load_processor_by_alias(name: str) -> Type[BaseBatchProcessor]:
         return EvaluationRankBatchProcessor
 
     if key in ("portrait_quality", "quality", "portrait"):
-        from photo_insight.portrait_quality_batch_processor import (
+        from photo_insight.batch_processor.portrait_quality import (
             PortraitQualityBatchProcessor,
         )
 
