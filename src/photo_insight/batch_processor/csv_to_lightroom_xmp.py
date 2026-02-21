@@ -228,8 +228,9 @@ def build_nef_index(base_dir: Path) -> dict[str, Path]:
 
     if dup:
         sample = list(dup.items())[:5]
-        print("⚠️ Duplicate NEF names detected under the search root. "
-              "(showing up to 5)")
+        print(
+            "⚠️ Duplicate NEF names detected under the search root. " "(showing up to 5)"
+        )
         for name, paths in sample:
             print(f"  - {name}:")
             for pp in paths:
@@ -555,13 +556,15 @@ def process_csv(
                 )
 
                 print(
-                    f"🔁 MERGE {nef_name} ★{rating} Pick={pick} Color={label_display or ''} "
+                    f"🔁 MERGE {nef_name} ★{rating} Pick={pick} "
+                    f"Color={label_display or ''} "
                     f"KW={'Y' if (write_keywords and lr_keywords) else 'N'}"
                 )
             else:
                 if dry_run:
                     print(
-                        f"[DRY] NEW {nef_name} ★{rating} Pick={pick} Color={label_display or ''} "
+                        f"[DRY] NEW {nef_name} ★{rating} Pick={pick} "
+                        f"Color={label_display or ''} "
                         f"KW={'Y' if (write_keywords and lr_keywords) else 'N'}"
                     )
                     continue
@@ -577,7 +580,8 @@ def process_csv(
                     xmp_path, encoding="utf-8", xml_declaration=True
                 )
                 print(
-                    f"✨ NEW   {nef_name} ★{rating} Pick={pick} Color={label_display or ''} "
+                    f"✨ NEW   {nef_name} ★{rating} Pick={pick} "
+                    f"Color={label_display or ''} "
                     f"KW={'Y' if (write_keywords and lr_keywords) else 'N'}"
                 )
 

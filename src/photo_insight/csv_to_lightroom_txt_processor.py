@@ -54,7 +54,8 @@ class CsvToTxtProcessor(BaseBatchProcessor):
             # ステップ1: face_sharpness_evaluation >= 4のデータを抽出
             df_face_sharpness = df[df["face_sharpness_evaluation"] >= 4]
             self.logger.info(
-                f"Step 1: face_sharpness_evaluation >= 4 records: {len(df_face_sharpness)}"
+                f"Step 1: face_sharpness_evaluation >= 4 records: "
+                f"{len(df_face_sharpness)}"
             )
 
             # ステップ2: ①で除外されたデータから overall_evaluation >= 3 を抽出
@@ -107,7 +108,8 @@ class CsvToTxtProcessor(BaseBatchProcessor):
 
         if self.txt_path:
             # WSLパスに変換されたWindowsのパス
-            target_dir = "/mnt/d/Users/Akihiro/Creative Cloud Files/rating"  # コピー先のディレクトリ（WSLパス）
+            target_dir = "/mnt/d/Users/Akihiro/Creative Cloud Files/rating"
+            # コピー先のディレクトリ（WSLパス）
             os.makedirs(
                 target_dir, exist_ok=True
             )  # コピー先のディレクトリが存在しない場合は作成

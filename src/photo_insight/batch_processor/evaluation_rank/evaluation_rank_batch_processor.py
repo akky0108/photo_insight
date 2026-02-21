@@ -16,33 +16,33 @@ from photo_insight.batch_processor.evaluation_rank.acceptance import AcceptanceE
 from photo_insight.batch_processor.evaluation_rank.analysis.rejected_reason_stats import (
     RejectedReasonAnalyzer,
     write_rejected_reason_summary_csv,
-) # noqa: E501
+)  # noqa: E501
 from photo_insight.batch_processor.evaluation_rank.contract import (
     validate_input_contract,
-)
+)  # noqa: E501
 from photo_insight.batch_processor.evaluation_rank.lightroom import (
     apply_lightroom_fields,
-)
+)  # noqa: E501
 from photo_insight.batch_processor.evaluation_rank.scoring import (
     EvaluationScorer,
     apply_half_closed_penalty_to_expression,
     half_closed_eye_penalty_proxy,
     parse_gaze_y,
     score01,
-)
+)  # noqa: E501
 from photo_insight.batch_processor.evaluation_rank.writer import write_ranking_csv
 from photo_insight.batch_processor.evaluation_rank.analysis.provisional_vs_accepted import (
     build_provisional_vs_accepted_summary,
     write_provisional_vs_accepted_summary_csv,
-)
+)  # noqa: E501
 from photo_insight.evaluators.common.grade_contract import (
     GRADE_ENUM,
     normalize_eval_status,
     score_to_grade,
-)
+)  # noqa: E501
 from photo_insight.batch_processor.evaluation_rank.provisional import (
     apply_provisional_top_percent,
-)
+)  # noqa: E501
 
 
 # =========================
@@ -887,7 +887,8 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                 )
 
                 self.logger.info(
-                    f"[provisional_top_percent] enabled p={p:.1f} k={provisional}/{total} "
+                    f"[provisional_top_percent] enabled p={p:.1f} "
+                    f"k={provisional}/{total} "
                     f"accepted={accepted} overlap={overlap} "
                     f"accepted_not_top={accepted_not_top} "
                     f"top_not_accepted={top_not_accepted} "
@@ -924,18 +925,22 @@ def main() -> None:
     parser.add_argument(
         "--config_path",
         default=None,
-        help="Optional. If omitted, ConfigManager uses CONFIG_ENV / defaults.",
+        help=("Optional. If omitted, ConfigManager uses CONFIG_ENV / defaults."),
     )
     parser.add_argument(
         "--config_env",
         default=None,
-        help="Optional env name (prod/test). If omitted, CONFIG_ENV env-var may be used.",
+        help=(
+            "Optional env name (prod/test). If omitted, CONFIG_ENV env-var may be used."
+        ),
     )
     parser.add_argument(
         "--config_paths",
         nargs="*",
         default=None,
-        help="Optional explicit config file list (applied in order; supports extends).",
+        help=(
+            "Optional explicit config file list (applied in order; supports extends)."
+        ),
     )
     parser.add_argument("--date", required=True)
     parser.add_argument("--max_workers", type=int, default=1)

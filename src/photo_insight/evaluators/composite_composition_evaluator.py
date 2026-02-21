@@ -1,7 +1,7 @@
 # src/evaluators/composite_composition_evaluator.py
 # -*- coding: utf-8 -*-
 
-from typing import Dict, Any, Optional, List, Tuple, Callable
+from typing import Dict, Any, Optional, List, Tuple
 
 import numpy as np
 

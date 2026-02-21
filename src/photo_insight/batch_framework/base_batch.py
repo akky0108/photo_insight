@@ -106,7 +106,8 @@ class BaseBatchProcessor(ABC):
 
         # NOTE:
         # - Base は config.yaml を勝手に補完しない
-        # - None のまま ConfigManager に渡し、CONFIG_ENV / CONFIG_BASE / CONFIG_PATH / default 解決に委譲する
+        # - None のまま ConfigManager に渡し、
+        #   CONFIG_ENV / CONFIG_BASE / CONFIG_PATH / default 解決に委譲する
         # - 解決後の代表パス（最後のファイル）を self.config_path に反映し、watch/log の比較に使う
         self.config_path: str = ""
 
@@ -284,8 +285,8 @@ class BaseBatchProcessor(ABC):
             duration = time.time() - start_time
             self.logger.info(
                 (
-                    f"[{self.__class__.__name__}] {name.capitalize()} phase completed in "
-                    f"{duration:.2f} seconds."
+                    f"[{self.__class__.__name__}] {name.capitalize()} "
+                    f"phase completed in {duration:.2f} seconds."
                 )
             )
         except Exception as e:
@@ -407,14 +408,15 @@ class BaseBatchProcessor(ABC):
                     batch_results = future.result()
                     if batch_results:
                         all_results.extend(batch_results)
-                except Exception as e:
-                    self.logger.error(
-                        f"[{self.__class__.__name__}] [Batch {batch_idx}] Failed in thread",
-                        exc_info=True,
+                except Exception:
+                    self.logger.exception(
+                        f"[{self.__class__.__name__}] [Batch {batch_idx}] "
+                        f"Failed in thread"
                     )
                     truncated = str(batch_data)[:100]
                     self.logger.debug(
-                        f"[{self.__class__.__name__}] [Batch {batch_idx}] Failed batch data "
+                        f"[{self.__class__.__name__}] "
+                        f"[Batch {batch_idx}] Failed batch data "
                         f"(truncated): {truncated}"
                     )
                     failed_batches.append(batch_idx)

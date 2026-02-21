@@ -164,11 +164,11 @@ def apply_eye_state_policy(
 ) -> None:
     """
     目状態ポリシー（最終上書き）
-    - half_min <= eye_closed_prob < closed_min: 
+    - half_min <= eye_closed_prob < closed_min:
       半目 → accepted_flag=0 & secondary_accept_flag=0（採用不可）
-    - eye_closed_prob >= closed_min: 
+    - eye_closed_prob >= closed_min:
       完全閉眼 → 注意（採用は落とさない / Yellow推奨はLR側で）
-    - eye_patch_size < eye_patch_min :
+    - eye_patch_size < eye_patch_min:
       信頼性不足 → unknown扱い（何もしない）
     期待する入力:
       row 直下に 'eye_closed_prob_best','eye_patch_size_best' が入っている

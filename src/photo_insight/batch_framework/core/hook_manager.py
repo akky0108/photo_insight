@@ -39,7 +39,7 @@ class HookManager:
     - execute_hooks() returns List[BaseException] (empty if ok)
     - caller can choose:
         - raise_on_error=True -> raise HookExecutionError if any error
-        - fail_fast=True      -> stop serial hooks on first error 
+        - fail_fast=True      -> stop serial hooks on first error
           (parallel still collects if reached)
     """
 
@@ -74,7 +74,7 @@ class HookManager:
         Args:
             raise_on_error: if True, raise HookExecutionError when errors exist.
             fail_fast: if True, stop executing *serial* hooks at first error.
-                       (parallel hooks are executed only if serial phase produced no errors)
+                (parallel hooks are executed only if serial phase produced no errors)
 
         Returns:
             List of exceptions raised by hooks (empty list if all ok).

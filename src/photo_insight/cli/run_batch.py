@@ -16,7 +16,7 @@ from photo_insight.batch_framework.base_batch import BaseBatchProcessor
 # Reserved keys (runner-owned)
 # -------------------------
 # These keys are owned by the runner/CLI and must NOT be passed via unknown args.
-# NOTE: run_date/date are handled separately as runtime overrides 
+# NOTE: run_date/date are handled separately as runtime overrides
 #       (allowed in unknown args).
 _RESERVED_UNKNOWN_KEYS = {
     "processor",
@@ -44,7 +44,7 @@ def _load_processor_by_alias(name: str) -> Type[BaseBatchProcessor]:
         return NEFFileBatchProcess
 
     if key in ("evaluation_rank", "rank", "eval_rank"):
-        from photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_processor import (
+        from photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_processor import (  # noqa: E501,E402
             EvaluationRankBatchProcessor,
         )
 
@@ -220,7 +220,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--processor",
         required=True,
-        help="Processor alias (nef/evaluation_rank/portrait_quality) OR dotted path (pkg.mod:Class).", # noqa: E501
+        help=(
+            "Processor alias (nef/evaluation_rank/portrait_quality) OR dotted path (pkg.mod:Class)."  # noqa: E501
+        ),
     )
 
     # common knobs (BaseBatchProcessor ctor)
@@ -237,7 +239,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--config-paths",
         default=None,
-        help="Comma-separated config paths (optional). e.g. config.base.yaml,config.prod.yaml", # noqa: E501
+        help="Comma-separated config paths (optional). e.g. config.base.yaml,config.prod.yaml",  # noqa: E501
     )
 
     p.add_argument(

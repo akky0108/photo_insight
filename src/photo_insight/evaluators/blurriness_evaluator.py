@@ -140,16 +140,20 @@ class BlurrinessEvaluator:
             try:
                 self.logger.debug(
                     "[BlurrinessEvaluator] discretize_thresholds_raw="
-                    f"bad:{self.t_bad}, poor:{self.t_poor}, fair:{self.t_fair}, good:{self.t_good}"
+                    f"bad:{self.t_bad}, poor:{self.t_poor}, fair:{self.t_fair}, "
+                    f"good:{self.t_good}"
                 )
                 self.logger.debug(
                     "[BlurrinessEvaluator] raw_contract="
-                    f"direction:{self.RAW_DIRECTION}, transform:{self.RAW_TRANSFORM}, higher_is_better:{self.HIGHER_IS_BETTER}"
+                    f"direction:{self.RAW_DIRECTION}, transform:{self.RAW_TRANSFORM}, "
+                    f"higher_is_better:{self.HIGHER_IS_BETTER}"
                 )
                 self.logger.debug(
                     "[BlurrinessEvaluator] weights="
-                    f"grad:{self.grad_weight:.3f}, lap:{self.lap_weight:.3f}, diff:{self.diff_weight:.3f}"
-                    f" | ksizes sobel:{self.sobel_ksize}, lap:{self.laplacian_ksize}, gauss:{self.gaussian_ksize}"
+                    f"grad:{self.grad_weight:.3f}, lap:{self.lap_weight:.3f}, "
+                    f"diff:{self.diff_weight:.3f}"
+                    f" | ksizes sobel:{self.sobel_ksize}, lap:{self.laplacian_ksize}, "
+                    f"gauss:{self.gaussian_ksize}"
                     f" | clip_percentile:{self.clip_percentile}"
                 )
             except Exception:
