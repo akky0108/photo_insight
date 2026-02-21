@@ -11,7 +11,6 @@ from typing import Any, Dict, Type, Optional
 
 from photo_insight.batch_framework.base_batch import BaseBatchProcessor
 
-
 # -------------------------
 # Reserved keys (runner-owned)
 # -------------------------

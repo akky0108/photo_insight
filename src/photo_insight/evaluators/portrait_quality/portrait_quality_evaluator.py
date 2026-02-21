@@ -39,7 +39,6 @@ from photo_insight.evaluators.common.grade_contract import (
     normalize_eval_status,
 )
 
-
 GLOBAL_METRICS = (
     "sharpness",
     "blurriness",

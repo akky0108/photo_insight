@@ -27,7 +27,6 @@ import argparse
 
 from jinja2 import Template
 
-
 # ============================
 # defaults (backward compatible)
 # ============================

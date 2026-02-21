@@ -4,7 +4,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
 
-
 DISCRETE_SCORES = [0.0, 0.25, 0.5, 0.75, 1.0]
 DISCRETE_SET = set(DISCRETE_SCORES)
 

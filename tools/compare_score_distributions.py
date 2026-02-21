@@ -36,7 +36,6 @@ from typing import Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 
-
 DISCRETE_LEVELS = [0.0, 0.25, 0.5, 0.75, 1.0]
 DISCRETE_SET = set(DISCRETE_LEVELS)
 

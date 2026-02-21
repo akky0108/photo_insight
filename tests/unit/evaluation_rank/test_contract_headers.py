@@ -12,7 +12,6 @@ from photo_insight.batch_processor.evaluation_rank.contract import (
     OUTPUT_COLUMNS,
 )
 
-
 # =========================
 # repo root detection
 # =========================

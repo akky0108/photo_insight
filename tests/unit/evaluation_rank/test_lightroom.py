@@ -5,7 +5,6 @@ import pytest
 
 from photo_insight.batch_processor.evaluation_rank import lightroom as lr
 
-
 # -------------------------
 # basic safety helpers
 # -------------------------

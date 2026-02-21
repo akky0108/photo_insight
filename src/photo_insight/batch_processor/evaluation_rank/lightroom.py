@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-
 # Lightroom（日本語ラベルセット想定）: 表示名マップ
 LR_LABEL_DISPLAY_JA = {
     "red": "レッド",

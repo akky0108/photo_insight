@@ -14,8 +14,7 @@ def test_merge_from_sources_basic(tmp_path):
     env_yml = tmp_path / "environment.yml"
     req_txt = tmp_path / "requirements.txt"
 
-    env_yml.write_text(
-        """
+    env_yml.write_text("""
 name: test-env
 dependencies:
   - numpy=1.21.0
@@ -23,15 +22,12 @@ dependencies:
   - pip
   - pip:
       - requests==2.31.0
-"""
-    )
+""")
 
-    req_txt.write_text(
-        """
+    req_txt.write_text("""
 flask==2.1.0
 requests==2.31.0
-"""
-    )
+""")
 
     merger = EnvMerger()
     merger.merge_from_sources(conda_file=env_yml, pip_file=req_txt)
@@ -48,15 +44,13 @@ def test_python_version_upgraded_from_3_9_to_3_10(tmp_path):
     env_yml = tmp_path / "environment.yml"
     req_txt = tmp_path / "requirements.txt"
 
-    env_yml.write_text(
-        """
+    env_yml.write_text("""
 name: test-env
 dependencies:
   - python=3.9
   - numpy
   - pip
-"""
-    )
+""")
     req_txt.write_text("")
 
     merger = EnvMerger(base_yml=env_yml, pip_json=req_txt)
@@ -72,22 +66,18 @@ def test_pip_duplicate_deduplication(tmp_path):
     env_yml = tmp_path / "environment.yml"
     req_txt = tmp_path / "requirements.txt"
 
-    env_yml.write_text(
-        """
+    env_yml.write_text("""
 name: test-env
 dependencies:
   - pip
   - pip:
       - requests==2.31.0
-"""
-    )
+""")
 
-    req_txt.write_text(
-        """
+    req_txt.write_text("""
 requests==2.31.0
 flask==2.1.0
-"""
-    )
+""")
 
     merger = EnvMerger()
     merger.merge_from_sources(conda_file=env_yml, pip_file=req_txt)
@@ -101,21 +91,17 @@ def test_export_sorted_pip_deps(tmp_path):
     env_yml = tmp_path / "environment.yml"
     req_txt = tmp_path / "requirements.txt"
 
-    env_yml.write_text(
-        """
+    env_yml.write_text("""
 name: test-env
 dependencies:
   - pip
-"""
-    )
+""")
 
-    req_txt.write_text(
-        """
+    req_txt.write_text("""
 flask==2.1.0
 requests==2.31.0
 numpy==1.24.0
-"""
-    )
+""")
 
     merger = EnvMerger(base_yml=env_yml, pip_json=req_txt)
     merger.load()
@@ -175,14 +161,12 @@ def test_resolve_warns_on_missing_conda_version(tmp_path):
     env_yml = tmp_path / "environment.yml"
     req_txt = tmp_path / "requirements.txt"
 
-    env_yml.write_text(
-        """
+    env_yml.write_text("""
 name: test-env
 dependencies:
   - requests
   - pip
-"""
-    )
+""")
     req_txt.write_text("requests==2.31.0")
 
     merger = EnvMerger(base_yml=env_yml, pip_json=req_txt, strict=False)
@@ -201,8 +185,7 @@ def test_save_ci_yaml_excludes_and_sorts(tmp_path):
     env_yml = tmp_path / "environment.yml"
     ci_yml = tmp_path / "ci_output.yml"
 
-    env_yml.write_text(
-        """
+    env_yml.write_text("""
 name: test-env
 channels:
   - defaults
@@ -213,8 +196,7 @@ dependencies:
       - flask==2.2.0
       - requests==2.31.0
       - numpy==1.23.0
-"""
-    )
+""")
 
     merger = EnvMerger(base_yml=env_yml)
     merger.load()
@@ -238,14 +220,12 @@ def test_save_ci_yaml_sets_env_name(tmp_path):
     env_yml = tmp_path / "environment.yml"
     ci_yml = tmp_path / "ci_output.yml"
 
-    env_yml.write_text(
-        """
+    env_yml.write_text("""
 name: original-env
 dependencies:
   - python=3.10
   - pip
-"""
-    )
+""")
 
     merger = EnvMerger(base_yml=env_yml)
     merger.load()
@@ -260,8 +240,7 @@ def test_sorted_deps_after_resolve(tmp_path):
     env_yml = tmp_path / "environment.yml"
     req_txt = tmp_path / "requirements.txt"
 
-    env_yml.write_text(
-        """
+    env_yml.write_text("""
 name: test-env
 dependencies:
   - pip
@@ -270,8 +249,7 @@ dependencies:
   - pip:
       - requests==2.31.0
       - flask==2.1.0
-"""
-    )
+""")
     req_txt.write_text("flask==2.1.0\npytest==7.2.0")
 
     merger = EnvMerger(base_yml=env_yml, pip_json=req_txt)
