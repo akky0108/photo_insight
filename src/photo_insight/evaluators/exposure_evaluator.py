@@ -52,7 +52,9 @@ class ExposureEvaluator:
             - image_dtype: 入力画像の dtype 文字列表現
         """
         if not isinstance(image, np.ndarray):
-            raise ValueError("Invalid input: expected a numpy array representing an image.")
+            raise ValueError(
+                "Invalid input: expected a numpy array representing an image."
+            )
         if image.size == 0:
             return self._fallback_result(reason="empty_image")
 
@@ -67,13 +69,11 @@ class ExposureEvaluator:
 
         return {
             # --- 意味スコア（decide_accept で使う想定） ---
-            "exposure_score": score,      # 1.0 / 0.75 / 0.5 / 0.25 / 0.0
-            "exposure_grade": grade,      # "excellent"〜"bad"
-
+            "exposure_score": score,  # 1.0 / 0.75 / 0.5 / 0.25 / 0.0
+            "exposure_grade": grade,  # "excellent"〜"bad"
             # --- 生値(raw) ---
-            "mean_brightness": mean,               # 0..1
+            "mean_brightness": mean,  # 0..1
             "mean_brightness_8bit": mean * 255.0,  # デバッグ用
-
             # --- メタ情報 ---
             "exposure_eval_status": "ok",
             "exposure_fallback_reason": None,
@@ -152,9 +152,9 @@ class ExposureEvaluator:
             return 1.0, "excellent"
 
         # good/fair/poor のバンド境界
-        t2 = half_range + 0.5 * margin   # good
-        t3 = half_range + 1.0 * margin   # fair
-        t4 = half_range + 1.5 * margin   # poor
+        t2 = half_range + 0.5 * margin  # good
+        t3 = half_range + 1.0 * margin  # fair
+        t4 = half_range + 1.5 * margin  # poor
 
         if d <= t2:
             return 0.75, "good"
@@ -175,7 +175,7 @@ class ExposureEvaluator:
         """
         return {
             "exposure_score": float(self.fallback_score),  # 通常は 0.5
-            "exposure_grade": "fair",                      # 真ん中相当
+            "exposure_grade": "fair",  # 真ん中相当
             "mean_brightness": None,
             "mean_brightness_8bit": None,
             "exposure_eval_status": "fallback",

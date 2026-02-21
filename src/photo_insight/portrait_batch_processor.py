@@ -6,7 +6,7 @@ import numpy as np
 from typing import List, Optional, Tuple
 import argparse
 from photo_insight.batch_framework.base_batch import BaseBatchProcessor
-from image_loader import ImageLoader
+from photo_insight.image_loader import ImageLoader
 from photo_insight.evaluators.portrait_quality.portrait_quality_evaluator import (
     PortraitQualityEvaluator,
 )
@@ -125,7 +125,8 @@ class PortraitBatchProcessor(BaseBatchProcessor):
             except Exception as e:
                 retry_count += 1
                 self.logger.error(
-                    f"Error processing {image_file}: {e}, retrying {retry_count}/{max_retries}"
+                    f"Error processing {image_file}: {e}, "
+                    f"retrying {retry_count}/{max_retries}"
                 )
                 time.sleep(retry_delay)  # リトライ前の待機
         if not success:

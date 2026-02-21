@@ -4,7 +4,9 @@ from photo_insight.batch_framework.base_batch import BaseBatchProcessor
 
 
 class DummyBatchProcessor(BaseBatchProcessor):
-    def __init__(self, hook_manager, config_manager, signal_handler=None, logger=None, **kwargs):
+    def __init__(
+        self, hook_manager, config_manager, signal_handler=None, logger=None, **kwargs
+    ):
         super().__init__(
             hook_manager=hook_manager,
             config_manager=config_manager,
@@ -34,6 +36,7 @@ class DummyBatchProcessor(BaseBatchProcessor):
     def cleanup(self):
         self.cleanup_called = True
 
+
 class DummyBatchProcessorWithFailingBatch(BaseBatchProcessor):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -54,6 +57,7 @@ class DummyBatchProcessorWithFailingBatch(BaseBatchProcessor):
         self.logger.debug("Batch succeeded.")
         self.processed_batches.extend(ids)
 
+
 class DummyBatchProcessorWithResult(BaseBatchProcessor):
     def get_data(self):
         return [{"file_path": f"dummy_{i}.jpg"} for i in range(6)]
@@ -64,5 +68,11 @@ class DummyBatchProcessorWithResult(BaseBatchProcessor):
             if "3" in item["file_path"]:
                 results.append({"filename": item["file_path"], "status": "failure"})
             else:
-                results.append({"filename": item["file_path"], "status": "success", "score": 80 + i})
+                results.append(
+                    {
+                        "filename": item["file_path"],
+                        "status": "success",
+                        "score": 80 + i,
+                    }
+                )
         return results

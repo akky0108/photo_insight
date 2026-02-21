@@ -41,7 +41,7 @@ class PortraitQualityHeaderGenerator:
             "face_blurriness_grade",
             "face_blurriness_eval_status",
             "face_blurriness_fallback_reason",
-            #★ 追加: 顔ぼやけ具合評価の明るさ補正後スコア
+            # ★ 追加: 顔ぼやけ具合評価の明るさ補正後スコア
             "face_blurriness_score_brightness_adjusted",
         ]
 
@@ -49,7 +49,6 @@ class PortraitQualityHeaderGenerator:
             "sharpness_score",
             "sharpness_raw",
             "sharpness_eval_status",
-
             # ----------------------------
             # Blurriness
             # ----------------------------
@@ -58,12 +57,10 @@ class PortraitQualityHeaderGenerator:
             "blurriness_grade",
             "blurriness_eval_status",
             "blurriness_fallback_reason",
-
             "contrast_score",
             "contrast_raw",
             "contrast_eval_status",
             "contrast_grade",
-
             "noise_score",
             "noise_raw",
             "noise_grade",
@@ -72,7 +69,6 @@ class PortraitQualityHeaderGenerator:
             "noise_mask_ratio",
             "noise_eval_status",
             "noise_fallback_reason",
-
             # ----------------------------
             # Local Sharpness
             # ----------------------------
@@ -81,7 +77,6 @@ class PortraitQualityHeaderGenerator:
             "local_sharpness_std",
             "local_sharpness_eval_status",
             "local_sharpness_fallback_reason",
-
             # ----------------------------
             # Local Contrast
             # ----------------------------
@@ -90,7 +85,6 @@ class PortraitQualityHeaderGenerator:
             "local_contrast_std",
             "local_contrast_eval_status",
             "local_contrast_fallback_reason",
-
             # ----------------------------
             # Exposure
             # ----------------------------
@@ -99,7 +93,6 @@ class PortraitQualityHeaderGenerator:
             "exposure_grade",
             "exposure_eval_status",
             "exposure_fallback_reason",
-
             # ----------------------------
             # Brightness adjusted
             # ----------------------------
@@ -122,20 +115,21 @@ class PortraitQualityHeaderGenerator:
             "composition_score",
             "composition_status",
             # メイン被写体の中心座標（RoT 評価に使用した点）
-            "main_subject_center_source",  # "face_center" / "full_body_center" / "face_box" / "body_keypoints" / "manual" / "unknown" など
+            "main_subject_center_source",
+            # "face_center" / "full_body_center" / "face_box" /
+            # "body_keypoints" / "manual" / "unknown" など
             "main_subject_center_x",
             "main_subject_center_y",
             # ★ 追加: 画像全体の構図評価指標（ルール・オブ・サード）
             "rule_of_thirds_raw",
             "rule_of_thirds_score",
-
             # ★ 各構図要素の寄与（最終 composition_score に対して）
             "contrib_comp_composition_rule_based_score",
             "contrib_comp_face_position_score",
             "contrib_comp_framing_score",
             "contrib_comp_lead_room_score",
             "contrib_comp_body_composition_score",
-            "contrib_comp_rule_of_thirds_score",            
+            "contrib_comp_rule_of_thirds_score",
         ]
 
         self.body_evaluation_items = [
@@ -167,7 +161,7 @@ class PortraitQualityHeaderGenerator:
                 "file_name",  # ファイル名は必ず最初に追加
             ]
             + self.image_evaluation_items
-            + self.body_evaluation_items 
+            + self.body_evaluation_items
             + self.face_evaluation_items
             + self.expression_items
             + self.composition_evaluation_items

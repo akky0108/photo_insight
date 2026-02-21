@@ -7,7 +7,7 @@ import os
 from typing import List, Dict, Optional
 from photo_insight.batch_framework.base_batch import BaseBatchProcessor
 from photo_insight.utils.app_logger import Logger
-from image_loader import ImageLoader  # 画像読み込みクラスをインポート
+from photo_insight.image_loader import ImageLoader
 
 DEFAULT_IMAGE_DIR = "/mnt/l/picture/2025"
 DEFAULT_OUTPUT_DIR = "temp"
@@ -36,7 +36,8 @@ class ImageBatchProcessor(BaseBatchProcessor):
                 return date_str
             except ValueError:
                 self.logger.error(
-                    "Invalid date format. Use 'YYYY-MM-DD'. Using current date as fallback."
+                    "Invalid date format. Use 'YYYY-MM-DD'. "
+                    "Using current date as fallback."
                 )
         return datetime.datetime.now().strftime("%Y-%m-%d")
 
@@ -100,7 +101,8 @@ class ImageBatchProcessor(BaseBatchProcessor):
                 return face_evaluation
             except json.JSONDecodeError as e:
                 self.logger.warning(
-                    f"Failed to decode face_evaluation JSON: {face_evaluation}, error: {e}"
+                    f"Failed to decode face_evaluation JSON: {face_evaluation}, "
+                    f"error: {e}"
                 )
                 return None
         self.logger.warning(f"Invalid face_evaluation format: {face_evaluation}")
@@ -130,7 +132,8 @@ class ImageBatchProcessor(BaseBatchProcessor):
 
                 # 結果をログに記録
                 self.logger.info(
-                    f"Processed {image_file}: Rule of Thirds={thirds_score:.2f}, Margin={margin_score:.2f}"
+                    f"Processed {image_file}: Rule of Thirds={thirds_score:.2f}, "
+                    f"Margin={margin_score:.2f}"
                 )
 
             except Exception as e:

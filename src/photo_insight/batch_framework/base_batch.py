@@ -15,14 +15,18 @@ from threading import Lock
 try:
     from dotenv import load_dotenv  # type: ignore
 except Exception:  # pragma: no cover
+
     def load_dotenv(*args, **kwargs) -> None:  # type: ignore
         return
+
 
 try:
     from watchdog.events import FileSystemEventHandler  # type: ignore
 except Exception:  # pragma: no cover
+
     class FileSystemEventHandler:  # minimal fallback
         pass
+
 
 from photo_insight.batch_framework.core.hook_manager import HookManager, HookType
 from photo_insight.batch_framework.core.config_manager import ConfigManager
@@ -45,7 +49,9 @@ class ConfigChangeHandler(FileSystemEventHandler):
 
         # 監視対象パスを正規化して保持（event側の絶対パスと比較するため）
         # config_path が空の場合は監視しない（比較が成立しない）
-        self._target_config_path = _normpath(self.processor.config_path) if self.processor.config_path else ""
+        self._target_config_path = (
+            _normpath(self.processor.config_path) if self.processor.config_path else ""
+        )
 
     def on_modified(self, event):
         """
@@ -100,7 +106,8 @@ class BaseBatchProcessor(ABC):
 
         # NOTE:
         # - Base は config.yaml を勝手に補完しない
-        # - None のまま ConfigManager に渡し、CONFIG_ENV / CONFIG_BASE / CONFIG_PATH / default 解決に委譲する
+        # - None のまま ConfigManager に渡し、
+        #   CONFIG_ENV / CONFIG_BASE / CONFIG_PATH / default 解決に委譲する
         # - 解決後の代表パス（最後のファイル）を self.config_path に反映し、watch/log の比較に使う
         self.config_path: str = ""
 
@@ -142,7 +149,9 @@ class BaseBatchProcessor(ABC):
         self.config = self.config_manager.config
 
         self.fail_fast = bool(self.config.get("batch", {}).get("fail_fast", True))
-        self.cleanup_fail_fast = bool(self.config.get("batch", {}).get("cleanup_fail_fast", False))
+        self.cleanup_fail_fast = bool(
+            self.config.get("batch", {}).get("cleanup_fail_fast", False)
+        )
 
         self._lock = Lock()
 
@@ -195,7 +204,8 @@ class BaseBatchProcessor(ABC):
                     ensure_dirs=False,  # ★重要: ここで作らない
                 )
                 self.logger.info(
-                    f"[{self.__class__.__name__}] RunContext prepared: {self.run_ctx.out_dir}"
+                    f"[{self.__class__.__name__}] RunContext prepared:"
+                    f"{self.run_ctx.out_dir}"
                 )
         except Exception as e:
             self.logger.error(f"RunContext init failed: {e}", exc_info=True)
@@ -221,7 +231,8 @@ class BaseBatchProcessor(ABC):
             )
             duration = time.time() - self.start_time
             self.logger.info(
-                f"[{self.__class__.__name__}] Batch process completed in {duration:.2f} seconds."
+                f"[{self.__class__.__name__}] Batch process completed in"
+                f"{duration:.2f} seconds."
             )
 
             if errors:
@@ -264,14 +275,19 @@ class BaseBatchProcessor(ABC):
                 raise
             errors.append(e)
 
-    def _run_phase_function(self, func: Callable[[], None], name: str, errors: List[Exception]) -> None:
+    def _run_phase_function(
+        self, func: Callable[[], None], name: str, errors: List[Exception]
+    ) -> None:
         try:
             start_time = time.time()
             self.logger.info(f"[{self.__class__.__name__}] Executing {name} phase.")
             func()
             duration = time.time() - start_time
             self.logger.info(
-                f"[{self.__class__.__name__}] {name.capitalize()} phase completed in {duration:.2f} seconds."
+                (
+                    f"[{self.__class__.__name__}] {name.capitalize()} "
+                    f"phase completed in {duration:.2f} seconds."
+                )
             )
         except Exception as e:
             self.logger.error(
@@ -378,7 +394,8 @@ class BaseBatchProcessor(ABC):
             for i, batch in enumerate(batches):
                 if self._should_stop_processing():
                     self.logger.warning(
-                        f"[{self.__class__.__name__}] Stopping before batch {i + 1} due to interrupt condition."
+                        f"[{self.__class__.__name__}] Stopping before batch "
+                        f"{i + 1} due to interrupt condition."
                     )
                     break
 
@@ -391,14 +408,16 @@ class BaseBatchProcessor(ABC):
                     batch_results = future.result()
                     if batch_results:
                         all_results.extend(batch_results)
-                except Exception as e:
-                    self.logger.error(
-                        f"[{self.__class__.__name__}] [Batch {batch_idx}] Failed in thread: {e}",
-                        exc_info=True,
+                except Exception:
+                    self.logger.exception(
+                        f"[{self.__class__.__name__}] [Batch {batch_idx}] "
+                        f"Failed in thread"
                     )
                     truncated = str(batch_data)[:100]
                     self.logger.debug(
-                        f"[{self.__class__.__name__}] [Batch {batch_idx}] Failed batch data (truncated): {truncated}"
+                        f"[{self.__class__.__name__}] "
+                        f"[Batch {batch_idx}] Failed batch data "
+                        f"(truncated): {truncated}"
                     )
                     failed_batches.append(batch_idx)
 
@@ -418,7 +437,8 @@ class BaseBatchProcessor(ABC):
 
         if failed_batches:
             self.logger.warning(
-                f"[{self.__class__.__name__}] Processing completed with failures in batches: {failed_batches}"
+                f"[{self.__class__.__name__}] Processing completed with failures "
+                f"in batches: {failed_batches}"
             )
         else:
             self.logger.info(
@@ -452,7 +472,9 @@ class BaseBatchProcessor(ABC):
                 )
 
                 if hasattr(self, "start_time"):
-                    summary_out["duration_sec"] = round(time.time() - float(self.start_time), 3)
+                    summary_out["duration_sec"] = round(
+                        time.time() - float(self.start_time), 3
+                    )
 
                 # ResultStore側で atomic write（out_dir mkdir は保存時のみ）
                 self.result_store.save_json(
@@ -471,7 +493,8 @@ class BaseBatchProcessor(ABC):
         success = [r for r in results if r.get("status") == "success"]
         failure = [r for r in results if r.get("status") != "success"]
         avg_score = (
-            sum(self._safe_float_local(r.get("score", 0)) for r in success) / len(success)
+            sum(self._safe_float_local(r.get("score", 0)) for r in success)
+            / len(success)
             if success
             else None
         )
@@ -504,16 +527,15 @@ class BaseBatchProcessor(ABC):
             or getattr(self, "batch_size", None)
             or max(1, len(data) // self.max_workers)
         )
-        return [data[i: i + batch_size] for i in range(0, len(data), batch_size)]
+        return [data[i : i + batch_size] for i in range(0, len(data), batch_size)]
 
     def _should_stop_processing(self) -> bool:
         return getattr(self, "memory_threshold_exceeded", False)
 
     def _should_log_summary_detail(self) -> bool:
-        return (
-            os.getenv("DEBUG_LOG_SUMMARY") == "1"
-            or self.config.get("debug", {}).get("log_summary_detail", False)
-        )
+        return os.getenv("DEBUG_LOG_SUMMARY") == "1" or self.config.get(
+            "debug", {}
+        ).get("log_summary_detail", False)
 
     def get_lock(self) -> Lock:
         return self._lock

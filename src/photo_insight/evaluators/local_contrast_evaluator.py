@@ -1,4 +1,4 @@
-#src/evaluators/local_contrast_evaluator.py
+# src/evaluators/local_contrast_evaluator.py
 # -*- coding: utf-8 -*-
 
 from __future__ import annotations
@@ -128,7 +128,9 @@ class LocalContrastEvaluator:
             )
 
         # raw -> [0,1] + gamma
-        norm = self._normalize_01(local_raw, self.params.raw_floor, self.params.raw_ceil)
+        norm = self._normalize_01(
+            local_raw, self.params.raw_floor, self.params.raw_ceil
+        )
         norm = float(norm**self.params.gamma)
 
         score, grade = self._to_discrete_score(norm)
@@ -199,7 +201,8 @@ class LocalContrastEvaluator:
                 if (not np.isfinite(bmax)) or (not np.isfinite(bmin)):
                     continue
 
-                # if everything is ~0, std/mean becomes unstable; treat as uninformative block.
+                # if everything is ~0, std/mean becomes unstable;
+                # treat as uninformative block.
                 if abs(bmax) <= self.params.eps and abs(bmin) <= self.params.eps:
                     continue
 
@@ -282,7 +285,9 @@ class LocalContrastEvaluator:
             "local_contrast_n_blocks": 0,
         }
 
-    def _fallback_to_global_ratio(self, gray_f: np.ndarray, reason: str) -> Dict[str, Any]:
+    def _fallback_to_global_ratio(
+        self, gray_f: np.ndarray, reason: str
+    ) -> Dict[str, Any]:
         """
         ブロック計算できない場合のフォールバック：
         グローバル std/mean を raw として扱う（スケール非依存）

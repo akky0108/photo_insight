@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from photo_insight.batch_processor.evaluation_rank.analysis.rejected_reason_stats import (
+from photo_insight.batch_processor.evaluation_rank.analysis.rejected_reason_stats import (  # noqa: E501
     RejectedReasonAnalyzer,
     extract_reason_code,
     write_rejected_reason_summary_csv,
@@ -54,7 +54,9 @@ def test_rejected_reason_analyzer_counts_by_reason_code():
 
 def test_write_rejected_reason_summary_csv_writes_reason_code_header(tmp_path: Path):
     analyzer = RejectedReasonAnalyzer()
-    summary, _ = analyzer.analyze([{"accepted_flag": 0, "accepted_reason": "SEC:portrait ..."}])
+    summary, _ = analyzer.analyze(
+        [{"accepted_flag": 0, "accepted_reason": "SEC:portrait ..."}]
+    )
 
     out = tmp_path / "rejected_reason_summary.csv"
     write_rejected_reason_summary_csv(summary, out)

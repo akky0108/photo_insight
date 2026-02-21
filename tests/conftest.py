@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 from photo_insight.batch_framework.base_batch import BaseBatchProcessor
 from photo_insight.batch_framework.core.hook_manager import HookType
 
+
 # -----------------------------
 # ★A: Config をテスト用に固定
 # -----------------------------

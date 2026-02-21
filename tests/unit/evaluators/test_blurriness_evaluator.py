@@ -57,16 +57,25 @@ def test_blurriness_evaluator_thresholds_sorted_even_if_unsorted():
     # 単調性崩れの事故防止（sorted）
     assert (ev.t_bad, ev.t_poor, ev.t_fair, ev.t_good) == (10.0, 20.0, 30.0, 40.0)
 
+
 def test_blurriness_evaluator_weights_are_normalized():
-    ev = BlurrinessEvaluator(grad_weight=2.0, lap_weight=2.0, diff_weight=1.0, logger=None, config={})
+    ev = BlurrinessEvaluator(
+        grad_weight=2.0, lap_weight=2.0, diff_weight=1.0, logger=None, config={}
+    )
     s = ev.grad_weight + ev.lap_weight + ev.diff_weight
     assert abs(s - 1.0) < 1e-6
     assert ev.grad_weight > 0 and ev.lap_weight > 0 and ev.diff_weight > 0
 
+
 def test_blurriness_evaluator_feature_params_override_does_not_crash():
     cfg = {
         "blurriness": {
-            "discretize_thresholds_raw": {"bad": 10.0, "poor": 20.0, "fair": 30.0, "good": 40.0},
+            "discretize_thresholds_raw": {
+                "bad": 10.0,
+                "poor": 20.0,
+                "fair": 30.0,
+                "good": 40.0,
+            },
             "feature_params": {
                 "sobel_ksize": 5,
                 "laplacian_ksize": 5,

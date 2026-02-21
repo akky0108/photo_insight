@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Callable, Dict, List, NamedTuple, Optional
+from typing import Callable, Dict, List, NamedTuple
 from concurrent.futures import ThreadPoolExecutor
 
 
@@ -23,6 +23,7 @@ class HookType(Enum):
 
 class HookExecutionError(RuntimeError):
     """Raised when one or more hooks fail."""
+
     def __init__(self, hook_type: HookType, errors: List[BaseException]):
         self.hook_type = hook_type
         self.errors = errors
@@ -38,11 +39,14 @@ class HookManager:
     - execute_hooks() returns List[BaseException] (empty if ok)
     - caller can choose:
         - raise_on_error=True -> raise HookExecutionError if any error
-        - fail_fast=True      -> stop serial hooks on first error (parallel still collects if reached)
+        - fail_fast=True      -> stop serial hooks on first error
+          (parallel still collects if reached)
     """
 
     def __init__(self, max_workers: int = 2, logger=None):
-        self.hooks: Dict[HookType, List[Hook]] = {hook_type: [] for hook_type in HookType}
+        self.hooks: Dict[HookType, List[Hook]] = {
+            hook_type: [] for hook_type in HookType
+        }
         self.max_workers = max(1, int(max_workers or 0))
         self.logger = logger
 
@@ -70,7 +74,7 @@ class HookManager:
         Args:
             raise_on_error: if True, raise HookExecutionError when errors exist.
             fail_fast: if True, stop executing *serial* hooks at first error.
-                       (parallel hooks are executed only if serial phase produced no errors)
+                (parallel hooks are executed only if serial phase produced no errors)
 
         Returns:
             List of exceptions raised by hooks (empty list if all ok).

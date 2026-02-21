@@ -355,13 +355,16 @@ def decide_accept(
     cut_risk_max = _thr("full_body_cut_risk_max", 0.6)
     blurriness_min_full = _thr("blurriness_min_full_body", 0.45)
     exposure_min_common = _thr("exposure_min_common", 0.5)
-    fb_footroom_min = _thr("full_body_footroom_min", 0.0)  # ★ 足元があまりにも切れている full body を弾くためのオプション
+    fb_footroom_min = _thr(
+        "full_body_footroom_min", 0.0
+    )  # ★ 足元があまりにも切れている full body を弾くためのオプション
 
     full_body_ok = (
         full_body_detected
         and pose_score_100 >= pose_min_100
         and full_body_cut_risk <= cut_risk_max
-        and footroom_ratio >= fb_footroom_min  # ★ 必要ならここを上げて「足ナシ full body」を除外できる
+        and footroom_ratio
+        >= fb_footroom_min  # ★ 必要ならここを上げて「足ナシ full body」を除外できる
         and noise_ok_for_full_body
         and contrast_ok_for_full_body
         and blurriness_score_for_decision >= blurriness_min_full
@@ -398,7 +401,9 @@ def decide_accept(
     fq_blur_min = _thr("face_quality_blur_min", 0.55)
     fq_delta_sharpness_min = _thr("face_quality_delta_face_sharpness_min", -10.0)
     fq_yaw_max = _thr("face_quality_yaw_max_abs_deg", 30.0)
-    fq_pitch_max = _thr("face_quality_pitch_max_abs_deg", 90.0)  # ★ デフォルト 90° なので既存挙動は変えない
+    fq_pitch_max = _thr(
+        "face_quality_pitch_max_abs_deg", 90.0
+    )  # ★ デフォルト 90° なので既存挙動は変えない
 
     contrast_ok_for_face_quality = _ok_from(
         face_contrast_score,

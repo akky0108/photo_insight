@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Union
 
@@ -14,6 +13,7 @@ from dotenv import load_dotenv
 try:
     from watchdog.events import FileSystemEventHandler
 except Exception:  # pragma: no cover
+
     class FileSystemEventHandler:  # minimal fallback
         pass
 
@@ -71,7 +71,9 @@ def _deep_merge(base: Any, override: Any, *, list_policy: str = "replace") -> An
     if isinstance(base, dict) and isinstance(override, dict):
         out = dict(base)
         for k, v in override.items():
-            out[k] = _deep_merge(out.get(k), v, list_policy=list_policy) if k in out else v
+            out[k] = (
+                _deep_merge(out.get(k), v, list_policy=list_policy) if k in out else v
+            )
         return out
 
     if isinstance(base, list) and isinstance(override, list):
@@ -208,7 +210,9 @@ class _NullWatch(WatchHandle):
 
 
 class NullWatchFactory:
-    def start(self, *, files: List[Path], on_change: Callable[[], None], logger: Any) -> WatchHandle:
+    def start(
+        self, *, files: List[Path], on_change: Callable[[], None], logger: Any
+    ) -> WatchHandle:
         return _NullWatch()
 
 
@@ -233,12 +237,17 @@ class WatchdogFactory:
     """
     watchdog が無い / 起動失敗 → NullWatch にフォールバック。
     """
-    def start(self, *, files: List[Path], on_change: Callable[[], None], logger: Any) -> WatchHandle:
+
+    def start(
+        self, *, files: List[Path], on_change: Callable[[], None], logger: Any
+    ) -> WatchHandle:
         try:
             from watchdog.observers import Observer
         except Exception as e:
             if logger:
-                logger.warning(f"Config watching disabled (watchdog not available): {e}")
+                logger.warning(
+                    f"Config watching disabled (watchdog not available): {e}"
+                )
             return _NullWatch()
 
         handler = ConfigChangeHandler(callback=on_change, target_paths=files)
@@ -283,7 +292,9 @@ class ConfigManager:
             os.path.join(os.path.dirname(__file__), "..", "..")
         )
 
-        self._resolver = resolver or DefaultConfigResolver(strict_missing=strict_missing)
+        self._resolver = resolver or DefaultConfigResolver(
+            strict_missing=strict_missing
+        )
         self._loader = loader or DefaultConfigLoader(list_policy=list_policy)
         self._watch_factory = watch_factory or WatchdogFactory()
 
@@ -305,7 +316,8 @@ class ConfigManager:
     def load_config(self) -> None:
         if self.logger:
             self.logger.info(
-                "Loading configuration from: " + " -> ".join(str(p) for p in self._config_files)
+                "Loading configuration from: "
+                + " -> ".join(str(p) for p in self._config_files)
             )
         merged = self._loader.load(self._config_files, logger=self.logger)
         self.config.clear()
@@ -376,10 +388,15 @@ class ConfigManager:
             if 1 <= value <= 100:
                 return value
             if self.logger:
-                self.logger.warning(f"Invalid memory_threshold: {value}. Using default: {default}")
+                self.logger.warning(
+                    f"Invalid memory_threshold: {value}. " f"Using default: {default}"
+                )
         except (ValueError, TypeError):
             if self.logger:
-                self.logger.warning(f"Invalid memory_threshold format: {value}. Using default: {default}")
+                self.logger.warning(
+                    f"Invalid memory_threshold format: {value}. "
+                    f"Using default: {default}"
+                )
         return default
 
     def get_logger(self, logger_name: Optional[str] = None):
@@ -403,7 +420,7 @@ class ConfigManager:
         # 1) try project Logger
         # -----------------------------
         try:
-            from photo_insight.utils.app_logger import Logger as AppLogger  # type: ignore
+            from photo_insight.utils.app_logger import Logger as AppLogger  # type: ignore  # noqa: E501,E402
 
             return AppLogger(
                 project_root=self.project_root,
@@ -423,9 +440,7 @@ class ConfigManager:
         if logger.handlers:
             return logger
 
-        level_str = (
-            (self.config.get("logging", {}) or {}).get("level", "INFO")
-        )
+        level_str = (self.config.get("logging", {}) or {}).get("level", "INFO")
         try:
             level = getattr(logging, str(level_str).upper())
         except Exception:
