@@ -4,7 +4,6 @@ from __future__ import annotations
 import os
 import csv
 import gc
-from pathlib import Path
 from typing import Any, List, Dict, Optional, Union
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -422,11 +421,11 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                     result = future.result()
                     if result:
                         results.append(result)
-                except Exception as e:
+                except Exception:
                     # 1枚の例外でバッチ全体が落ちないようにする
-                    self.logger.error(
-                        f"[Parallel] Failed to process image {img_info.get('file_name')}: "
-                        f"{e}",
+                    self.logger.exception(
+                        f"[Parallel] Failed to process image "
+                        f"{img_info.get('file_name')}",
                         exc_info=True,
                     )
                     continue
@@ -541,19 +540,28 @@ if __name__ == "__main__":
         "--config_path",
         type=str,
         default=None,
-        help="Config file path (optional). If omitted, ConfigManager uses CONFIG_ENV / defaults.",
+        help=(
+            "Config file path (optional). If omitted, ConfigManager uses "
+            "CONFIG_ENV / defaults."
+        ),
     )
     parser.add_argument(
         "--config_env",
         type=str,
         default=None,
-        help="Config environment (e.g. prod/test). If omitted, CONFIG_ENV env-var may be used.",
+        help=(
+            "Config environment (e.g. prod/test). If omitted, "
+            "CONFIG_ENV env-var may be used."
+        ),
     )
     parser.add_argument(
         "--config_paths",
         nargs="*",
         default=None,
-        help="Optional explicit config file list (applied in order; supports extends).",
+        help=(
+            "Optional explicit config file list "
+            "(applied in order; supports extends)."
+        ),
     )
     parser.add_argument(
         "--date", type=str, help="Specify the date for directory and file names."

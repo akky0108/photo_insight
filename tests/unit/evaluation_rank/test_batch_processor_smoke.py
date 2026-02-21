@@ -10,7 +10,7 @@ from photo_insight.batch_processor.evaluation_rank.contract import (
     INPUT_REQUIRED_COLUMNS,
     OUTPUT_COLUMNS,
 )
-from photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_processor import (
+from photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_processor import (  # noqa: E501
     EvaluationRankBatchProcessor,
 )
 

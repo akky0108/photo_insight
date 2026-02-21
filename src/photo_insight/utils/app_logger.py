@@ -89,7 +89,8 @@ class AppLogger:
                 print(f"Logging configured from {config_file}.")
             except (yaml.YAMLError, ValueError, FileNotFoundError) as e:
                 print(
-                    f"Error loading logging config: {e}. Using default logging settings."
+                    f"Error loading logging config: {e}. "
+                    f"Using default logging settings."
                 )
                 logging.basicConfig(level=logging.DEBUG)
         else:

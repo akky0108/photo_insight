@@ -1,6 +1,3 @@
-import math
-import pytest
-
 from photo_insight.batch_processor.evaluation_rank.acceptance import (
     AcceptanceEngine,
     AcceptRules,

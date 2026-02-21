@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from photo_insight.batch_processor.evaluation_rank.analysis.rejected_reason_stats import (
+from photo_insight.batch_processor.evaluation_rank.analysis.rejected_reason_stats import (  # noqa: E501
     RejectedReasonAnalyzer,
     extract_reason_code,
     write_rejected_reason_summary_csv,

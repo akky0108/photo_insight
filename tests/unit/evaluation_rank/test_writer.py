@@ -300,7 +300,9 @@ def test_validate_input_contract_ok_with_required_columns() -> None:
     INPUT_REQUIRED_COLUMNS が揃っていれば例外にならない。
     """
     # NOTE: import path はあなたの実ファイルに合わせて調整してね
-    # 例: from photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_processor import _validate_input_contract
+    # 例:
+    # from photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_processor
+    # import _validate_input_contract
     from photo_insight.batch_processor.evaluation_rank.contract import (
         INPUT_REQUIRED_COLUMNS,
     )

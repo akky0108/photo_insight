@@ -8,7 +8,7 @@ try:
     # preferred (if src/ is on PYTHONPATH)
     from src.evaluators.contrast_evaluator import ContrastEvaluator  # type: ignore
 except Exception:
-    from photo_insight.evaluators.contrast_evaluator import ContrastEvaluator  # type: ignore
+    from photo_insight.evaluators.contrast_evaluator import ContrastEvaluator  # type: ignore  # noqa: E501
 
 try:
     from src.evaluators.common.grade_contract import (  # type: ignore

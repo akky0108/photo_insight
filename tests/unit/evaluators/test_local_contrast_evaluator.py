@@ -61,8 +61,10 @@ def test_local_contrast_scale_invariance_score_uint8_vs_float01():
 
     # スケール非依存のはずなので score は一致（少なくとも同じ離散値）してほしい
     assert r_u8["local_contrast_score"] == r_f01["local_contrast_score"], (
-        f"score mismatch: uint8={r_u8['local_contrast_score']} float01={r_f01['local_contrast_score']} "
-        f"raw uint8={r_u8['local_contrast_raw']}, raw float01={r_f01['local_contrast_raw']}"
+        f"score mismatch: uint8={r_u8['local_contrast_score']} "
+        f"float01={r_f01['local_contrast_score']} "
+        f"raw uint8={r_u8['local_contrast_raw']}, "
+        f"raw float01={r_f01['local_contrast_raw']}"
     )
 
     # score は規定の5段階のみ

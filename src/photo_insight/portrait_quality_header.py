@@ -115,7 +115,9 @@ class PortraitQualityHeaderGenerator:
             "composition_score",
             "composition_status",
             # メイン被写体の中心座標（RoT 評価に使用した点）
-            "main_subject_center_source",  # "face_center" / "full_body_center" / "face_box" / "body_keypoints" / "manual" / "unknown" など
+            "main_subject_center_source",
+            # "face_center" / "full_body_center" / "face_box" /
+            # "body_keypoints" / "manual" / "unknown" など
             "main_subject_center_x",
             "main_subject_center_y",
             # ★ 追加: 画像全体の構図評価指標（ルール・オブ・サード）

@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 
 from photo_insight.evaluators.noise_evaluator import NoiseEvaluator
 

@@ -324,7 +324,9 @@ def _base_row(**kwargs):
 def test_apply_lightroom_fields_accepted_green_keywords_from_reason():
     r = _base_row(
         accepted_flag=1,
-        accepted_reason="portrait group=A-1 o=80.82 tags=eye_contact, framing, expression",
+        accepted_reason=(
+            "portrait group=A-1 o=80.82 " "tags=eye_contact, framing, expression"
+        ),
     )
     lr.apply_lightroom_fields(r, keyword_max_len=200)
 
@@ -337,9 +339,13 @@ def test_apply_lightroom_fields_accepted_green_keywords_from_reason():
 
 
 def test_apply_lightroom_fields_infer_green_from_reason_when_accepted_flag_missing():
+    msg = (
+        "portrait group=A-1 st=face_only rank=1/31 o=80.82 tags=eye_contact, "
+        + "framing, expression"
+    )
     r = _base_row(
         accepted_flag=0,
-        accepted_reason="portrait group=A-1 st=face_only rank=1/31 o=80.82 tags=eye_contact, framing, expression",
+        accepted_reason=msg,
     )
     lr.apply_lightroom_fields(r, keyword_max_len=200)
 
@@ -348,10 +354,11 @@ def test_apply_lightroom_fields_infer_green_from_reason_when_accepted_flag_missi
 
 
 def test_apply_lightroom_fields_infer_secondary_from_reason_sets_yellow_and_keywords():
+    msg = "SEC:portrait group=B-1 overall=73.69 tags=eye_contact," + " framing"
     r = _base_row(
         accepted_flag=0,
         secondary_accept_flag=0,
-        accepted_reason="SEC:portrait group=B-1 overall=73.69 tags=eye_contact, framing",
+        accepted_reason=msg,
     )
     lr.apply_lightroom_fields(r, keyword_max_len=200)
 

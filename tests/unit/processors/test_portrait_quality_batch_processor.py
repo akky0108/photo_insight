@@ -28,7 +28,8 @@ def processor(tmp_path):
                         default=90
                     )
                     self.logger.info(
-                        f"Memory usage threshold set to {self.memory_threshold}% from config."
+                        f"Memory usage threshold set to "
+                        f"{self.memory_threshold}% from config."
                     )
 
                 def load_image_data(self):

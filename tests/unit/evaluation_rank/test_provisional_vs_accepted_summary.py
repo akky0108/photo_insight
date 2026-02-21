@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List
 
-from photo_insight.batch_processor.evaluation_rank.analysis.provisional_vs_accepted import (
+from photo_insight.batch_processor.evaluation_rank.analysis.provisional_vs_accepted import (  # noqa: E501
     build_provisional_vs_accepted_summary,
     write_provisional_vs_accepted_summary_csv,
 )
