@@ -1,4 +1,3 @@
-import pytest
 from photo_insight.evaluators.portrait_quality.portrait_quality_evaluator import (
     PortraitQualityEvaluator,
 )
