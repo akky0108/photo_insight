@@ -201,7 +201,8 @@ class LocalContrastEvaluator:
                 if (not np.isfinite(bmax)) or (not np.isfinite(bmin)):
                     continue
 
-                # if everything is ~0, std/mean becomes unstable; treat as uninformative block.
+                # if everything is ~0, std/mean becomes unstable;
+                # treat as uninformative block.
                 if abs(bmax) <= self.params.eps and abs(bmin) <= self.params.eps:
                     continue
 

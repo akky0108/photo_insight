@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import cv2
-import gc
 import numpy as np
 import os
 import traceback
@@ -22,9 +21,6 @@ from photo_insight.evaluators.noise_evaluator import NoiseEvaluator
 from photo_insight.evaluators.exposure_evaluator import ExposureEvaluator
 from photo_insight.evaluators.local_sharpness_evaluator import LocalSharpnessEvaluator
 from photo_insight.evaluators.local_contrast_evaluator import LocalContrastEvaluator
-from photo_insight.evaluators.rule_based_composition_evaluator import (
-    RuleBasedCompositionEvaluator,
-)
 from photo_insight.evaluators.color_balance_evaluator import ColorBalanceEvaluator
 from photo_insight.detectors.body_detection import FullBodyDetector
 from photo_insight.utils.app_logger import Logger
@@ -163,7 +159,8 @@ class PortraitQualityEvaluator:
 
         img = self.resized_2048_bgr_u8
         self.logger.info(
-            f"[debug] eval_img dtype={img.dtype}, min={img.min()}, max={img.max()}, mean={img.mean():.2f}"
+            f"[debug] eval_img dtype={img.dtype}, "
+            f"min={img.min()}, max={img.max()}, mean={img.mean():.2f}"
         )
 
         # -------------------------
@@ -467,7 +464,8 @@ class PortraitQualityEvaluator:
                 else:
                     # 顔は検出されたが crop に失敗したケース：ログだけ残して global へ
                     self.logger.warning(
-                        "Face detected but crop_face returned None. Skip face-region metrics."
+                        "Face detected but crop_face returned None. "
+                        "Skip face-region metrics."
                     )
 
             # -------------------------

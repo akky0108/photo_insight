@@ -158,14 +158,18 @@ class LocalSharpnessEvaluator:
                 result["local_sharpness_edge_ratio_mean"] = float(np.mean(edge_ratios))
 
             self.logger.debug(
-                f"local_sharpness_raw={rep_raw:.3f}, local_sharpness_score={score:.2f}, "
-                f"mean={mean_v:.3f}, p{int(self.p_quantile*100)}={q_v:.3f}, std={std_v:.3f}, patches={arr.size}"
+                f"local_sharpness_raw={rep_raw:.3f}, "
+                f"local_sharpness_score={score:.2f}, "
+                f"mean={mean_v:.3f}, "
+                f"p{int(self.p_quantile*100)}={q_v:.3f}, "
+                f"std={std_v:.3f}, patches={arr.size}"
             )
             return result
 
         except Exception as e:
             self.logger.warning(
-                f"LocalSharpnessEvaluator: exception during evaluate: {type(e).__name__}: {e}"
+                f"LocalSharpnessEvaluator: "
+                f"exception during evaluate: {type(e).__name__}: {e}"
             )
             return {
                 self.RAW_KEY: None,

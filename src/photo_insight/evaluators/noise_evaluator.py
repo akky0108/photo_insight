@@ -78,10 +78,14 @@ class NoiseEvaluator:
                     "[NoiseEvaluator] config applied: "
                     f"downsample_long_edge={self.downsample_long_edge}, "
                     f"gaussian_sigma={self.gaussian_sigma}, "
-                    f"midtone_min={self.midtone_min}, midtone_max={self.midtone_max}, "
-                    f"grad_thr={self.grad_thr}, min_mask_ratio={self.min_mask_ratio}, "
-                    f"good_sigma={self.good_sigma}, warn_sigma={self.warn_sigma}, "
-                    f"fallback_mode={self.fallback_mode}, fallback_score={self.fallback_score}"
+                    f"midtone_min={self.midtone_min}, "
+                    f"midtone_max={self.midtone_max}, "
+                    f"grad_thr={self.grad_thr}, "
+                    f"min_mask_ratio={self.min_mask_ratio}, "
+                    f"good_sigma={self.good_sigma}, "
+                    f"warn_sigma={self.warn_sigma}, "
+                    f"fallback_mode={self.fallback_mode}, "
+                    f"fallback_score={self.fallback_score}"
                 )
             except Exception:
                 pass

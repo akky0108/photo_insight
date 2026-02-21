@@ -229,7 +229,8 @@ def build_nef_index(base_dir: Path) -> dict[str, Path]:
     if dup:
         sample = list(dup.items())[:5]
         print(
-            "⚠️ Duplicate NEF names detected under the search root. " "(showing up to 5)"
+            "⚠️ Duplicate NEF names detected under the search root. "
+            "(showing up to 5)"
         )
         for name, paths in sample:
             print(f"  - {name}:")

@@ -76,7 +76,8 @@ class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
 
         Args:
             image (np.ndarray): BGR画像
-            face_boxes (list): [{"box": [x, y, w, h], "confidence": float, "yaw": float (optional)}]
+            face_boxes (list):
+              [{"box": [x, y, w, h], "confidence": float, "yaw": float (optional)}]
 
         Returns:
             dict: スコアと分類結果
@@ -135,7 +136,8 @@ class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
 
         self.logger.debug(f"Composition rule-based raw score: {avg_score:.2f}")
         self.logger.debug(
-            f"Face composition discrete score: {results[self.FACE_COMPOSITION_SCORE]:.2f}"
+            f"Face composition discrete score: "
+            f"{results[self.FACE_COMPOSITION_SCORE]:.2f}"
         )
         self.logger.debug(
             f"Group ID: {results['group_id']}, Subgroup ID: {results['subgroup_id']}"

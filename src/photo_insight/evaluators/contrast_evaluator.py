@@ -69,7 +69,10 @@ class ContrastEvaluator:
             try:
                 self.logger.debug(
                     f"[ContrastEvaluator thresholds_key={self.metric_key}] "
-                    f"poor:{self.t_poor}, fair:{self.t_fair}, good:{self.t_good}, excellent:{self.t_excellent}"
+                    f"poor:{self.t_poor}, "
+                    f"fair:{self.t_fair}, "
+                    f"good:{self.t_good}, "
+                    f"excellent:{self.t_excellent}"
                 )
             except Exception:
                 pass

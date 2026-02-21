@@ -8,7 +8,7 @@ rule_of_thirds_evaluator.py
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from typing import Tuple
 
 import numpy as np
 

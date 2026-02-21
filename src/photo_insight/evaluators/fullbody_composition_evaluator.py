@@ -88,7 +88,8 @@ class FullBodyCompositionEvaluator(BaseCompositionEvaluator):
 
         Returns:
             dict:
-                - body_position_score / body_balance_score / pose_dynamics_score: 各0〜1の連続値
+                - body_position_score / body_balance_score / pose_dynamics_score:
+                  各0〜1の連続値
                 - composition_fullbody_score: 従来の最終スコア (0〜1 連続)
                 - body_composition_raw: 0〜1 の連続値（full body の意味スコア）
                 - body_composition_score: 0 / 0.25 / 0.5 / 0.75 / 1.0 の離散値

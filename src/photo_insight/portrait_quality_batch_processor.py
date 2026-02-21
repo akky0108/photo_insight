@@ -186,7 +186,8 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
         if self.result_csv_file and os.path.exists(self.result_csv_file):
             self.logger.info(
-                f"Result file exists: {self.result_csv_file} — continuing from previous run."
+                f"Result file exists: {self.result_csv_file} — "
+                f"continuing from previous run."
             )
 
     def load_image_data(self) -> List[Dict[str, str]]:
@@ -241,7 +242,8 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         self._total_images_to_process = len(data)
         if self.processed_images:
             self.logger.info(
-                f"Found {len(self.processed_images)} previously processed images. Resuming from there."
+                f"Found {len(self.processed_images)} previously processed images. "
+                f"Resuming from there."
             )
         else:
             self.logger.info("No previously processed images found. Starting fresh.")
@@ -289,7 +291,8 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         mem_usage = self.memory_monitor.get_memory_usage()
         if mem_usage > self.memory_threshold:
             self.logger.warning(
-                f"Memory usage {mem_usage:.1f}% exceeded threshold ({self.memory_threshold}%). "
+                f"Memory usage {mem_usage:.1f}% "
+                f"exceeded threshold ({self.memory_threshold}%). "
                 f"Will stop after this batch."
             )
             self.memory_threshold_exceeded = True
@@ -422,7 +425,8 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                 except Exception as e:
                     # 1枚の例外でバッチ全体が落ちないようにする
                     self.logger.error(
-                        f"[Parallel] Failed to process image {img_info.get('file_name')}: {e}",
+                        f"[Parallel] Failed to process image {img_info.get('file_name')}: "
+                        f"{e}",
                         exc_info=True,
                     )
                     continue
@@ -498,7 +502,8 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             )
         elif getattr(self, "completed_all_batches", False):
             self.logger.info(
-                f"All batches processed successfully. Total processed images: {processed_this_run}"
+                f"All batches processed successfully. "
+                f"Total processed images: {processed_this_run}"
             )
 
         processed_file = getattr(self, "processed_images_file", None)

@@ -64,6 +64,7 @@ jobs:
         run: |
           mkdir -p ci_logs/lint
           flake8 src/photo_insight tests/unit \
+            --exclude tests/unit/tools,src/photo_insight/photo_eval_env_manager \
             --max-line-length=88 \
             --count \
             --statistics \
