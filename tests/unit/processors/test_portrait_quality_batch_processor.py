@@ -1,68 +1,96 @@
-import pytest
+import csv
 from unittest.mock import MagicMock, patch
-from photo_insight.portrait_quality_batch_processor import PortraitQualityBatchProcessor
+
+import pytest
+
+from photo_insight.batch_processor.portrait_quality.portrait_quality_batch_processor import (
+    PortraitQualityBatchProcessor,
+)
 
 
 @pytest.fixture
 def processor(tmp_path):
-    with patch("portrait_quality_batch_processor.ImageLoader"):
-        with patch("portrait_quality_batch_processor.MemoryMonitor"):
+    # -------------------------
+    # Create dummy NEF exif CSV (match production header)
+    # -------------------------
+    nef_csv_path = tmp_path / "dummy_nef_exif.csv"
+    with nef_csv_path.open("w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        # ★production expects: FileName / Orientation / BitDepth
+        w.writerow(["FileName", "Orientation", "BitDepth"])
+        w.writerow(["dummy.NEF", "1", "14"])
 
-            class TestablePortraitQualityBatchProcessor(PortraitQualityBatchProcessor):
-                def __init__(self, *args, **kwargs):
-                    super().__init__(*args, **kwargs)
-                    self.config_manager = MagicMock()
-                    self.config_manager.get.side_effect = lambda k, default=None: {
-                        "batch_size": 2
-                    }.get(k, default)
-                    self.image_data = []
-                    self.memory_threshold = 90
+    # NOTE: パッチはテスト終了まで生かすために "yield" で返す
+    with patch(
+        "photo_insight.batch_processor.portrait_quality.portrait_quality_batch_processor.ImageLoader"
+    ), patch(
+        "photo_insight.batch_processor.portrait_quality.portrait_quality_batch_processor.MemoryMonitor"
+    ), patch(
+        # ★NEF exif CSV 解決を固定
+        "photo_insight.batch_processor.portrait_quality.portrait_quality_batch_processor."
+        "PortraitQualityBatchProcessor._resolve_nef_input_csv",
+        return_value=str(nef_csv_path),
+    ):
 
-                def setup(self) -> None:
-                    self._set_directories_and_files()
-                    self._load_processed_images()
-                    self.memory_threshold_exceeded = False
-                    self.completed_all_batches = False
+        class TestablePortraitQualityBatchProcessor(PortraitQualityBatchProcessor):
+            """
+            - BaseBatch の契約に寄せるため get_data() は override しない
+            - load_data() を実装して Base.get_data() 経由でキャッシュされることを使う
+            - setup はテスト用に最小限（ディレクトリ解決＋閾値反映）
+            """
 
-                    self.memory_threshold = self.config_manager.get_memory_threshold(
-                        default=90
-                    )
-                    self.logger.info(
-                        f"Memory usage threshold set to "
-                        f"{self.memory_threshold}% from config."
-                    )
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
 
-                def load_image_data(self):
-                    return [
-                        {"file_name": "img1.jpg", "orientation": "1", "bit_depth": "8"}
-                    ]
+                # BaseのConfigManager依存をテスト用に差し替え
+                self.config_manager = MagicMock()
+                self.config_manager.get_memory_threshold = MagicMock(return_value=90)
 
-                def get_data(self, target_dir=None):
-                    self.image_data = self.load_image_data()
-                    return self.image_data
+                self.image_data = []
+                self.memory_threshold = 90
 
-            proc = TestablePortraitQualityBatchProcessor(
-                config_path=None, logger=MagicMock(), date="2025-01-01", batch_size=2
-            )
+            def setup(self) -> None:
+                # 本体 setup は run_ctx や result_store 等が絡む可能性があるので
+                # テストでは対象範囲だけ実施
+                self._set_directories_and_files()
+                self._load_processed_images()
 
-            picture_root = tmp_path / "picture_root"
-            # date 指定時に実際に見に行くパスを作る: <picture_root>/<year>/<date>
-            (picture_root / "2025" / "2025-01-01").mkdir(parents=True, exist_ok=True)
+                self.memory_threshold_exceeded = False
+                self.completed_all_batches = False
 
-            out_dir = tmp_path / "output"
-            out_dir.mkdir(parents=True, exist_ok=True)
+                self.memory_threshold = self.config_manager.get_memory_threshold(default=90)
+                self.logger.info(
+                    f"Memory usage threshold set to {self.memory_threshold}% from config."
+                )
 
-            proc.config = {
-                "batch_size": 2,
-                "output_directory": str(out_dir),
-                "picture_root": str(picture_root),  # ★ここが重要
-                # "base_directory_root" はこのコードパスでは使われないので不要
-            }
-            return proc
+            def load_data(self):
+                # Base.get_data() から呼ばれる契約
+                self.image_data = [
+                    {"file_name": "img1.jpg", "orientation": "1", "bit_depth": "8"}
+                ]
+                return self.image_data
+
+        proc = TestablePortraitQualityBatchProcessor(
+            config_path=None, logger=MagicMock(), date="2025-01-01", batch_size=2
+        )
+
+        picture_root = tmp_path / "picture_root"
+        (picture_root / "2025" / "2025-01-01").mkdir(parents=True, exist_ok=True)
+
+        out_dir = tmp_path / "output"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        # PortraitQualityBatchProcessor 側が参照する config をここで固定
+        proc.config = {
+            "batch_size": 2,
+            "output_directory": str(out_dir),
+            "picture_root": str(picture_root),
+        }
+
+        yield proc
 
 
 def test_setup_loads_data(processor):
-    processor._set_directories_and_files()
     processor.setup()
 
     data = processor.get_data()
@@ -72,29 +100,16 @@ def test_setup_loads_data(processor):
 
 
 def test_setup_sets_memory_threshold(processor):
-    # Arrange
     processor.config_manager.get_memory_threshold.return_value = 85
-
-    # Act
     processor.setup()
 
-    # Assert
     assert processor.memory_threshold == 85
-    processor.logger.info.assert_any_call(
-        "Memory usage threshold set to 85% from config."
-    )
+    processor.logger.info.assert_any_call("Memory usage threshold set to 85% from config.")
 
 
 def test_setup_uses_default_memory_threshold_when_not_configured(processor):
-    # Arrange
-    processor.config_manager.get_memory_threshold.return_value = (
-        90  # 明示的にデフォルト返す
-    )
-
-    # Act
+    processor.config_manager.get_memory_threshold.return_value = 90
     processor.setup()
-
-    # Assert
     assert processor.memory_threshold == 90
 
 
@@ -105,7 +120,6 @@ def test_process_batch_skips_all(processor):
     ]
     processor.processed_images = {d["file_name"] for d in batch}
 
-    # ここが本質：処理が呼ばれないことを検証する
     processor.process_image = MagicMock()
     processor.save_results = MagicMock()
     processor.memory_monitor.get_memory_usage.return_value = 50
@@ -119,7 +133,8 @@ def test_process_batch_skips_all(processor):
 
 def test_process_batch_processes_one(processor, tmp_path):
     processor.setup()
-    processor.result_csv_file = (
+
+    processor.result_csv_file = str(
         tmp_path / "output" / f"evaluation_results_{processor.date}.csv"
     )
     processor.processed_images = set()
@@ -138,26 +153,15 @@ def test_process_batch_processes_one(processor, tmp_path):
     processor._process_batch(batch)
 
     processor.process_image.assert_called_once()
-    processor.save_results.assert_called_once_with(
-        [mock_result], processor.result_csv_file
-    )
+    processor.save_results.assert_called_once_with([mock_result], processor.result_csv_file)
 
 
 def test_execute_full_flow(processor):
+    # execute の呼び出し順だけ確認（BaseBatch差し替え時の破壊検知用）
     processor.setup = MagicMock()
     processor.process = MagicMock()
     processor.cleanup = MagicMock()
     processor.logger = MagicMock()
-
-    processor.get_data = MagicMock(
-        return_value=[{"file_name": "dummy.jpg", "orientation": "1", "bit_depth": "8"}]
-    )
-    processor.config_manager = MagicMock()
-    processor.config_manager.get.side_effect = lambda k, default=None: {
-        "batch_size": 2,
-        "base_directory": "/tmp/images",
-        "output_directory": "/tmp/output",
-    }.get(k, default)
 
     processor.execute()
 
@@ -219,7 +223,7 @@ def test_process_batch_skips_none_result(processor):
 
 
 def test_process_batch_parallel_invokes_save_results(processor, tmp_path):
-    processor.result_csv_file = tmp_path / "output.csv"
+    processor.result_csv_file = str(tmp_path / "output.csv")
     processor.processed_images = set()
     processor.memory_monitor.get_memory_usage.return_value = 50
     processor.logger = MagicMock()
@@ -236,11 +240,12 @@ def test_process_batch_parallel_invokes_save_results(processor, tmp_path):
     processor._process_batch(batch)
 
     processor.save_results.assert_called_once_with(
-        [{"file_name": "img1.jpg", "sharpness_score": 0.9}], processor.result_csv_file
+        [{"file_name": "img1.jpg", "sharpness_score": 0.9}],
+        processor.result_csv_file,
     )
 
 
-def test_get_data_filters_processed_images(tmp_path):
+def test_load_data_filters_processed_images(tmp_path):
     class DummyProcessor(PortraitQualityBatchProcessor):
         def load_image_data(self):
             return [
@@ -249,22 +254,21 @@ def test_get_data_filters_processed_images(tmp_path):
                 {"file_name": "c.NEF", "orientation": "Horizontal", "bit_depth": "12"},
             ]
 
-    processor = DummyProcessor(
+    p = DummyProcessor(
         config_path=None,
         logger=MagicMock(),
         date="2025-01-01",
         batch_size=2,
     )
-    processor.config = {
+    p.config = {
         "batch_size": 2,
         "output_directory": str(tmp_path / "output"),
-        "base_directory_root": str(tmp_path / "base"),
+        "picture_root": str(tmp_path / "picture_root"),
     }
 
-    # ★ setup() は呼ばない
-    processor.processed_images = {"b.NEF"}
+    p.processed_images = {"b.NEF"}
 
-    result = processor.load_data()  # ← ここが正解
+    result = p.load_data()
     file_names = [d["file_name"] for d in result]
 
     assert set(file_names) == {"a.NEF", "c.NEF"}
