@@ -1,4 +1,7 @@
 # tests/integration/dummy_batch_processor.py
+from __future__ import annotations
+
+from typing import Any, Dict, List
 
 from photo_insight.batch_framework.base_batch import BaseBatchProcessor
 
@@ -27,8 +30,8 @@ class DummyBatchProcessor(BaseBatchProcessor):
         # ダミー実装（何もしない）
         pass
 
-    def get_data(self):
-        # ダミー実装：空のデータを返す
+    def load_data(self) -> List[Dict[str, Any]]:
+        # integration test 用：空データでOK（execute/processの流れ確認が目的）
         return []
 
     def cleanup(self):
