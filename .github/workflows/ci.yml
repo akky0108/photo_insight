@@ -16,15 +16,29 @@ concurrency:
 jobs:
   docker-unit-processors:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build (docker compose)
-        run: docker compose build
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Run unit tests (processors) in container
-        run: docker compose run --rm app pytest -q tests/unit/processors
+      # キャッシュで高速化（安定性を落とさずに速くなる）
+      - name: Build image (cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          tags: photo_insight:ci
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # まずは依存が入ってることを明示的に確認（yaml問題の再発防止）
+      - name: Sanity check imports
+        run: docker run --rm photo_insight:ci python -c "import yaml; import cv2; import rawpy; print('imports ok')"
+
+      - name: Run unit tests (processors)
+        run: docker run --rm photo_insight:ci pytest -q tests/unit/processors
 
   unit-tests:
     runs-on: ubuntu-latest

@@ -1,0 +1,35 @@
+# Git / CI
+.git
+.github
+
+# IDE
+.vscode
+.idea
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.cache/
+
+# Virtual environments
+.venv/
+venv/
+photo_eval_env/
+.env
+
+# Logs / outputs（巨大化しやすい）
+logs/
+output/
+runs/
+temp/
+processed_txt/
+wandb/
+
+# Notebooks
+.ipynb_checkpoints/
+notebooks/
+
+# OS junk
+.DS_Store
+Thumbs.db
