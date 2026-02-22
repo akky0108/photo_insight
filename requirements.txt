@@ -1,1 +1,15 @@
+# --- runtime dependencies ---
+
 requests==2.31.0
+
+imageio>=2.34,<3
+opencv-python>=4.9,<5
+numpy>=1.26,<2.3
+pandas>=2.1,<2.4
+PyYAML>=6,<7
+
+python-dotenv>=1,<2
+watchdog>=4,<7
+psutil>=5,<8
+
+rawpy>=0.21,<0.26
