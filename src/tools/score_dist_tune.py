@@ -127,9 +127,7 @@ TECH_TARGET_RANGES = {
     0.25: (0.15, 0.25),
     0.0: (0.10, 0.15),
 }
-TECH_TARGET_CENTER = {
-    lv: (lo + hi) / 2.0 for lv, (lo, hi) in TECH_TARGET_RANGES.items()
-}
+TECH_TARGET_CENTER = {lv: (lo + hi) / 2.0 for lv, (lo, hi) in TECH_TARGET_RANGES.items()}
 
 # 目標中心に合わせた分位点境界（rawが高いほど良い想定）
 # t0: 12.5%, t1: 32.5%, t2: 62.5%, t3: 87.5%
@@ -210,9 +208,7 @@ def round_to_quarter(x: float) -> float:
     return round(x * 4.0) / 4.0
 
 
-def score_from_raw(
-    raw: float, thr: Thresholds, *, higher_is_better: bool = True
-) -> float:
+def score_from_raw(raw: float, thr: Thresholds, *, higher_is_better: bool = True) -> float:
     """
     raw + thresholds から 5段階離散スコアを算出する。
 
@@ -294,9 +290,7 @@ def in_range_ratio(scores: pd.Series, *, eps: float = 1e-6) -> float:
     return float(ok.mean())
 
 
-def infer_direction_by_score(
-    raw_num: pd.Series, score: pd.Series
-) -> Tuple[bool, Optional[float], int, bool]:
+def infer_direction_by_score(raw_num: pd.Series, score: pd.Series) -> Tuple[bool, Optional[float], int, bool]:
     """
     raw と score の相関から「高いほど良いか」を推定する（根拠付き）。
 
@@ -318,9 +312,7 @@ def infer_direction_by_score(
     return bool(corr >= 0), float(corr), n, True
 
 
-def resolve_raw_col(
-    df: pd.DataFrame, score_col: str
-) -> Tuple[Optional[str], str, str, str, Dict[str, Any]]:
+def resolve_raw_col(df: pd.DataFrame, score_col: str) -> Tuple[Optional[str], str, str, str, Dict[str, Any]]:
     metric = score_col.replace("_score", "")
 
     direction_meta: Dict[str, Any] = {
@@ -465,9 +457,7 @@ def tech_target_flags(ratios: Dict[float, float]) -> Dict[float, str]:
 
 
 def tech_target_l1(ratios: Dict[float, float]) -> float:
-    return sum(
-        abs(ratios.get(lv, 0.0) - TECH_TARGET_CENTER[lv]) for lv in DISCRETE_SCORES
-    )
+    return sum(abs(ratios.get(lv, 0.0) - TECH_TARGET_CENTER[lv]) for lv in DISCRETE_SCORES)
 
 
 def make_plots(
@@ -516,9 +506,7 @@ def make_plots(
     plt.close()
 
 
-def thresholds_list_to_mapping(
-    metric: str, ts: List[float]
-) -> Optional[Dict[str, float]]:
+def thresholds_list_to_mapping(metric: str, ts: List[float]) -> Optional[Dict[str, float]]:
     """
     evaluator_thresholds.yaml 形式の mapping に変換（tech/face共通）
     """
@@ -641,9 +629,7 @@ def validate_dataframe_contract(df: pd.DataFrame) -> bool:
     # 1) raw 列が resolve できるか（最低限）
     for score_col in TARGET_SCORE_COLS:
         metric = score_col.replace("_score", "")
-        raw_col, raw_source, raw_direction, raw_transform, meta = resolve_raw_col(
-            df, score_col
-        )
+        raw_col, raw_source, raw_direction, raw_transform, meta = resolve_raw_col(df, score_col)
         if raw_col is None or raw_col not in df.columns:
             warn(
                 f"Contract violation: raw resolve failed for metric='{metric}' "
@@ -660,10 +646,7 @@ def validate_dataframe_contract(df: pd.DataFrame) -> bool:
 
     missing = [k for k in expected.keys() if k not in df.columns]
     if missing:
-        warn(
-            "Contract warning: missing blurriness contract columns (allowed for now): "
-            + str(missing)
-        )
+        warn("Contract warning: missing blurriness contract columns (allowed for now): " + str(missing))
         return ok  # 欠損はまだ止めない（段階導入）
 
     for col, exp in expected.items():
@@ -835,9 +818,7 @@ def compute_new_accepted_ratio_via_acceptance_from_results(
         ]:
             try:
                 acc_mod = __import__(mod_path, fromlist=["*"])
-                if hasattr(acc_mod, "decide_accept") and callable(
-                    getattr(acc_mod, "decide_accept")
-                ):
+                if hasattr(acc_mod, "decide_accept") and callable(getattr(acc_mod, "decide_accept")):
                     decide_accept = getattr(acc_mod, "decide_accept")
                     break
             except Exception as e:
@@ -863,11 +844,7 @@ def compute_new_accepted_ratio_via_acceptance_from_results(
             else:
                 out = decide_accept(d)
 
-            acc = (
-                bool(out[0])
-                if isinstance(out, (tuple, list)) and len(out) >= 1
-                else bool(out)
-            )
+            acc = bool(out[0]) if isinstance(out, (tuple, list)) and len(out) >= 1 else bool(out)
             total += 1
             if acc:
                 ok += 1
@@ -877,9 +854,7 @@ def compute_new_accepted_ratio_via_acceptance_from_results(
             continue
 
     if total == 0:
-        warn(
-            f"new accepted: decide_accept failed for all rows: {first_err or 'unknown'}"
-        )
+        warn(f"new accepted: decide_accept failed for all rows: {first_err or 'unknown'}")
         return float("nan")
 
     return float(ok / total)
@@ -919,9 +894,7 @@ def main() -> int:
         default="",
         help="evaluator_thresholds.yaml 形式で出力するパス（例: temp/evaluator_thresholds.yaml）",
     )
-    ap.add_argument(
-        "--emit-config-json", default="", help="同内容を JSON でも出力するパス（任意）"
-    )
+    ap.add_argument("--emit-config-json", default="", help="同内容を JSON でも出力するパス（任意）")
 
     # accepted ratio (from evaluation_ranking_*.csv)
     ap.add_argument("--ranking-glob", default="output/**/evaluation_ranking_*.csv")
@@ -1031,9 +1004,7 @@ def main() -> int:
     for score_col in TARGET_SCORE_COLS:
         metric = score_col.replace("_score", "")
 
-        raw_col, raw_source, raw_direction, raw_transform, direction_meta = (
-            resolve_raw_col(df, score_col)
-        )
+        raw_col, raw_source, raw_direction, raw_transform, direction_meta = resolve_raw_col(df, score_col)
         higher_is_better = raw_direction == "higher_is_better"
         raw_note = raw_source  # 互換（必要なら別文字列でもOK）
 
@@ -1092,9 +1063,7 @@ def main() -> int:
         # -----------------------------
         # direction sanity check (detect only)
         # -----------------------------
-        inferred_hib, corr, n_corr, inferred = infer_direction_by_score(
-            raw_num, cur_score
-        )
+        inferred_hib, corr, n_corr, inferred = infer_direction_by_score(raw_num, cur_score)
 
         if inferred and (inferred_hib != higher_is_better):
             tag = "CONTRACT" if metric == "blurriness" else "WARN"
@@ -1104,20 +1073,14 @@ def main() -> int:
                 f"corr={corr} n={n_corr}"
             )
 
-        direction_meta = (
-            dict(direction_meta) if isinstance(direction_meta, dict) else {}
-        )
+        direction_meta = dict(direction_meta) if isinstance(direction_meta, dict) else {}
         direction_meta.update(
             {
                 "direction_inferred": bool(inferred),
                 "corr": corr,
                 "n_for_corr": int(n_corr),
                 "direction_note": (
-                    (
-                        "corr_check_mismatch"
-                        if (inferred and (inferred_hib != higher_is_better))
-                        else "corr_check"
-                    )
+                    ("corr_check_mismatch" if (inferred and (inferred_hib != higher_is_better)) else "corr_check")
                     if inferred
                     else "corr_check_skipped"
                 ),
@@ -1136,9 +1099,7 @@ def main() -> int:
         # 新スコア計算
         # -----------------------------
         if thr is not None:
-            new_score = raw_num.map(
-                lambda x: score_from_raw(x, thr, higher_is_better=higher_is_better)
-            )
+            new_score = raw_num.map(lambda x: score_from_raw(x, thr, higher_is_better=higher_is_better))
             thresholds_out: Optional[List[float]] = thr.to_list()
         else:
             new_score = coerce_numeric(cur_score)
@@ -1175,9 +1136,7 @@ def main() -> int:
         # -----------------------------
         # face 極端寄り監視
         # -----------------------------
-        if is_face and (
-            cur_sat >= args.face_saturation_warn or new_sat >= args.face_saturation_warn
-        ):
+        if is_face and (cur_sat >= args.face_saturation_warn or new_sat >= args.face_saturation_warn):
             warn(
                 f"Face metric '{metric}' extreme? "
                 f"saturation(0+1): current={cur_sat:.3f}, new={new_sat:.3f} "
@@ -1252,9 +1211,7 @@ def main() -> int:
             row["new_tech_target_l1"] = float(new_l1)
             row["delta_tech_target_l1"] = float(new_l1 - cur_l1)
 
-            row["current_target_match_ratio"] = _nan_to_empty(
-                target_match_ratio(cur_flags)
-            )
+            row["current_target_match_ratio"] = _nan_to_empty(target_match_ratio(cur_flags))
             row["new_target_match_ratio"] = _nan_to_empty(target_match_ratio(new_flags))
 
             for sv in DISCRETE_SCORES:
@@ -1398,9 +1355,7 @@ def main() -> int:
     info(f"  wide    : {wide_csv}")
     info(f"  summary : {summary_csv}")
     info(f"  plots   : {plots_dir}")
-    info(
-        f"  accepted: current={_nan_to_empty(current_accepted_ratio)} new={_nan_to_empty(new_accepted_ratio)}"
-    )
+    info(f"  accepted: current={_nan_to_empty(current_accepted_ratio)} new={_nan_to_empty(new_accepted_ratio)}")
     return 0
 
 

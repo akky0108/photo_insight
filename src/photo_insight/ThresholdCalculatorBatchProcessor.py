@@ -58,9 +58,7 @@ class ThresholdCalculator(BaseBatchProcessor):
                     df = pd.read_csv(file_path)
                     data_frames.append(df)
                 except Exception as e:
-                    self.logger.error(
-                        f"{file_path}の読み込み中にエラーが発生しました: {e}"
-                    )
+                    self.logger.error(f"{file_path}の読み込み中にエラーが発生しました: {e}")
 
         if data_frames:
             return pd.concat(data_frames, ignore_index=True)
@@ -88,16 +86,10 @@ class ThresholdCalculator(BaseBatchProcessor):
         for score_column in score_columns:
             scores = self.extract_scores(score_column, batch_data)
             if scores:
-                self.logger.debug(
-                    f"{score_column}のスコア{len(scores)}件に対して閾値を計算します。"
-                )
-                self.thresholds[score_column] = self.calculate_thresholds_for_scores(
-                    scores, levels=5
-                )
+                self.logger.debug(f"{score_column}のスコア{len(scores)}件に対して閾値を計算します。")
+                self.thresholds[score_column] = self.calculate_thresholds_for_scores(scores, levels=5)
             else:
-                self.logger.warning(
-                    f"{score_column}に有効なデータがありません。ゼロ閾値を設定します。"
-                )
+                self.logger.warning(f"{score_column}に有効なデータがありません。ゼロ閾値を設定します。")
                 self.thresholds[score_column] = self.get_zero_thresholds()
 
     def extract_scores(self, key: str, batch_data: pd.DataFrame) -> List[float]:
@@ -132,9 +124,7 @@ class ThresholdCalculator(BaseBatchProcessor):
         return float(value)
 
     @staticmethod
-    def calculate_thresholds_for_scores(
-        scores: List[float], levels: int = 5
-    ) -> Dict[str, float]:
+    def calculate_thresholds_for_scores(scores: List[float], levels: int = 5) -> Dict[str, float]:
         """
         スコアに基づいて閾値を計算する。
 
@@ -146,9 +136,7 @@ class ThresholdCalculator(BaseBatchProcessor):
             Dict[str, float]: 計算された閾値。
         """
         quantiles = np.linspace(0, 100, levels + 1)
-        return {
-            f"level_{i+1}": np.percentile(scores, quantiles[i]) for i in range(levels)
-        }
+        return {f"level_{i+1}": np.percentile(scores, quantiles[i]) for i in range(levels)}
 
     @staticmethod
     def get_zero_thresholds(levels: int = 5) -> Dict[str, float]:
@@ -170,8 +158,7 @@ class ThresholdCalculator(BaseBatchProcessor):
         self.logger.info(f"閾値を{self.output_path}に保存しています。")
         try:
             thresholds_for_yaml = {
-                key: {k: float(v) for k, v in value.items()}
-                for key, value in self.thresholds.items()
+                key: {k: float(v) for k, v in value.items()} for key, value in self.thresholds.items()
             }
             with open(self.output_path, mode="w", encoding="utf-8") as yamlfile:
                 yaml.dump(
@@ -189,9 +176,7 @@ class ThresholdCalculator(BaseBatchProcessor):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="評価データに基づいて閾値を計算します。"
-    )
+    parser = argparse.ArgumentParser(description="評価データに基づいて閾値を計算します。")
     parser.add_argument(
         "--config_path",
         type=str,

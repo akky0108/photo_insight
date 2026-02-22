@@ -15,9 +15,7 @@ def _mk_records(scores: List[Any]) -> List[Dict[str, Any]]:
     score_key=overall_score を前提に records を作る。
     provisional は score しか見ない（他キーは任意）。
     """
-    return [
-        {"file_name": f"f{i:03d}.jpg", "overall_score": s} for i, s in enumerate(scores)
-    ]
+    return [{"file_name": f"f{i:03d}.jpg", "overall_score": s} for i, s in enumerate(scores)]
 
 
 def _i01(v: Any) -> int:
@@ -38,11 +36,7 @@ def _count_flag(records: List[Dict[str, Any]]) -> int:
 
 
 def _flagged_files(records: List[Dict[str, Any]]) -> List[str]:
-    return [
-        r["file_name"]
-        for r in records
-        if _i01(r.get("provisional_top_percent_flag")) == 1
-    ]
+    return [r["file_name"] for r in records if _i01(r.get("provisional_top_percent_flag")) == 1]
 
 
 def test_basic_10pct_of_10_is_1() -> None:

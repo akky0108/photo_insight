@@ -34,9 +34,7 @@ class MetricResultMapper:
             if k in r:
                 out[f"{prefix}{k}"] = r.get(k)
 
-    def _normalize_status_in_out(
-        self, out: Dict[str, Any], prefix: str, metric: str
-    ) -> None:
+    def _normalize_status_in_out(self, out: Dict[str, Any], prefix: str, metric: str) -> None:
         """
         out に入った {metric}_eval_status を contract に正規化する。
         無ければ何もしない（evaluate側が返してないケースもある）
@@ -45,9 +43,7 @@ class MetricResultMapper:
         if k in out:
             out[k] = normalize_eval_status(out.get(k))
 
-    def _normalize_grade_in_out(
-        self, out: Dict[str, Any], prefix: str, metric: str
-    ) -> None:
+    def _normalize_grade_in_out(self, out: Dict[str, Any], prefix: str, metric: str) -> None:
         """
         out に入った {metric}_grade を contract に正規化する。
         無ければ何もしない（score補完の前提）
@@ -71,9 +67,7 @@ class MetricResultMapper:
         if (grade_k not in out or out.get(grade_k) is None) and score_k in out:
             out[grade_k] = score_to_grade(out.get(score_k))
 
-    def _finalize_metric(
-        self, out: Dict[str, Any], prefix: str, metric: str, *, ensure_grade: bool
-    ) -> None:
+    def _finalize_metric(self, out: Dict[str, Any], prefix: str, metric: str, *, ensure_grade: bool) -> None:
         """
         共通後処理：status 正規化 + (必要なら) grade 正規化/補完
         """
@@ -81,9 +75,7 @@ class MetricResultMapper:
         if ensure_grade:
             self._ensure_grade(out, prefix, metric)
 
-    def map(
-        self, name: str, result: Dict[str, Any], prefix: str = ""
-    ) -> Dict[str, Any]:
+    def map(self, name: str, result: Dict[str, Any], prefix: str = "") -> Dict[str, Any]:
         r = result or {}
         out: Dict[str, Any] = {}
 
@@ -115,9 +107,7 @@ class MetricResultMapper:
                 if f"{prefix}noise_raw" not in out:
                     sigma_used = r.get("noise_sigma_used")
                     try:
-                        out[f"{prefix}noise_raw"] = (
-                            -float(sigma_used) if sigma_used is not None else None
-                        )
+                        out[f"{prefix}noise_raw"] = -float(sigma_used) if sigma_used is not None else None
                     except (TypeError, ValueError):
                         out[f"{prefix}noise_raw"] = None
 
@@ -128,9 +118,7 @@ class MetricResultMapper:
                 if "noise_raw" not in out:
                     sigma_used = r.get("noise_sigma_used")
                     try:
-                        out["noise_raw"] = (
-                            -float(sigma_used) if sigma_used is not None else None
-                        )
+                        out["noise_raw"] = -float(sigma_used) if sigma_used is not None else None
                     except (TypeError, ValueError):
                         out["noise_raw"] = None
 

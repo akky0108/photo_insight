@@ -21,15 +21,15 @@ def processor(tmp_path):
         w.writerow(["dummy.NEF", "1", "14"])
 
     # NOTE: パッチはテスト終了まで生かすために "yield" で返す
-    with patch(
-        "photo_insight.batch_processor.portrait_quality.portrait_quality_batch_processor.ImageLoader"
-    ), patch(
-        "photo_insight.batch_processor.portrait_quality.portrait_quality_batch_processor.MemoryMonitor"
-    ), patch(
-        # ★NEF exif CSV 解決を固定
-        "photo_insight.batch_processor.portrait_quality.portrait_quality_batch_processor."
-        "PortraitQualityBatchProcessor._resolve_nef_input_csv",
-        return_value=str(nef_csv_path),
+    with (
+        patch("photo_insight.batch_processor.portrait_quality.portrait_quality_batch_processor.ImageLoader"),
+        patch("photo_insight.batch_processor.portrait_quality.portrait_quality_batch_processor.MemoryMonitor"),
+        patch(
+            # ★NEF exif CSV 解決を固定
+            "photo_insight.batch_processor.portrait_quality.portrait_quality_batch_processor."
+            "PortraitQualityBatchProcessor._resolve_nef_input_csv",
+            return_value=str(nef_csv_path),
+        ),
     ):
 
         class TestablePortraitQualityBatchProcessor(PortraitQualityBatchProcessor):
@@ -58,18 +58,12 @@ def processor(tmp_path):
                 self.memory_threshold_exceeded = False
                 self.completed_all_batches = False
 
-                self.memory_threshold = self.config_manager.get_memory_threshold(
-                    default=90
-                )
-                self.logger.info(
-                    f"Memory usage threshold set to {self.memory_threshold}% from config."
-                )
+                self.memory_threshold = self.config_manager.get_memory_threshold(default=90)
+                self.logger.info(f"Memory usage threshold set to {self.memory_threshold}% from config.")
 
             def load_data(self):
                 # Base.get_data() から呼ばれる契約
-                self.image_data = [
-                    {"file_name": "img1.jpg", "orientation": "1", "bit_depth": "8"}
-                ]
+                self.image_data = [{"file_name": "img1.jpg", "orientation": "1", "bit_depth": "8"}]
                 return self.image_data
 
         proc = TestablePortraitQualityBatchProcessor(
@@ -106,9 +100,7 @@ def test_setup_sets_memory_threshold(processor):
     processor.setup()
 
     assert processor.memory_threshold == 85
-    processor.logger.info.assert_any_call(
-        "Memory usage threshold set to 85% from config."
-    )
+    processor.logger.info.assert_any_call("Memory usage threshold set to 85% from config.")
 
 
 def test_setup_uses_default_memory_threshold_when_not_configured(processor):
@@ -138,9 +130,7 @@ def test_process_batch_skips_all(processor):
 def test_process_batch_processes_one(processor, tmp_path):
     processor.setup()
 
-    processor.result_csv_file = str(
-        tmp_path / "output" / f"evaluation_results_{processor.date}.csv"
-    )
+    processor.result_csv_file = str(tmp_path / "output" / f"evaluation_results_{processor.date}.csv")
     processor.processed_images = set()
     processor.memory_monitor.get_memory_usage.return_value = 50
     processor.memory_threshold = 90
@@ -157,9 +147,7 @@ def test_process_batch_processes_one(processor, tmp_path):
     processor._process_batch(batch)
 
     processor.process_image.assert_called_once()
-    processor.save_results.assert_called_once_with(
-        [mock_result], processor.result_csv_file
-    )
+    processor.save_results.assert_called_once_with([mock_result], processor.result_csv_file)
 
 
 def test_execute_full_flow(processor):
@@ -236,9 +224,7 @@ def test_process_batch_parallel_invokes_save_results(processor, tmp_path):
 
     processor.max_workers = 2
     processor.base_directory = "/tmp/images"
-    processor.process_image = MagicMock(
-        return_value={"file_name": "img1.jpg", "sharpness_score": 0.9}
-    )
+    processor.process_image = MagicMock(return_value={"file_name": "img1.jpg", "sharpness_score": 0.9})
     processor._mark_as_processed = MagicMock()
     processor.save_results = MagicMock()
 

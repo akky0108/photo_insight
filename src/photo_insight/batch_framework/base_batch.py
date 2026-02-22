@@ -47,9 +47,7 @@ class ConfigChangeHandler(FileSystemEventHandler):
         self.processor = processor
         self._last_modified_time = 0.0
 
-        self._target_config_path = (
-            _normpath(self.processor.config_path) if self.processor.config_path else ""
-        )
+        self._target_config_path = _normpath(self.processor.config_path) if self.processor.config_path else ""
 
     def on_modified(self, event):
         if not self._target_config_path:
@@ -65,9 +63,7 @@ class ConfigChangeHandler(FileSystemEventHandler):
             return
 
         if _normpath(src_path) == self._target_config_path:
-            self.processor.logger.info(
-                f"Config file {src_path} has been modified. Reloading..."
-            )
+            self.processor.logger.info(f"Config file {src_path} has been modified. Reloading...")
             self.processor.reload_config()
 
 
@@ -140,9 +136,7 @@ class BaseBatchProcessor(ABC):
         # Stop coordination (base)
         # -------------------------
         self._stop_requested: bool = False
-        self._stop_reason: Optional[str] = (
-            None  # e.g. memory_threshold / exception / signal_interrupt
-        )
+        self._stop_reason: Optional[str] = None  # e.g. memory_threshold / exception / signal_interrupt
 
         if signal_handler is None:
             # NOTE: your SignalHandler expects shutdown_callback: Callable[[], None]
@@ -155,9 +149,7 @@ class BaseBatchProcessor(ABC):
         self.config = self.config_manager.config
 
         self.fail_fast = bool(self.config.get("batch", {}).get("fail_fast", True))
-        self.cleanup_fail_fast = bool(
-            self.config.get("batch", {}).get("cleanup_fail_fast", False)
-        )
+        self.cleanup_fail_fast = bool(self.config.get("batch", {}).get("cleanup_fail_fast", False))
 
         self._lock = Lock()
 
@@ -170,9 +162,7 @@ class BaseBatchProcessor(ABC):
         # ============================================================
         # Result persistence (base)
         # ============================================================
-        self._persist_run_results = bool(
-            self.config.get("debug", {}).get("persist_run_results", False)
-        )
+        self._persist_run_results = bool(self.config.get("debug", {}).get("persist_run_results", False))
         base_dir = self.config.get("debug", {}).get("run_results_dir", "runs")
 
         self.result_store = ResultStore(
@@ -242,10 +232,7 @@ class BaseBatchProcessor(ABC):
                     prefix=self.__class__.__name__.lower(),
                     ensure_dirs=False,
                 )
-                self.logger.info(
-                    f"[{self.__class__.__name__}] RunContext prepared:"
-                    f"{self.run_ctx.out_dir}"
-                )
+                self.logger.info(f"[{self.__class__.__name__}] RunContext prepared:" f"{self.run_ctx.out_dir}")
         except Exception as e:
             self.logger.error(f"RunContext init failed: {e}", exc_info=True)
             self.run_ctx = None
@@ -254,9 +241,7 @@ class BaseBatchProcessor(ABC):
         errors: List[Exception] = []
 
         try:
-            self._execute_phase(
-                HookType.PRE_SETUP, HookType.POST_SETUP, self.setup, errors
-            )
+            self._execute_phase(HookType.PRE_SETUP, HookType.POST_SETUP, self.setup, errors)
             self._execute_phase(
                 HookType.PRE_PROCESS,
                 HookType.POST_PROCESS,
@@ -264,23 +249,16 @@ class BaseBatchProcessor(ABC):
                 errors,
             )
         finally:
-            self._execute_phase(
-                HookType.PRE_CLEANUP, HookType.POST_CLEANUP, self.cleanup, errors
-            )
+            self._execute_phase(HookType.PRE_CLEANUP, HookType.POST_CLEANUP, self.cleanup, errors)
             duration = time.time() - self.start_time
-            self.logger.info(
-                f"[{self.__class__.__name__}] Batch process completed in"
-                f"{duration:.2f} seconds."
-            )
+            self.logger.info(f"[{self.__class__.__name__}] Batch process completed in" f"{duration:.2f} seconds.")
 
             if errors:
                 # framework-level error -> mark reason if none
                 if not self.get_stop_reason():
                     self.request_stop("exception")
                 msgs = [f"{type(e).__name__}: {e}" for e in errors]
-                self.handle_error(
-                    f"Batch process encountered errors: {msgs}", raise_exception=True
-                )
+                self.handle_error(f"Batch process encountered errors: {msgs}", raise_exception=True)
 
             # ===== ResultStore: finalize =====
             if self.run_ctx and self._persist_run_results:
@@ -315,19 +293,14 @@ class BaseBatchProcessor(ABC):
                 raise
             errors.append(e)
 
-    def _run_phase_function(
-        self, func: Callable[[], None], name: str, errors: List[Exception]
-    ) -> None:
+    def _run_phase_function(self, func: Callable[[], None], name: str, errors: List[Exception]) -> None:
         try:
             start_time = time.time()
             self.logger.info(f"[{self.__class__.__name__}] Executing {name} phase.")
             func()
             duration = time.time() - start_time
             self.logger.info(
-                (
-                    f"[{self.__class__.__name__}] {name.capitalize()} "
-                    f"phase completed in {duration:.2f} seconds."
-                )
+                (f"[{self.__class__.__name__}] {name.capitalize()} " f"phase completed in {duration:.2f} seconds.")
             )
         except Exception as e:
             self.logger.error(
@@ -338,9 +311,7 @@ class BaseBatchProcessor(ABC):
                 raise
             errors.append(e)
 
-    def add_hook(
-        self, hook_type: HookType, func: Callable[[], None], priority: int = 0
-    ) -> None:
+    def add_hook(self, hook_type: HookType, func: Callable[[], None], priority: int = 0) -> None:
         self.hook_manager.add_hook(hook_type, func, priority)
 
     def reload_config(self, config_path: Optional[str] = None) -> None:
@@ -351,9 +322,7 @@ class BaseBatchProcessor(ABC):
         except Exception:
             pass
 
-        self._persist_run_results = bool(
-            self.config.get("debug", {}).get("persist_run_results", False)
-        )
+        self._persist_run_results = bool(self.config.get("debug", {}).get("persist_run_results", False))
 
     def handle_error(self, message: str, raise_exception: bool = False) -> None:
         self.logger.error(message)
@@ -399,9 +368,7 @@ class BaseBatchProcessor(ABC):
         return
 
     def process(self, data: Optional[List[Dict[str, Any]]] = None) -> None:
-        self.logger.info(
-            f"[{self.__class__.__name__}] Executing common batch processing tasks."
-        )
+        self.logger.info(f"[{self.__class__.__name__}] Executing common batch processing tasks.")
 
         # per-execute reset (important if same instance is reused)
         self.completed_all_batches = False
@@ -432,8 +399,7 @@ class BaseBatchProcessor(ABC):
                 if self._should_stop_processing():
                     stop_requested = True
                     self.logger.warning(
-                        f"[{self.__class__.__name__}] Stopping before batch "
-                        f"{i + 1} due to interrupt condition."
+                        f"[{self.__class__.__name__}] Stopping before batch " f"{i + 1} due to interrupt condition."
                     )
                     break
 
@@ -461,9 +427,7 @@ class BaseBatchProcessor(ABC):
                 except CancelledError:
                     continue
                 except Exception:
-                    self.logger.exception(
-                        f"[{self.__class__.__name__}] [Batch {batch_idx}] Failed in thread"
-                    )
+                    self.logger.exception(f"[{self.__class__.__name__}] [Batch {batch_idx}] Failed in thread")
                     truncated = str(batch_data)[:100]
                     self.logger.debug(
                         f"[{self.__class__.__name__}] [Batch {batch_idx}] Failed batch data "
@@ -498,8 +462,7 @@ class BaseBatchProcessor(ABC):
 
         if failed_batches:
             self.logger.warning(
-                f"[{self.__class__.__name__}] Processing completed with failures "
-                f"in batches: {failed_batches}"
+                f"[{self.__class__.__name__}] Processing completed with failures " f"in batches: {failed_batches}"
             )
         elif interrupted:
             self.logger.warning(
@@ -508,9 +471,7 @@ class BaseBatchProcessor(ABC):
                 f"stop_reason={self.get_stop_reason()}"
             )
         else:
-            self.logger.info(
-                f"[{self.__class__.__name__}] All batches processed successfully."
-            )
+            self.logger.info(f"[{self.__class__.__name__}] All batches processed successfully.")
             self.completed_all_batches = True
 
         # ===== ResultStore: save results (only when enabled) =====
@@ -542,9 +503,7 @@ class BaseBatchProcessor(ABC):
                 )
 
                 if hasattr(self, "start_time"):
-                    summary_out["duration_sec"] = round(
-                        time.time() - float(self.start_time), 3
-                    )
+                    summary_out["duration_sec"] = round(time.time() - float(self.start_time), 3)
 
                 self.result_store.save_json(
                     self.run_ctx,
@@ -594,11 +553,7 @@ class BaseBatchProcessor(ABC):
         if not data:
             return []
 
-        batch_size = (
-            batch_size
-            or getattr(self, "batch_size", None)
-            or max(1, len(data) // self.max_workers)
-        )
+        batch_size = batch_size or getattr(self, "batch_size", None) or max(1, len(data) // self.max_workers)
         return [data[i : i + batch_size] for i in range(0, len(data), batch_size)]
 
     def _should_stop_processing(self) -> bool:
@@ -613,9 +568,7 @@ class BaseBatchProcessor(ABC):
         return False
 
     def _should_log_summary_detail(self) -> bool:
-        return os.getenv("DEBUG_LOG_SUMMARY") == "1" or self.config.get(
-            "debug", {}
-        ).get("log_summary_detail", False)
+        return os.getenv("DEBUG_LOG_SUMMARY") == "1" or self.config.get("debug", {}).get("log_summary_detail", False)
 
     def get_lock(self) -> Lock:
         return self._lock
@@ -644,9 +597,7 @@ class BaseBatchProcessor(ABC):
         raise NotImplementedError
 
     def _legacy_get_data(self, *args, **kwargs) -> List[Dict[str, Any]]:
-        raise NotImplementedError(
-            "Please implement load_data() (preferred) or override get_data() (legacy)."
-        )
+        raise NotImplementedError("Please implement load_data() (preferred) or override get_data() (legacy).")
 
     @abstractmethod
     def _process_batch(self, batch: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

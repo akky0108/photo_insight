@@ -1,6 +1,4 @@
 import os
-import tempfile
-import shutil
 import csv
 import pytest
 from photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_processor import (
@@ -81,9 +79,7 @@ def sample_csv(tmp_path):
 
 
 def test_evaluation_pipeline(tmp_path, dummy_config, sample_csv):
-    processor = EvaluationRankBatchProcessor(
-        config_path=dummy_config, date="2025-06-22"
-    )
+    processor = EvaluationRankBatchProcessor(config_path=dummy_config, date="2025-06-22")
     processor.execute()
 
     # 出力ファイル確認
@@ -166,9 +162,7 @@ def test_sorted_output_order(tmp_path, dummy_config):
         )
 
     # 実行
-    processor = EvaluationRankBatchProcessor(
-        config_path=dummy_config, date="2025-06-22"
-    )
+    processor = EvaluationRankBatchProcessor(config_path=dummy_config, date="2025-06-22")
     processor.execute()
 
     # 結果確認
@@ -178,9 +172,7 @@ def test_sorted_output_order(tmp_path, dummy_config):
         rows = list(reader)
         assert len(rows) == 2
         scores = [float(row["overall_evaluation"]) for row in rows]
-        assert scores == sorted(
-            scores, reverse=True
-        ), "Rows are not sorted by overall_evaluation descending."
+        assert scores == sorted(scores, reverse=True), "Rows are not sorted by overall_evaluation descending."
 
 
 def test_overall_evaluation_face_mode(dummy_config):

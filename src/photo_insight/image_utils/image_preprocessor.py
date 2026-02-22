@@ -64,15 +64,9 @@ class ImagePreprocessor:
 
     def _load_image(self, image_input: Union[str, np.ndarray]) -> np.ndarray:
         if isinstance(image_input, str):
-            return self.image_loader.load_image(
-                image_input, output_bps=16 if self.is_raw else 8
-            )
+            return self.image_loader.load_image(image_input, output_bps=16 if self.is_raw else 8)
         elif isinstance(image_input, np.ndarray):
-            if (
-                not self.assume_ndarray_bgr
-                and image_input.ndim == 3
-                and image_input.shape[-1] == 3
-            ):
+            if not self.assume_ndarray_bgr and image_input.ndim == 3 and image_input.shape[-1] == 3:
                 # ndarrayはRGBとして渡される契約のときだけ変換
                 return cv2.cvtColor(image_input, cv2.COLOR_RGB2BGR)
             return image_input
@@ -107,9 +101,7 @@ class ImagePreprocessor:
 
         return img.astype(image.dtype)
 
-    def _correct_orientation(
-        self, image_path: Union[str, np.ndarray], image: np.ndarray
-    ) -> np.ndarray:
+    def _correct_orientation(self, image_path: Union[str, np.ndarray], image: np.ndarray) -> np.ndarray:
         if not isinstance(image_path, str):
             return image  # ndarray なら回転補正スキップ
 
@@ -119,9 +111,7 @@ class ImagePreprocessor:
             if not exif:
                 return image
 
-            orientation_key = next(
-                (k for k, v in ExifTags.TAGS.items() if v == "Orientation"), None
-            )
+            orientation_key = next((k for k, v in ExifTags.TAGS.items() if v == "Orientation"), None)
             if orientation_key is None:
                 return image
 

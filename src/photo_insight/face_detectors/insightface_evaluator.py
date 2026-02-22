@@ -66,9 +66,7 @@ class InsightFaceDetector(BaseFaceDetector):
         try:
             from insightface.app import FaceAnalysis  # type: ignore
         except Exception as e:
-            raise ModuleNotFoundError(
-                "insightface is not installed (required for InsightFaceDetector)."
-            ) from e
+            raise ModuleNotFoundError("insightface is not installed (required for InsightFaceDetector).") from e
         return FaceAnalysis
 
     def available(self) -> bool:
@@ -111,12 +109,10 @@ class InsightFaceDetector(BaseFaceDetector):
                 yaw, pitch, roll = self._extract_pose(face)
                 gaze_vector = self._estimate_gaze_vector(yaw, pitch)
 
-                eye_lap_var, eye_closed_prob, eye_patch_size = (
-                    self._estimate_eye_closed(
-                        image=image,
-                        box=box,
-                        landmarks=landmarks,
-                    )
+                eye_lap_var, eye_closed_prob, eye_patch_size = self._estimate_eye_closed(
+                    image=image,
+                    box=box,
+                    landmarks=landmarks,
                 )
 
                 results.append(

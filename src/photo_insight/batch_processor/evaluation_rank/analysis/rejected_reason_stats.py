@@ -134,9 +134,7 @@ class RejectedReasonAnalyzer:
         # Phase2は基本 code をそのまま採用
         return code
 
-    def analyze(
-        self, rows: Iterable[Dict[str, Any]]
-    ) -> Tuple[List[RejectedReasonSummaryRow], Dict[str, Any]]:
+    def analyze(self, rows: Iterable[Dict[str, Any]]) -> Tuple[List[RejectedReasonSummaryRow], Dict[str, Any]]:
         counter: Counter[str] = Counter()
         total_rows = 0
         total_rejected = 0
@@ -165,11 +163,7 @@ class RejectedReasonAnalyzer:
         summary: List[RejectedReasonSummaryRow] = []
         for code, count in counter.items():
             ratio = (count / total_rejected) if total_rejected > 0 else 0.0
-            summary.append(
-                RejectedReasonSummaryRow(
-                    reason_code=str(code), count=int(count), ratio=float(ratio)
-                )
-            )
+            summary.append(RejectedReasonSummaryRow(reason_code=str(code), count=int(count), ratio=float(ratio)))
 
         summary.sort(key=lambda x: (-x.count, x.reason_code))
 

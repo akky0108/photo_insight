@@ -14,7 +14,7 @@ from photo_insight.constants.env_constants import (
     GPU_PACKAGE_REPLACEMENTS,
     is_gpu_package,
 )
-from collections import Counter, defaultdict
+from collections import defaultdict
 
 
 class EnvMerger:
@@ -96,12 +96,8 @@ class EnvMerger:
         conda/pip の同名パッケージ間のバージョン矛盾を検出（strict 時）。
         """
         conda_strs = [d for d in self.conda_deps if isinstance(d, str)]
-        self._check_duplicate_packages(
-            conda_strs, source="conda", allow_exact_duplicates=not self.strict
-        )
-        self._check_duplicate_packages(
-            self.pip_deps, source="pip", allow_exact_duplicates=not self.strict
-        )
+        self._check_duplicate_packages(conda_strs, source="conda", allow_exact_duplicates=not self.strict)
+        self._check_duplicate_packages(self.pip_deps, source="pip", allow_exact_duplicates=not self.strict)
 
         pip_versions = self._parse_pip_versions()
         for conda_pkg in self.conda_deps:
@@ -109,9 +105,7 @@ class EnvMerger:
             if name in pip_versions:
                 pip_version = pip_versions[name]
                 if self.strict and version and pip_version and version != pip_version:
-                    raise VersionMismatchError(
-                        f"{name}: conda={version}, pip={pip_version}"
-                    )
+                    raise VersionMismatchError(f"{name}: conda={version}, pip={pip_version}")
                 # ★ 警告: condaにバージョンなし、pipにあり
                 if not version and pip_version:
                     warnings.warn(
@@ -134,9 +128,7 @@ class EnvMerger:
         self._validate_dependencies()
 
         if self.pip_deps:
-            self.conda_deps = [
-                d for d in self.conda_deps if not (isinstance(d, dict) and "pip" in d)
-            ]
+            self.conda_deps = [d for d in self.conda_deps if not (isinstance(d, dict) and "pip" in d)]
             self.conda_deps.append({"pip": self.pip_deps})
 
     # ------------------------
@@ -198,11 +190,9 @@ class EnvMerger:
                             f"→ Please specify format explicitly using format='json' or 'txt'."
                         )
             else:
-                raise ValueError(
-                    f"[ERROR] Unknown format '{format}'. Use 'json', 'txt', or None for auto-detect."
-                )
+                raise ValueError(f"[ERROR] Unknown format '{format}'. Use 'json', 'txt', or None for auto-detect.")
 
-        except Exception as e:
+        except Exception:
             self.logger.exception(f"Failed to load pip file: {path}")
             raise
 
@@ -212,9 +202,7 @@ class EnvMerger:
     # 出力系
     # ------------------------
 
-    def export(
-        self, final_yml: Optional[Path], requirements_txt: Optional[Path]
-    ) -> None:
+    def export(self, final_yml: Optional[Path], requirements_txt: Optional[Path]) -> None:
         """
         現在の依存関係を YAML と requirements.txt に書き出す。
         """
@@ -256,11 +244,7 @@ class EnvMerger:
         指定パッケージを除外した pip 依存リストを返す。
         """
         exclude_set = {x.lower() for x in exclude}
-        return [
-            pkg
-            for pkg in self.pip_deps
-            if re.split(r"[=<>!~]+", pkg, maxsplit=1)[0].lower() not in exclude_set
-        ]
+        return [pkg for pkg in self.pip_deps if re.split(r"[=<>!~]+", pkg, maxsplit=1)[0].lower() not in exclude_set]
 
     def build_env_dict(self, pip_overrides: list[str] = None) -> dict:
         """
@@ -287,9 +271,7 @@ class EnvMerger:
         def get_pkg_name(pkg: str) -> str:
             return re.split(r"[=<>!~]+", pkg, 1)[0].lower()
 
-        filtered_pip = [
-            pkg for pkg in self.pip_deps if get_pkg_name(pkg) not in exclude_set
-        ]
+        filtered_pip = [pkg for pkg in self.pip_deps if get_pkg_name(pkg) not in exclude_set]
         return self.build_env_dict(pip_overrides=filtered_pip)
 
     # ------------------------
@@ -307,9 +289,7 @@ class EnvMerger:
             pkg_name, sep, ver = dep.partition("==")
             if pkg_name in unique:
                 if self.strict and unique[pkg_name] != dep:
-                    raise VersionMismatchError(
-                        f"Conflicting versions for {pkg_name}: {unique[pkg_name]} vs {dep}"
-                    )
+                    raise VersionMismatchError(f"Conflicting versions for {pkg_name}: {unique[pkg_name]} vs {dep}")
             else:
                 unique[pkg_name] = dep
 
@@ -332,11 +312,7 @@ class EnvMerger:
                 return [f"{pkg['name']}=={pkg['version']}" for pkg in json_data]
         except json.JSONDecodeError:
             pass
-        return [
-            line.strip()
-            for line in content.strip().splitlines()
-            if line and not line.startswith("#")
-        ]
+        return [line.strip() for line in content.strip().splitlines() if line and not line.startswith("#")]
 
     def _parse_pip_versions(self) -> dict:
         versions = {}
@@ -360,9 +336,7 @@ class EnvMerger:
 
     def _parse_pip_txt(self, content: str) -> list[str]:
         return [
-            line.strip()
-            for line in content.strip().splitlines()
-            if line.strip() and not line.strip().startswith("#")
+            line.strip() for line in content.strip().splitlines() if line.strip() and not line.strip().startswith("#")
         ]
 
     def _split_conda_package(self, dep: str) -> tuple[str, str | None]:
@@ -373,9 +347,7 @@ class EnvMerger:
 
     def _normalize_and_deduplicate_python(self) -> None:
         python_indices = [
-            i
-            for i, dep in enumerate(self.conda_deps)
-            if isinstance(dep, str) and dep.lower().startswith("python")
+            i for i, dep in enumerate(self.conda_deps) if isinstance(dep, str) and dep.lower().startswith("python")
         ]
 
         if not python_indices:
@@ -470,13 +442,10 @@ class EnvMerger:
                 new_conda.append(dep)
         self.conda_deps = new_conda
 
-    def _check_duplicate_packages(
-        self, packages: list[str], source: str, allow_exact_duplicates: bool = False
-    ) -> None:
+    def _check_duplicate_packages(self, packages: list[str], source: str, allow_exact_duplicates: bool = False) -> None:
         """
         パッケージリスト内の重複パッケージ名（バージョン含む）を検出し、エラーを投げる。
         """
-        from collections import defaultdict
 
         seen = defaultdict(list)
         for pkg in packages:

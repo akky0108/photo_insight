@@ -53,29 +53,19 @@ class PortraitBatchProcessor(BaseBatchProcessor):
     def _set_directories_and_files(self, date: Optional[str]):
         """処理するディレクトリとCSVファイルのパスを設定"""
         if date:
-            self.base_directory = os.path.join(
-                self.config.get("base_directory_root", "/mnt/l/picture/2024"), date
-            )
+            self.base_directory = os.path.join(self.config.get("base_directory_root", "/mnt/l/picture/2024"), date)
             self.image_csv_file = f"{date}_nef_exif_data.csv"
         else:
-            self.base_directory = self.config.get(
-                "base_directory", "/mnt/l/picture/2024/2024-07-02/"
-            )
+            self.base_directory = self.config.get("base_directory", "/mnt/l/picture/2024/2024-07-02/")
             self.image_csv_file = "nef_exif_data.csv"
         self.output_directory = self.config.get("output_directory", "temp")
-        self.result_csv_file = os.path.join(
-            self.output_directory, "evaluation_results.csv"
-        )
+        self.result_csv_file = os.path.join(self.output_directory, "evaluation_results.csv")
 
     def _build_processing_pipeline(self):
         """画像処理パイプラインの構築"""
         pipeline = []
         if self.apply_filter:
-            pipeline.append(
-                lambda img: ImageUtils.apply_noise_filter(
-                    img, method="median", kernel_size=5
-                )
-            )
+            pipeline.append(lambda img: ImageUtils.apply_noise_filter(img, method="median", kernel_size=5))
         if self.apply_normalization:
             pipeline.append(ImageUtils.normalize_image)
         return pipeline
@@ -83,13 +73,9 @@ class PortraitBatchProcessor(BaseBatchProcessor):
     def setup(self) -> None:
         """バッチ処理のセットアップ。CSVから画像ファイル情報を読み込む"""
         self.logger.info("Portrait batch processor setup started.")
-        image_csv_path = os.path.join(
-            self.project_root, self.output_directory, self.image_csv_file
-        )
+        image_csv_path = os.path.join(self.project_root, self.output_directory, self.image_csv_file)
         self.image_files = self._load_image_files_from_csv(image_csv_path)
-        self.logger.info(
-            f"Found {len(self.image_files)} image files listed in {image_csv_path}."
-        )
+        self.logger.info(f"Found {len(self.image_files)} image files listed in {image_csv_path}.")
         self._initialize_csv_files()
 
     def process(self) -> None:
@@ -99,9 +85,7 @@ class PortraitBatchProcessor(BaseBatchProcessor):
         for image_file, orientation, bit_depth in self.image_files:
             self._process_single_image(image_file, orientation, bit_depth)
 
-    def _process_single_image(
-        self, image_file: str, orientation: Optional[int], bit_depth: Optional[int]
-    ) -> None:
+    def _process_single_image(self, image_file: str, orientation: Optional[int], bit_depth: Optional[int]) -> None:
         """単一の画像を処理し、評価を行う"""
         retry_count = 0
         max_retries = 3
@@ -124,24 +108,17 @@ class PortraitBatchProcessor(BaseBatchProcessor):
                     self.logger.warning(f"Failed to load image: {image_file}")
             except Exception as e:
                 retry_count += 1
-                self.logger.error(
-                    f"Error processing {image_file}: {e}, "
-                    f"retrying {retry_count}/{max_retries}"
-                )
+                self.logger.error(f"Error processing {image_file}: {e}, " f"retrying {retry_count}/{max_retries}")
                 time.sleep(retry_delay)  # リトライ前の待機
         if not success:
-            self.logger.error(
-                f"Failed to process {image_file} after {max_retries} retries."
-            )
+            self.logger.error(f"Failed to process {image_file} after {max_retries} retries.")
 
         if image is not None:
             self._evaluate_image(image_file, image)
             del image  # ← 明示的解放
             gc.collect()
 
-    def _load_image_files_from_csv(
-        self, csv_path: str
-    ) -> List[Tuple[str, Optional[int], Optional[int]]]:
+    def _load_image_files_from_csv(self, csv_path: str) -> List[Tuple[str, Optional[int], Optional[int]]]:
         """CSVから画像ファイル名、Orientation値、ビット深度を読み込む"""
         image_files = []
         try:
@@ -151,9 +128,7 @@ class PortraitBatchProcessor(BaseBatchProcessor):
                 for row in reader:
                     if row:
                         image_file = row[0]
-                        orientation = (
-                            int(row[9]) if len(row) > 9 and row[9].isdigit() else None
-                        )
+                        orientation = int(row[9]) if len(row) > 9 and row[9].isdigit() else None
                         bit_depth = (
                             int(row[10])
                             if len(row) > 10 and row[10].isdigit()
@@ -171,12 +146,8 @@ class PortraitBatchProcessor(BaseBatchProcessor):
         try:
             # 14ビット画像の場合は16ビットに変換
             output_bps = 16 if output_bps == 14 else output_bps
-            image = self.loader.load_image(
-                file_path, output_bps=output_bps, orientation=orientation
-            )
-            self.logger.debug(
-                f"Image loaded with dtype: {image.dtype} (bit depth: {output_bps})"
-            )
+            image = self.loader.load_image(file_path, output_bps=output_bps, orientation=orientation)
+            self.logger.debug(f"Image loaded with dtype: {image.dtype} (bit depth: {output_bps})")
 
             # パイプラインで追加処理
             for process in self.processing_pipeline:
@@ -191,9 +162,7 @@ class PortraitBatchProcessor(BaseBatchProcessor):
         """画像を評価し、その結果をCSVに書き込む"""
         log_memory_usage(self.logger)
         is_raw = image_file.lower().endswith(".nef")
-        evaluator = PortraitQualityEvaluator(
-            image_path_or_array=image, is_raw=is_raw, logger=self.logger
-        )
+        evaluator = PortraitQualityEvaluator(image_path_or_array=image, is_raw=is_raw, logger=self.logger)
         evaluation_result = evaluator.evaluate()
         log_memory_usage(self.logger)
 
@@ -225,9 +194,7 @@ class PortraitBatchProcessor(BaseBatchProcessor):
         sharpness_score = result.get("sharpness", {}).get("score", "N/A")
         contrast_score = result.get("contrast", {}).get("score", "N/A")
         noise_score = result.get("noise", {}).get("score", "N/A")
-        wavelet_sharpness_score = result.get("wavelet_sharpness", {}).get(
-            "score", "N/A"
-        )
+        wavelet_sharpness_score = result.get("wavelet_sharpness", {}).get("score", "N/A")
         blurriness_score = result.get("blurriness", {}).get("score", "N/A")
 
         with open(self.result_csv_file, mode="a", newline="") as file:

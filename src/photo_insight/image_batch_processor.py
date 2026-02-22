@@ -16,9 +16,7 @@ DEFAULT_OUTPUT_DIR = "temp"
 class ImageBatchProcessor(BaseBatchProcessor):
     """画像データを処理するためのバッチプロセッサ"""
 
-    def __init__(
-        self, target_date: Optional[str] = None, logger: Logger = None, *args, **kwargs
-    ):
+    def __init__(self, target_date: Optional[str] = None, logger: Logger = None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.date = self._parse_date(target_date)
 
@@ -35,21 +33,14 @@ class ImageBatchProcessor(BaseBatchProcessor):
                 datetime.datetime.strptime(date_str, "%Y-%m-%d")
                 return date_str
             except ValueError:
-                self.logger.error(
-                    "Invalid date format. Use 'YYYY-MM-DD'. "
-                    "Using current date as fallback."
-                )
+                self.logger.error("Invalid date format. Use 'YYYY-MM-DD'. " "Using current date as fallback.")
         return datetime.datetime.now().strftime("%Y-%m-%d")
 
     def _set_directories_and_files(self, date: str):
         """処理するディレクトリとCSVファイルのパスを設定"""
-        self.image_dir = os.path.join(
-            self.config.get("base_directory_root", DEFAULT_IMAGE_DIR), date
-        )
+        self.image_dir = os.path.join(self.config.get("base_directory_root", DEFAULT_IMAGE_DIR), date)
         self.output_directory = self.config.get("output_directory", DEFAULT_OUTPUT_DIR)
-        self.result_csv_file = os.path.join(
-            self.output_directory, "evaluation_results.csv"
-        )
+        self.result_csv_file = os.path.join(self.output_directory, "evaluation_results.csv")
 
     def setup(self) -> None:
         """評価結果を読み込むためのセットアップフェーズ"""
@@ -80,9 +71,7 @@ class ImageBatchProcessor(BaseBatchProcessor):
                 reader = csv.DictReader(csvfile)
                 for row in reader:
                     # `face_evaluation` をパース
-                    row["face_evaluation"] = self._parse_face_evaluation(
-                        row.get("face_evaluation", "")
-                    )
+                    row["face_evaluation"] = self._parse_face_evaluation(row.get("face_evaluation", ""))
                     data.append(row)
         except Exception as e:
             self.logger.error(f"Error reading evaluation data: {e}", exc_info=True)
@@ -100,10 +89,7 @@ class ImageBatchProcessor(BaseBatchProcessor):
                 self.logger.debug(f"Decoded face_evaluation: {face_evaluation}")
                 return face_evaluation
             except json.JSONDecodeError as e:
-                self.logger.warning(
-                    f"Failed to decode face_evaluation JSON: {face_evaluation}, "
-                    f"error: {e}"
-                )
+                self.logger.warning(f"Failed to decode face_evaluation JSON: {face_evaluation}, " f"error: {e}")
                 return None
         self.logger.warning(f"Invalid face_evaluation format: {face_evaluation}")
         return None
@@ -121,9 +107,7 @@ class ImageBatchProcessor(BaseBatchProcessor):
 
                 # 顔データがなければスキップ
                 if not face_bbox:
-                    self.logger.warning(
-                        f"No valid face data for {image_file}. Skipping."
-                    )
+                    self.logger.warning(f"No valid face data for {image_file}. Skipping.")
                     continue
 
                 # 各評価を実施
@@ -132,8 +116,7 @@ class ImageBatchProcessor(BaseBatchProcessor):
 
                 # 結果をログに記録
                 self.logger.info(
-                    f"Processed {image_file}: Rule of Thirds={thirds_score:.2f}, "
-                    f"Margin={margin_score:.2f}"
+                    f"Processed {image_file}: Rule of Thirds={thirds_score:.2f}, " f"Margin={margin_score:.2f}"
                 )
 
             except Exception as e:
@@ -153,9 +136,7 @@ class ImageBatchProcessor(BaseBatchProcessor):
             self.logger.warning(f"Invalid face_evaluation format: {face_eval}")
         return None
 
-    def evaluate_rule_of_thirds(
-        self, image: np.ndarray, face_bbox: tuple = None
-    ) -> float:
+    def evaluate_rule_of_thirds(self, image: np.ndarray, face_bbox: tuple = None) -> float:
         """三分割法の評価"""
         height, width = image.shape[:2]
         thirds_points = [
@@ -174,22 +155,16 @@ class ImageBatchProcessor(BaseBatchProcessor):
             return 0.0
 
         # 中心点が全ての三分割交点に近いほどスコアが高い
-        min_distance = min(
-            np.sqrt((center_x - x) ** 2 + (center_y - y) ** 2) for x, y in thirds_points
-        )
+        min_distance = min(np.sqrt((center_x - x) ** 2 + (center_y - y) ** 2) for x, y in thirds_points)
 
-        normalized_score = 1 - (
-            min_distance / np.sqrt((width / 2) ** 2 + (height / 2) ** 2)
-        )
+        normalized_score = 1 - (min_distance / np.sqrt((width / 2) ** 2 + (height / 2) ** 2))
         return max(0.0, normalized_score)
 
     def evaluate_margin(self, image: np.ndarray) -> float:
         """余白の評価 (画像内のコンテンツの集中度)"""
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         _, thresh = cv2.threshold(gray, 50, 255, cv2.THRESH_BINARY)
-        contours, _ = cv2.findContours(
-            thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         if not contours:
             return 0.0

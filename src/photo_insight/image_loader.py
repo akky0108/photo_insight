@@ -63,19 +63,12 @@ class ImageLoader:
             elif ext in self.SUPPORTED_TIFF_EXTENSIONS:
                 image = self._load_with_pil(filepath)
             elif ext in self.SUPPORTED_RAW_EXTENSIONS:
-                image, raw_orientation = self._load_with_rawpy(
-                    filepath, output_bps=output_bps
-                )
+                image, raw_orientation = self._load_with_rawpy(filepath, output_bps=output_bps)
 
                 # **整合性チェック**
-                if (
-                    orientation is not None
-                    and raw_orientation is not None
-                    and orientation != raw_orientation
-                ):
+                if orientation is not None and raw_orientation is not None and orientation != raw_orientation:
                     self.logger.warning(
-                        f"Orientation mismatch: provided={orientation}, "
-                        f"detected={raw_orientation} for {filepath}"
+                        f"Orientation mismatch: provided={orientation}, " f"detected={raw_orientation} for {filepath}"
                     )
                     # rawpy 由来を採用（rawpy が読めているのでこちらを信頼）
                     orientation = raw_orientation
@@ -127,9 +120,7 @@ class ImageLoader:
             self.logger.error(f"Failed to load image with PIL from {filepath}: {e}")
             raise
 
-    def _load_with_rawpy(
-        self, filepath: str, output_bps: int = 8
-    ) -> Tuple[np.ndarray, Optional[int]]:
+    def _load_with_rawpy(self, filepath: str, output_bps: int = 8) -> Tuple[np.ndarray, Optional[int]]:
         """
         rawpyでRAW画像を読み込む。
 
@@ -147,9 +138,7 @@ class ImageLoader:
         try:
             with rawpy.imread(filepath) as raw:  # type: ignore[attr-defined]
                 # Orientation取得（存在しない場合はNone）
-                raw_orientation = (
-                    raw.sizes.orientation if hasattr(raw.sizes, "orientation") else None
-                )
+                raw_orientation = raw.sizes.orientation if hasattr(raw.sizes, "orientation") else None
 
                 # rawpy postprocess
                 rgb_image = raw.postprocess(
@@ -162,9 +151,7 @@ class ImageLoader:
                 )
                 return rgb_image, raw_orientation
         except Exception as e:
-            self.logger.error(
-                f"Failed to load RAW image with rawpy from {filepath}: {e}"
-            )
+            self.logger.error(f"Failed to load RAW image with rawpy from {filepath}: {e}")
             raise
 
     def _apply_exif_rotation(self, image: np.ndarray, orientation: int) -> np.ndarray:
@@ -198,9 +185,7 @@ class ImageLoader:
                 transformed = img_pil.transpose(Image.Transpose.ROTATE_90)
             else:
                 # Unknown orientation => no-op
-                self.logger.warning(
-                    f"Unknown EXIF orientation={orientation}. Skip rotation."
-                )
+                self.logger.warning(f"Unknown EXIF orientation={orientation}. Skip rotation.")
                 transformed = img_pil
 
             return np.array(transformed)
@@ -224,9 +209,7 @@ class ImageLoader:
         equalized_image = clahe.apply(gray_image)
         return cv2.cvtColor(equalized_image, cv2.COLOR_GRAY2RGB)
 
-    def _apply_gamma_correction(
-        self, image: np.ndarray, gamma: float = 2.2
-    ) -> np.ndarray:
+    def _apply_gamma_correction(self, image: np.ndarray, gamma: float = 2.2) -> np.ndarray:
         """
         ガンマ補正を適用します。
 
@@ -263,9 +246,7 @@ class ImageLoader:
         else:
             h = max(5, min(30, int(noise_level / 2)))
 
-        return cv2.fastNlMeansDenoisingColored(
-            image, None, h, templateWindowSize=7, searchWindowSize=21
-        )
+        return cv2.fastNlMeansDenoisingColored(image, None, h, templateWindowSize=7, searchWindowSize=21)
 
     def _sharpen_image(self, image: np.ndarray, alpha: float = 1.5) -> np.ndarray:
         """アンシャープマスキングを使用したシャープ化処理"""

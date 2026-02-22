@@ -57,9 +57,7 @@ def validate_row_701_5(
         try:
             d = abs(float(new_acc) - float(cur_acc))
             if d > criteria.accepted_delta_max:
-                reasons.append(
-                    f"accepted_delta> {criteria.accepted_delta_max} (abs_delta={d:.3f})"
-                )
+                reasons.append(f"accepted_delta> {criteria.accepted_delta_max} (abs_delta={d:.3f})")
         except Exception:
             reasons.append("accepted_ratio invalid")
 
@@ -72,9 +70,7 @@ def validate_row_701_5(
     try:
         new_disc = float(row.get("new_discrete_ratio"))
         if new_disc < criteria.discrete_min:
-            reasons.append(
-                f"discrete_ratio< {criteria.discrete_min} (new={new_disc:.3f})"
-            )
+            reasons.append(f"discrete_ratio< {criteria.discrete_min} (new={new_disc:.3f})")
     except Exception:
         reasons.append("new_discrete_ratio missing/invalid")
 
@@ -82,9 +78,7 @@ def validate_row_701_5(
     try:
         new_ir = float(row.get("new_in_range_ratio"))
         if new_ir < criteria.in_range_min:
-            reasons.append(
-                f"in_range_ratio< {criteria.in_range_min} (new={new_ir:.3f})"
-            )
+            reasons.append(f"in_range_ratio< {criteria.in_range_min} (new={new_ir:.3f})")
     except Exception:
         reasons.append("new_in_range_ratio missing/invalid")
 
@@ -94,9 +88,7 @@ def validate_row_701_5(
             cur_l1 = float(row.get("current_tech_target_l1"))
             new_l1 = float(row.get("new_tech_target_l1"))
             if new_l1 > cur_l1:
-                reasons.append(
-                    f"tech_target_l1_regressed (cur={cur_l1:.6f}, new={new_l1:.6f})"
-                )
+                reasons.append(f"tech_target_l1_regressed (cur={cur_l1:.6f}, new={new_l1:.6f})")
         except Exception:
             reasons.append("tech_target_l1 missing/invalid")
 

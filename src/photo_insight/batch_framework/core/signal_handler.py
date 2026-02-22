@@ -20,15 +20,9 @@ class SignalHandler:
             self.logger.info("Signal handlers registered for SIGINT and SIGTERM.")
 
     def _handle_shutdown(self, signum, frame):
-        signal_name = (
-            signal.Signals(signum).name
-            if signum in signal.Signals.__members__.values()
-            else str(signum)
-        )
+        signal_name = signal.Signals(signum).name if signum in signal.Signals.__members__.values() else str(signum)
         if self.logger:
-            self.logger.info(
-                f"Received shutdown signal {signal_name}. Executing cleanup..."
-            )
+            self.logger.info(f"Received shutdown signal {signal_name}. Executing cleanup...")
         self.shutdown_callback()
 
     # テスト用にアクセスできるようにプロパティを追加（任意）

@@ -59,11 +59,7 @@ def load_thresholds_sorted(
     # config の正規化
     cfg = config if isinstance(config, dict) else {}
     metric_cfg = cfg.get(key, {}) if isinstance(cfg, dict) else {}
-    thr = (
-        metric_cfg.get("discretize_thresholds_raw", {})
-        if isinstance(metric_cfg, dict)
-        else {}
-    )
+    thr = metric_cfg.get("discretize_thresholds_raw", {}) if isinstance(metric_cfg, dict) else {}
     if not isinstance(thr, dict):
         thr = {}
 

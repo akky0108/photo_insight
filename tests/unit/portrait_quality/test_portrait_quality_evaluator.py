@@ -88,9 +88,7 @@ def test_portrait_quality_evaluation(filename, expected_face_detected):
 
     assert isinstance(result, dict), "結果は辞書であるべき"
     assert "face_detected" in result, "'face_detected' キーが存在しない"
-    assert (
-        result["face_detected"] == expected_face_detected
-    ), f"顔検出結果が期待と異なります: {filename}"
+    assert result["face_detected"] == expected_face_detected, f"顔検出結果が期待と異なります: {filename}"
 
     for key in ["sharpness_score", "blurriness_score", "contrast_score"]:
         assert key in result, f"{key} が結果に含まれていません"

@@ -208,9 +208,7 @@ def _normalize_grade_value(grade: Any) -> Optional[str]:
     return s if s in GRADE_ENUM else None
 
 
-def _ensure_grade_by_score(
-    row: Dict[str, Any], metric: str, *, prefix: str = ""
-) -> None:
+def _ensure_grade_by_score(row: Dict[str, Any], metric: str, *, prefix: str = "") -> None:
     """{metric}_grade が欠損/不正な場合のみ、{metric}_score から grade を補完する。"""
     gk = f"{prefix}{metric}_grade"
     sk = f"{prefix}{metric}_score"
@@ -238,9 +236,7 @@ def _normalize_row_inplace(row: Dict[str, Any]) -> None:
     """
     faces_list, faces_reason = _safe_parse_faces(row.get("faces"))
     row["faces"] = faces_list
-    row["faces_parse_reason"] = (
-        faces_reason  # デバッグ用（契約外なら writer で落とす想定）
-    )
+    row["faces_parse_reason"] = faces_reason  # デバッグ用（契約外なら writer で落とす想定）
 
     row["face_detected"] = parse_bool(row.get("face_detected"))
     row["full_body_detected"] = parse_bool(row.get("full_body_detected"))
@@ -265,13 +261,8 @@ def _normalize_row_inplace(row: Dict[str, Any]) -> None:
         if s_low.startswith("invalid"):
             parts = [p.strip() for p in s_low.split(",") if p.strip()]
             row["main_subject_center_status"] = parts[0] if parts else "invalid"
-            row["main_subject_center_source_parsed"] = (
-                parts[1] if len(parts) >= 2 else None
-            )
-            src_reason = (
-                f"center_calc_failed:"
-                f"{row.get('main_subject_center_source_parsed') or 'unknown'}"
-            )
+            row["main_subject_center_source_parsed"] = parts[1] if len(parts) >= 2 else None
+            src_reason = f"center_calc_failed:" f"{row.get('main_subject_center_source_parsed') or 'unknown'}"
             row["main_subject_center_invalid_reason"] = src_reason
         else:
             row.setdefault("main_subject_center_status", None)
@@ -283,9 +274,7 @@ def _normalize_row_inplace(row: Dict[str, Any]) -> None:
         row.setdefault("main_subject_center_invalid_reason", "")
 
     if comp_status == "invalid":
-        row["composition_invalid_reason"] = src_reason or str(
-            row.get("composition_invalid_reason") or "unknown"
-        )
+        row["composition_invalid_reason"] = src_reason or str(row.get("composition_invalid_reason") or "unknown")
     else:
         row.setdefault("composition_invalid_reason", "")
 
@@ -308,9 +297,7 @@ def _normalize_row_inplace(row: Dict[str, Any]) -> None:
     _ensure_grade_by_score(row, "noise", prefix="face_")
     _ensure_grade_by_score(row, "exposure", prefix="face_")
 
-    row["expression_grade"] = _normalize_grade_value(
-        row.get("expression_grade")
-    ) or row.get("expression_grade")
+    row["expression_grade"] = _normalize_grade_value(row.get("expression_grade")) or row.get("expression_grade")
 
 
 # =========================
@@ -383,31 +370,17 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
         cfg = self.config_manager.get_config() or {}
 
         # 互換: batch/evaluation_rank のどちらかに置いても拾えるようにする
-        rank_cfg = (
-            (cfg.get("evaluation_rank") or cfg.get("batch_processor") or {})
-            if isinstance(cfg, dict)
-            else {}
-        )
+        rank_cfg = (cfg.get("evaluation_rank") or cfg.get("batch_processor") or {}) if isinstance(cfg, dict) else {}
 
         eval_dir = (
-            rank_cfg.get("evaluation_data_dir")
-            or (cfg.get("paths", {}) or {}).get("evaluation_data_dir")
-            or "./temp"
+            rank_cfg.get("evaluation_data_dir") or (cfg.get("paths", {}) or {}).get("evaluation_data_dir") or "./temp"
         )
-        out_dir = (
-            rank_cfg.get("output_data_dir")
-            or (cfg.get("paths", {}) or {}).get("output_data_dir")
-            or "./output"
-        )
+        out_dir = rank_cfg.get("output_data_dir") or (cfg.get("paths", {}) or {}).get("output_data_dir") or "./output"
 
         # project_root 基準に寄せる（相対パス事故を減らす）
         pr = Path(getattr(self, "project_root", "."))
-        eval_dir_p = (
-            Path(eval_dir) if Path(eval_dir).is_absolute() else (pr / eval_dir)
-        ).resolve()
-        out_dir_p = (
-            Path(out_dir) if Path(out_dir).is_absolute() else (pr / out_dir)
-        ).resolve()
+        eval_dir_p = (Path(eval_dir) if Path(eval_dir).is_absolute() else (pr / eval_dir)).resolve()
+        out_dir_p = (Path(out_dir) if Path(out_dir).is_absolute() else (pr / out_dir)).resolve()
 
         self.paths["evaluation_data_dir"] = str(eval_dir_p)
         self.paths["output_data_dir"] = str(out_dir_p)
@@ -419,10 +392,7 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
         BaseBatchProcessor 契約:
         - load_data(): 純I/O（副作用なし）
         """
-        input_csv = (
-            Path(self.paths["evaluation_data_dir"])
-            / f"evaluation_results_{self.date}.csv"
-        )
+        input_csv = Path(self.paths["evaluation_data_dir"]) / f"evaluation_results_{self.date}.csv"
         if not input_csv.exists():
             raise FileNotFoundError(input_csv)
 
@@ -443,9 +413,7 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                 if isinstance(row, dict):
                     _normalize_row_inplace(row)
         except Exception:
-            self.logger.exception(
-                "Row normalization failed in after_data_loaded (continue)."
-            )
+            self.logger.exception("Row normalization failed in after_data_loaded (continue).")
 
         if hasattr(self.scorer, "build_calibration"):
             try:
@@ -453,22 +421,15 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                 self.calibration = dict(getattr(self.scorer, "calibration", {}) or {})
                 if self.calibration:
                     self.logger.info(
-                        "Calibration built: "
-                        + ", ".join(
-                            [f"{k}={v:.3f}" for k, v in self.calibration.items()]
-                        )
+                        "Calibration built: " + ", ".join([f"{k}={v:.3f}" for k, v in self.calibration.items()])
                     )
                 else:
                     self.logger.info("Calibration built (empty).")
             except Exception:
-                self.logger.exception(
-                    "Calibration build failed. Continue without calibration."
-                )
+                self.logger.exception("Calibration build failed. Continue without calibration.")
                 self.calibration = {}
         else:
-            self.logger.info(
-                "scorer.build_calibration not found. Continue without calibration."
-            )
+            self.logger.info("scorer.build_calibration not found. Continue without calibration.")
             self.calibration = {}
 
     # -------------------------
@@ -509,16 +470,12 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
 
                     expr = score01(out, "expression_score", default=0.0)
                     half_pen = float(half_closed_eye_penalty_proxy(out))
-                    expr_eff = float(
-                        apply_half_closed_penalty_to_expression(expr, half_pen)
-                    )
+                    expr_eff = float(apply_half_closed_penalty_to_expression(expr, half_pen))
                 except Exception:
                     pass
 
                 out["debug_pitch"] = debug_pitch
-                out["debug_gaze_y"] = (
-                    "" if debug_gaze_y is None else float(debug_gaze_y)
-                )
+                out["debug_gaze_y"] = "" if debug_gaze_y is None else float(debug_gaze_y)
                 out["debug_eye_contact"] = debug_eye
                 out["debug_expression"] = debug_expr
                 out["debug_half_penalty"] = half_pen
@@ -536,15 +493,11 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                 for k, v in (comp_bd or {}).items():
                     out[f"contrib_comp_{k}"] = safe_float(v) * 100.0
 
-                results.append(
-                    {"status": "success", "score": float(overall), "row": out}
-                )
+                results.append({"status": "success", "score": float(overall), "row": out})
 
             except Exception as e:
                 self.logger.exception("Evaluation failed")
-                results.append(
-                    {"status": "failure", "score": 0.0, "row": row, "error": str(e)}
-                )
+                results.append({"status": "failure", "score": 0.0, "row": row, "error": str(e)})
 
         return results
 
@@ -559,13 +512,9 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
 
             # 互換（過去のフィールド名）
             if portrait_p is None:
-                portrait_p = getattr(rules, "portrait_p", None) or getattr(
-                    rules, "portrait_accept_percentile", None
-                )
+                portrait_p = getattr(rules, "portrait_p", None) or getattr(rules, "portrait_accept_percentile", None)
             if non_face_p is None:
-                non_face_p = getattr(rules, "non_face_p", None) or getattr(
-                    rules, "non_face_accept_percentile", None
-                )
+                non_face_p = getattr(rules, "non_face_p", None) or getattr(rules, "non_face_accept_percentile", None)
 
             portrait_p_txt = "?" if portrait_p is None else str(portrait_p)
             non_face_p_txt = "?" if non_face_p is None else str(non_face_p)
@@ -614,11 +563,7 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
             super().cleanup()
 
     def _collect_success_rows(self) -> list[dict[str, Any]]:
-        return [
-            r["row"]
-            for r in self.all_results
-            if r.get("status") == "success" and isinstance(r.get("row"), dict)
-        ]
+        return [r["row"] for r in self.all_results if r.get("status") == "success" and isinstance(r.get("row"), dict)]
 
     def _normalize_rows(self, rows: list[dict[str, Any]]) -> None:
         for r in rows:
@@ -654,19 +599,13 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                     r[k] = format_score(safe_float(r.get(k)))
 
     def _write_ranking(self, rows: list[dict[str, Any]]) -> tuple[Path, list[str]]:
-        output_csv = (
-            Path(self.paths["output_data_dir"]) / f"evaluation_ranking_{self.date}.csv"
-        )
+        output_csv = Path(self.paths["output_data_dir"]) / f"evaluation_ranking_{self.date}.csv"
         output_csv.parent.mkdir(parents=True, exist_ok=True)
-        columns = write_ranking_csv(
-            output_csv=output_csv, rows=rows, sort_for_ranking=True
-        )
+        columns = write_ranking_csv(output_csv=output_csv, rows=rows, sort_for_ranking=True)
         self.logger.info(f"Output written: {output_csv}")
         return output_csv, columns
 
-    def _write_provisional_vs_accepted_summary(
-        self, rows: list[dict[str, Any]]
-    ) -> None:
+    def _write_provisional_vs_accepted_summary(self, rows: list[dict[str, Any]]) -> None:
         try:
             out_dir = Path(self.paths["output_data_dir"])
             out_dir.mkdir(parents=True, exist_ok=True)
@@ -734,25 +673,14 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
 
             # 2) portrait/ALL
             portrait_all = next(
-                (
-                    r
-                    for r in summary
-                    if r.category == "portrait" and r.accept_group == "ALL"
-                ),
+                (r for r in summary if r.category == "portrait" and r.accept_group == "ALL"),
                 None,
             )
             if portrait_all:
-                self.logger.info(
-                    f"[prov_vs_acc] portrait total={portrait_all.total} "
-                    f"{_fmt_rates(portrait_all)}"
-                )
+                self.logger.info(f"[prov_vs_acc] portrait total={portrait_all.total} " f"{_fmt_rates(portrait_all)}")
 
             # 3) gap_top3（cat/grp のみ対象）
-            group_rows = [
-                r
-                for r in summary
-                if r.category not in ("ALL",) and r.accept_group not in ("ALL",)
-            ]
+            group_rows = [r for r in summary if r.category not in ("ALL",) and r.accept_group not in ("ALL",)]
             if group_rows:
 
                 def _gap(x) -> float:
@@ -811,16 +739,8 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
         """
         try:
             cfg = self.config_manager.get_config() or {}
-            rank_cfg = (
-                (cfg.get("evaluation_rank") or cfg.get("batch_processor") or {})
-                if isinstance(cfg, dict)
-                else {}
-            )
-            prov_cfg = (
-                (rank_cfg.get("provisional_top_percent") or {})
-                if isinstance(rank_cfg, dict)
-                else {}
-            )
+            rank_cfg = (cfg.get("evaluation_rank") or cfg.get("batch_processor") or {}) if isinstance(cfg, dict) else {}
+            prov_cfg = (rank_cfg.get("provisional_top_percent") or {}) if isinstance(rank_cfg, dict) else {}
 
             prov_enabled = bool(prov_cfg.get("enabled", False))
             prov_percent = prov_cfg.get("percent", 0)
@@ -829,11 +749,7 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                 try:
                     return 1 if int(float(v)) != 0 else 0
                 except Exception:
-                    return (
-                        1
-                        if str(v).strip().lower() in ("1", "true", "t", "yes", "y")
-                        else 0
-                    )
+                    return 1 if str(v).strip().lower() in ("1", "true", "t", "yes", "y") else 0
 
             def _count_stats(
                 items: list[dict[str, Any]],
@@ -856,34 +772,18 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                 )
 
                 try:
-                    p = float(
-                        rows[0].get("provisional_top_percent", prov_percent) or 0.0
-                    )
+                    p = float(rows[0].get("provisional_top_percent", prov_percent) or 0.0)
                 except Exception:
                     p = 0.0
 
                 total = len(rows)
-                accepted, provisional, overlap, accepted_not_top, top_not_accepted = (
-                    _count_stats(rows)
-                )
+                accepted, provisional, overlap, accepted_not_top, top_not_accepted = _count_stats(rows)
 
-                portraits = [
-                    r
-                    for r in rows
-                    if str(r.get("category") or "").strip().lower() == "portrait"
-                ]
-                non_faces = [
-                    r
-                    for r in rows
-                    if str(r.get("category") or "").strip().lower() == "non_face"
-                ]
+                portraits = [r for r in rows if str(r.get("category") or "").strip().lower() == "portrait"]
+                non_faces = [r for r in rows if str(r.get("category") or "").strip().lower() == "non_face"]
 
-                pa, pp, pov, _, _ = (
-                    _count_stats(portraits) if portraits else (0, 0, 0, 0, 0)
-                )
-                na, np_, nov, _, _ = (
-                    _count_stats(non_faces) if non_faces else (0, 0, 0, 0, 0)
-                )
+                pa, pp, pov, _, _ = _count_stats(portraits) if portraits else (0, 0, 0, 0, 0)
+                na, np_, nov, _, _ = _count_stats(non_faces) if non_faces else (0, 0, 0, 0, 0)
 
                 self.logger.info(
                     f"[provisional_top_percent] enabled p={p:.1f} "
@@ -897,9 +797,7 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
             else:
                 total = len(rows)
                 accepted = sum(_i01(r.get("accepted_flag", 0)) for r in rows)
-                self.logger.info(
-                    f"[provisional_top_percent] disabled (accepted={accepted}/{total})"
-                )
+                self.logger.info(f"[provisional_top_percent] disabled (accepted={accepted}/{total})")
 
         except Exception:
             self.logger.exception("Failed to apply provisional_top_percent (continue).")
@@ -929,17 +827,13 @@ def main() -> None:
     parser.add_argument(
         "--config_env",
         default=None,
-        help=(
-            "Optional env name (prod/test). If omitted, CONFIG_ENV env-var may be used."
-        ),
+        help=("Optional env name (prod/test). If omitted, CONFIG_ENV env-var may be used."),
     )
     parser.add_argument(
         "--config_paths",
         nargs="*",
         default=None,
-        help=(
-            "Optional explicit config file list (applied in order; supports extends)."
-        ),
+        help=("Optional explicit config file list (applied in order; supports extends)."),
     )
     parser.add_argument("--date", required=True)
     parser.add_argument("--max_workers", type=int, default=1)

@@ -15,9 +15,7 @@ class CSVBatchProcess(BaseBatchProcessor):
         self.csv_handler = CSVFileHandler()  # 必要に応じて設定を渡す
         self.csv_data = []
         self.output_file_name = None
-        self.composition_evaluator = CompositionEvaluator(
-            logger=self.logger
-        )  # 評価クラスのインスタンスを作成
+        self.composition_evaluator = CompositionEvaluator(logger=self.logger)  # 評価クラスのインスタンスを作成
 
     def setup(self):
         self.logger.info("CSV処理のリソースをセットアップしています。")
@@ -30,16 +28,10 @@ class CSVBatchProcess(BaseBatchProcessor):
                         sort_key="overall_score",
                         reverse=True,
                     )
-                    self.logger.info(
-                        f"CSVファイルの読み込みに成功しました: {self.csv_file_path}"
-                    )
+                    self.logger.info(f"CSVファイルの読み込みに成功しました: {self.csv_file_path}")
                 else:
-                    self.logger.error(
-                        f"CSVファイルが見つかりません: {self.csv_file_path}"
-                    )
-                    raise FileNotFoundError(
-                        f"ファイルが存在しません: {self.csv_file_path}"
-                    )
+                    self.logger.error(f"CSVファイルが見つかりません: {self.csv_file_path}")
+                    raise FileNotFoundError(f"ファイルが存在しません: {self.csv_file_path}")
             except Exception as e:
                 self.logger.error(f"CSVファイルの読み込みに失敗しました: {e}")
                 raise
@@ -81,17 +73,13 @@ class CSVBatchProcess(BaseBatchProcessor):
         self.logger.info("CSV処理後のリソースをクリーンアップしています。")
 
         # 上位30%を抽出する
-        top_30_percent_index = max(
-            1, int(len(self.csv_data) * 0.3)
-        )  # 少なくとも1件は出力
+        top_30_percent_index = max(1, int(len(self.csv_data) * 0.3))  # 少なくとも1件は出力
         self.csv_data = self.csv_data[:top_30_percent_index]
 
         self.output_file_name = self.generate_output_file_name()
         try:
             self.csv_handler.write_file(self.output_file_name, self.csv_data)
-            self.logger.info(
-                f"処理されたCSVデータが出力されました: {self.output_file_name}"
-            )
+            self.logger.info(f"処理されたCSVデータが出力されました: {self.output_file_name}")
         except Exception as e:
             self.logger.error(f"処理されたCSVファイルの書き込みに失敗しました: {e}")
             raise

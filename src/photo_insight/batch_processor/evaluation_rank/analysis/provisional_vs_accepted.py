@@ -80,9 +80,7 @@ def build_provisional_vs_accepted_summary(
         buckets[(cat, grp)].append(r)
         cat_buckets[cat].append(r)
 
-    def _summarize(
-        cat: str, grp: str, items: List[Dict[str, Any]]
-    ) -> ProvisionalVsAcceptedSummaryRow:
+    def _summarize(cat: str, grp: str, items: List[Dict[str, Any]]) -> ProvisionalVsAcceptedSummaryRow:
         total = len(items)
 
         # percent は代表値として先頭から拾う（全行同一想定だが、違っても落ちない）
