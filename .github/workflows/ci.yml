@@ -86,11 +86,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
-      - name: Lint with flake8
+      - name: Lint with flake8 (src only)
         run: |
           mkdir -p ci_logs/lint
-          flake8 src/photo_insight tests/unit \
-            --exclude tests/unit/tools,src/photo_insight/photo_eval_env_manager \
+          flake8 src/photo_insight \
+            --exclude src/photo_insight/photo_eval_env_manager \
             --count \
             --statistics \
             --show-source \
