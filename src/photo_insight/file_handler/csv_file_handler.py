@@ -5,7 +5,6 @@ import csv
 
 
 class CSVPlugin:
-
     @staticmethod
     def read(file_path):
         with open(file_path, mode="r", newline="", encoding="utf-8") as file:
@@ -22,7 +21,6 @@ class CSVPlugin:
 
 
 class CSVFileHandler(FileHandler):
-
     def __init__(self, config=None):
         super().__init__(config)
         self.plugin = self.get_plugin("csv")

@@ -818,7 +818,9 @@ def compute_new_accepted_ratio_via_acceptance_from_results(
 
     # 1) canonical (current "truth"): evaluators accept rules
     try:
-        from photo_insight.evaluators.portrait_accept_rules import decide_accept as _decide_accept  # type: ignore
+        from photo_insight.evaluators.portrait_accept_rules import (
+            decide_accept as _decide_accept,
+        )  # type: ignore
 
         decide_accept = _decide_accept
     except Exception as e:

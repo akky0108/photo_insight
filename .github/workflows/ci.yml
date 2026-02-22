@@ -14,8 +14,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  docker-unit-processors:
+  docker-ci:
     runs-on: ubuntu-latest
+
+    # unit-tests で使ってた env は Docker内にも渡す（必要なら増やす）
+    env:
+      NO_ALBUMENTATIONS_UPDATE: "1"
+
     steps:
       - uses: actions/checkout@v4
 
@@ -35,83 +40,25 @@ jobs:
 
       # まずは依存が入ってることを明示的に確認（yaml問題の再発防止）
       - name: Sanity check imports
-        run: docker run --rm photo_insight:ci python -c "import yaml; import cv2; import rawpy; print('imports ok')"
+        run: >
+          docker run --rm
+          -e NO_ALBUMENTATIONS_UPDATE=${{ env.NO_ALBUMENTATIONS_UPDATE }}
+          photo_insight:ci
+          python -c "import yaml; import cv2; import rawpy; print('imports ok')"
 
-      - name: Run unit tests (processors)
-        run: docker run --rm photo_insight:ci pytest -q tests/unit/processors
+      # CIの契約：fmt-check + lint + test（Makefile側で統一）
+      - name: Run CI (make ci)
+        run: >
+          docker run --rm
+          -e NO_ALBUMENTATIONS_UPDATE=${{ env.NO_ALBUMENTATIONS_UPDATE }}
+          photo_insight:ci
+          make ci
 
-  unit-tests:
-    runs-on: ubuntu-latest
-
-    env:
-      NO_ALBUMENTATIONS_UPDATE: "1"
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: "pip"
-
-      - name: Install dependencies (dev)
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
-
-      - name: Run unit tests
-        run: |
-          pytest -q tests/unit/core tests/unit/evaluation_rank
-
+      # 既存の回帰ゲート（これもDocker内で同一環境で回す）
       - name: Validate metric_summary (regression gate)
-        run: |
-          python tools/validate_metric_summary.py \
-            --summary-csv tests/fixtures/score_dist_tune/metric_summary.csv
-
-  lint-and-format:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: "pip"
-
-      - name: Install dependencies (dev)
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
-
-      - name: Lint with flake8 (src only)
-        run: |
-          mkdir -p ci_logs/lint
-          flake8 src/photo_insight \
-            --exclude src/photo_insight/photo_eval_env_manager \
-            --count \
-            --statistics \
-            --show-source \
-            --format="%(path)s::%(code)s::%(row)d::%(col)d::%(text)s" \
-            > ci_logs/lint/flake8.log 2>&1
-
-      - name: Upload flake8 log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: flake8-log
-          path: ci_logs/lint/flake8.log
-
-      - name: Check formatting with black
-        run: |
-          mkdir -p ci_logs/format
-          black --check --diff . > ci_logs/format/black.log 2>&1
-
-      - name: Upload black log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: black-log
-          path: ci_logs/format/black.log
+        run: >
+          docker run --rm
+          -e NO_ALBUMENTATIONS_UPDATE=${{ env.NO_ALBUMENTATIONS_UPDATE }}
+          photo_insight:ci
+          python tools/validate_metric_summary.py
+          --summary-csv tests/fixtures/score_dist_tune/metric_summary.csv

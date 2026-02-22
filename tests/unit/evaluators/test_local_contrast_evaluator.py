@@ -139,7 +139,6 @@ def test_local_contrast_invalid_input_type():
 
 
 def test_scale_invariant_float_vs_uint8():
-
     from photo_insight.evaluators.local_contrast_evaluator import LocalContrastEvaluator
 
     ev = LocalContrastEvaluator()

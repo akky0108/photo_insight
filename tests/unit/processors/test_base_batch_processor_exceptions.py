@@ -73,10 +73,14 @@ def test_hook_exception_logged(tmp_path):
     msgs = _collect_logged_messages(processor.logger)
 
     # ① hook種別が出ている（Frameworkとしての観測性）
-    assert any("PRE_SETUP" in m for m in msgs), "PRE_SETUP に関するログが出力されていません"
+    assert any(
+        "PRE_SETUP" in m for m in msgs
+    ), "PRE_SETUP に関するログが出力されていません"
 
     # ② 原因文言が出ている（実装依存なので弱めに）
-    assert any("Hook failure" in m for m in msgs), "Hook failure に関するログが出力されていません"
+    assert any(
+        "Hook failure" in m for m in msgs
+    ), "Hook failure に関するログが出力されていません"
 
 
 class CleanupErrorProcessor(BaseBatchProcessor):
@@ -103,4 +107,6 @@ def test_cleanup_exception_logged(tmp_path):
     assert processor.logger.error.called or processor.logger.exception.called
 
     msgs = _collect_logged_messages(processor.logger)
-    assert any("Cleanup failed" in m for m in msgs), "Cleanup failed に関するログが出力されていません"
+    assert any(
+        "Cleanup failed" in m for m in msgs
+    ), "Cleanup failed に関するログが出力されていません"

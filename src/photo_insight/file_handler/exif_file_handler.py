@@ -5,7 +5,6 @@ from photo_insight.file_handler.file_handler import FileHandler
 
 
 class ExifFileHandler(FileHandler):
-
     def __init__(self, raw_extensions=None):
         """コンストラクタ。対応するRAWファイルの拡張子を初期化"""
         super().__init__()

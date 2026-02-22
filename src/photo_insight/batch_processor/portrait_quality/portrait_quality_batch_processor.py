@@ -57,7 +57,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         if logger is not None:
             self.logger = logger
         else:
-            self.logger = self.config_manager.get_logger("PortraitQualityBatchProcessor")
+            self.logger = self.config_manager.get_logger(
+                "PortraitQualityBatchProcessor"
+            )
 
         self.memory_monitor = MemoryMonitor(self.logger)
         self.date = date
@@ -172,10 +174,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         )
         if use_run_dir:
             out_dir = (
-                Path(self.run_ctx.out_dir)
-                / "artifacts"
-                / "portrait_quality"
-                / session
+                Path(self.run_ctx.out_dir) / "artifacts" / "portrait_quality" / session
             )
         else:
             base = self.config.get("output_directory", "temp")
@@ -227,7 +226,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             self.base_directory = str(Path(target_dir))
         elif self.date:
             if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", self.date):
-                raise ValueError(f"Invalid date format: {self.date} (expected YYYY-MM-DD)")
+                raise ValueError(
+                    f"Invalid date format: {self.date} (expected YYYY-MM-DD)"
+                )
             year = self.date[:4]
             self.base_directory = os.path.join(picture_root, year, self.date)
         else:
@@ -236,7 +237,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             )
 
         if not self.base_directory or not os.path.isdir(self.base_directory):
-            raise FileNotFoundError(f"Base directory does not exist: {self.base_directory}")
+            raise FileNotFoundError(
+                f"Base directory does not exist: {self.base_directory}"
+            )
 
         # --- input exif csv (B) ---
         nef_csv = self._resolve_nef_input_csv()
@@ -250,8 +253,12 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
         # --- output files (session-based) ---
         session = self._resolve_session_name()
-        self.result_csv_file = os.path.join(out_dir, f"evaluation_results_{session}.csv")
-        self.processed_images_file = os.path.join(out_dir, f"processed_images_{session}.txt")
+        self.result_csv_file = os.path.join(
+            out_dir, f"evaluation_results_{session}.csv"
+        )
+        self.processed_images_file = os.path.join(
+            out_dir, f"processed_images_{session}.txt"
+        )
 
         self.logger.info(f"ベースディレクトリ: {self.base_directory}")
 
@@ -259,7 +266,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         if self.processed_images_file and os.path.exists(self.processed_images_file):
             with open(self.processed_images_file, "r", encoding="utf-8") as f:
                 self.processed_images = set(f.read().splitlines())
-            self.logger.info(f"Loaded {len(self.processed_images)} previously processed images.")
+            self.logger.info(
+                f"Loaded {len(self.processed_images)} previously processed images."
+            )
 
         if self.result_csv_file and os.path.exists(self.result_csv_file):
             self.logger.info(
@@ -291,7 +300,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                 required_keys = {"FileName", "Orientation", "BitDepth"}
 
                 if not required_keys.issubset(set(reader.fieldnames or [])):
-                    self.logger.error(f"Missing required columns in CSV. Found: {reader.fieldnames}")
+                    self.logger.error(
+                        f"Missing required columns in CSV. Found: {reader.fieldnames}"
+                    )
                     return []
 
                 for row in reader:
@@ -303,7 +314,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                         }
                     )
         except FileNotFoundError:
-            self.logger.warning(f"File not found: {self.image_csv_file}. Proceeding with empty data.")
+            self.logger.warning(
+                f"File not found: {self.image_csv_file}. Proceeding with empty data."
+            )
         except csv.Error as e:
             self.logger.error(f"CSV parsing error in {self.image_csv_file}: {e}")
         return image_data
@@ -317,13 +330,17 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         else:
             self.logger.info("No previously processed images found. Starting fresh.")
 
-        self.logger.info(f"Memory usage threshold set to {self.memory_threshold}% from config.")
+        self.logger.info(
+            f"Memory usage threshold set to {self.memory_threshold}% from config."
+        )
         self.logger.info(f"Total images to process: {self._total_images_to_process}")
 
     def load_data(self) -> List[Dict[str, str]]:
         raw_data = self.load_image_data()
         with self._processed_lock:
-            return [d for d in raw_data if d.get("file_name") not in self.processed_images]
+            return [
+                d for d in raw_data if d.get("file_name") not in self.processed_images
+            ]
 
     # ============================================================
     # batch processing
@@ -339,10 +356,16 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
         # 未処理画像のみ残す
         with self._processed_lock:
-            batch = [img for img in batch if img.get("file_name") not in self.processed_images]
+            batch = [
+                img
+                for img in batch
+                if img.get("file_name") not in self.processed_images
+            ]
 
         if not batch:
-            self.logger.debug("All images in this batch are already processed. Skipping.")
+            self.logger.debug(
+                "All images in this batch are already processed. Skipping."
+            )
             return []
 
         # 並列／直列処理
@@ -446,7 +469,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             self.logger.error(f"Error processing image {file_name}: {e}", exc_info=True)
         return None
 
-    def _process_single_image(self, img_info: Dict[str, str]) -> Optional[Dict[str, Any]]:
+    def _process_single_image(
+        self, img_info: Dict[str, str]
+    ) -> Optional[Dict[str, Any]]:
         if self._stop_event.is_set():
             return None
 
@@ -470,7 +495,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             )
         return None
 
-    def _process_batch_serial(self, batch: List[Dict[str, str]]) -> List[Dict[str, Any]]:
+    def _process_batch_serial(
+        self, batch: List[Dict[str, str]]
+    ) -> List[Dict[str, Any]]:
         results: List[Dict[str, Any]] = []
         for img_info in batch:
             if self._stop_event.is_set():
@@ -483,7 +510,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                 results.append(result)
         return results
 
-    def _process_batch_parallel(self, batch: List[Dict[str, str]]) -> List[Dict[str, Any]]:
+    def _process_batch_parallel(
+        self, batch: List[Dict[str, str]]
+    ) -> List[Dict[str, Any]]:
         results: List[Dict[str, Any]] = []
 
         with ThreadPoolExecutor(max_workers=self.max_workers or 2) as executor:
@@ -510,7 +539,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                 except CancelledError:
                     continue
                 except Exception:
-                    self.logger.exception("[Parallel] Failed to process image", exc_info=True)
+                    self.logger.exception(
+                        "[Parallel] Failed to process image", exc_info=True
+                    )
                     continue
 
         return results
@@ -534,7 +565,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             self.processed_images.add(file_name)
             self.logger.debug(f"Marked as processed: {file_name}")
 
-    def save_results(self, results: List[Dict[str, Union[str, float, bool]]], file_path: str) -> None:
+    def save_results(
+        self, results: List[Dict[str, Union[str, float, bool]]], file_path: str
+    ) -> None:
         self.logger.info(f"Saving results to {file_path}")
         file_exists = os.path.isfile(file_path)
         results_sorted = sorted(results, key=lambda x: str(x.get("file_name", "")))
@@ -544,7 +577,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
         with self.get_lock():
             with open(file_path, "a", newline="", encoding="utf-8") as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=fieldnames, extrasaction="ignore")
+                writer = csv.DictWriter(
+                    csvfile, fieldnames=fieldnames, extrasaction="ignore"
+                )
                 if not file_exists:
                     writer.writeheader()
                 for row in results_sorted:
@@ -555,9 +590,13 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
     # ============================================================
     def cleanup(self) -> None:
         super().cleanup()
-        self.logger.info("Cleaning up PortraitQualityBatchProcessor-specific resources.")
+        self.logger.info(
+            "Cleaning up PortraitQualityBatchProcessor-specific resources."
+        )
 
-        processed_this_run = len(self.processed_images) - int(self._start_processed_count or 0)
+        processed_this_run = len(self.processed_images) - int(
+            self._start_processed_count or 0
+        )
         remaining_count = int(self._total_images_to_process or 0) - processed_this_run
         if remaining_count < 0:
             remaining_count = 0
@@ -620,9 +659,13 @@ if __name__ == "__main__":
         "--config_paths",
         nargs="*",
         default=None,
-        help=("Optional explicit config file list (applied in order; supports extends)."),
+        help=(
+            "Optional explicit config file list (applied in order; supports extends)."
+        ),
     )
-    parser.add_argument("--date", type=str, help="Specify the date for directory and file names.")
+    parser.add_argument(
+        "--date", type=str, help="Specify the date for directory and file names."
+    )
     parser.add_argument("--max_workers", type=int, help="Number of worker threads")
     parser.add_argument("--batch_size", type=int, help="Override batch size")
     args = parser.parse_args()

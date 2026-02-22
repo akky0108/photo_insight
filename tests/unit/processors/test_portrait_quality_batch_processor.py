@@ -58,7 +58,9 @@ def processor(tmp_path):
                 self.memory_threshold_exceeded = False
                 self.completed_all_batches = False
 
-                self.memory_threshold = self.config_manager.get_memory_threshold(default=90)
+                self.memory_threshold = self.config_manager.get_memory_threshold(
+                    default=90
+                )
                 self.logger.info(
                     f"Memory usage threshold set to {self.memory_threshold}% from config."
                 )
@@ -104,7 +106,9 @@ def test_setup_sets_memory_threshold(processor):
     processor.setup()
 
     assert processor.memory_threshold == 85
-    processor.logger.info.assert_any_call("Memory usage threshold set to 85% from config.")
+    processor.logger.info.assert_any_call(
+        "Memory usage threshold set to 85% from config."
+    )
 
 
 def test_setup_uses_default_memory_threshold_when_not_configured(processor):
@@ -153,7 +157,9 @@ def test_process_batch_processes_one(processor, tmp_path):
     processor._process_batch(batch)
 
     processor.process_image.assert_called_once()
-    processor.save_results.assert_called_once_with([mock_result], processor.result_csv_file)
+    processor.save_results.assert_called_once_with(
+        [mock_result], processor.result_csv_file
+    )
 
 
 def test_execute_full_flow(processor):

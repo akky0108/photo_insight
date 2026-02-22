@@ -11,7 +11,8 @@ from photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_process
 @pytest.fixture
 def dummy_config(tmp_path):
     config_path = tmp_path / "config.yaml"
-    config_path.write_text("""
+    config_path.write_text(
+        """
 paths:
   evaluation_data_dir: "{eval_dir}"
   output_data_dir: "{out_dir}"
@@ -33,7 +34,8 @@ weights:
     position: 0.05
     framing: 0.05
     direction: 0.05
-""".format(eval_dir=tmp_path, out_dir=tmp_path))
+""".format(eval_dir=tmp_path, out_dir=tmp_path)
+    )
     return str(config_path)
 
 

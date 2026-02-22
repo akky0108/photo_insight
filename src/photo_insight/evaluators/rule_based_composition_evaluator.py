@@ -178,14 +178,18 @@ class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
             return (
                 "position=well"
                 if score >= 0.8
-                else "position=moderate" if score >= 0.5 else "position=off"
+                else "position=moderate"
+                if score >= 0.5
+                else "position=off"
             )
 
         def label_direction(score):
             return (
                 "direction=good"
                 if score >= 0.8
-                else "direction=ok" if score >= 0.5 else "direction=bad"
+                else "direction=ok"
+                if score >= 0.5
+                else "direction=bad"
             )
 
         def label_scale(score):
@@ -195,7 +199,9 @@ class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
                 else (
                     "scale=small"
                     if score < 0.5
-                    else "scale=large" if score > 0.9 else "scale=ideal"
+                    else "scale=large"
+                    if score > 0.9
+                    else "scale=ideal"
                 )
             )
 
@@ -206,7 +212,9 @@ class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
             return (
                 "eye_contact=strong"
                 if score >= 0.8
-                else "eye_contact=weak" if score >= 0.5 else "eye_contact=none"
+                else "eye_contact=weak"
+                if score >= 0.5
+                else "eye_contact=none"
             )
 
         if all(score >= 0.8 for score in [fp, fr, fd, fs, ec]):

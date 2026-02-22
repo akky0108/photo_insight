@@ -305,7 +305,6 @@ class CompositeCompositionEvaluator(BaseCompositionEvaluator):
         body_raw: Optional[float],
         rule_of_thirds_raw: Optional[float] = None,
     ) -> Tuple[Optional[float], str]:
-
         if rule_of_thirds_raw is None or self.rule_of_thirds_weight <= 0.0:
             if face_raw is None and body_raw is None:
                 return None, "not_computed"

@@ -4,7 +4,6 @@ from typing import Optional, Dict, List
 
 
 class FileHandler(ABC):
-
     plugins = {}
     DEFAULT_FORMAT = "text"  # デフォルトのファイルフォーマットをクラス変数として設定
 

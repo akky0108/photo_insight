@@ -92,7 +92,12 @@ class InsightFaceDetector(BaseFaceDetector):
             faces_raw = self.app.get(image)
         except Exception as e:
             # ここで print はテストログ汚しやすいので dict に寄せる
-            return {"faces": [], "face_detected": False, "num_faces": 0, "error": str(e)}
+            return {
+                "faces": [],
+                "face_detected": False,
+                "num_faces": 0,
+                "error": str(e),
+            }
 
         results: List[Dict[str, Any]] = []
         for face in faces_raw:
@@ -106,10 +111,12 @@ class InsightFaceDetector(BaseFaceDetector):
                 yaw, pitch, roll = self._extract_pose(face)
                 gaze_vector = self._estimate_gaze_vector(yaw, pitch)
 
-                eye_lap_var, eye_closed_prob, eye_patch_size = self._estimate_eye_closed(
-                    image=image,
-                    box=box,
-                    landmarks=landmarks,
+                eye_lap_var, eye_closed_prob, eye_patch_size = (
+                    self._estimate_eye_closed(
+                        image=image,
+                        box=box,
+                        landmarks=landmarks,
+                    )
                 )
 
                 results.append(
