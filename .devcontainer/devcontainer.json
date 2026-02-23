@@ -1,8 +1,12 @@
 {
-  "name": "photo_insight (py311)",
-  "dockerComposeFile": ["../compose.yaml"],
-  "service": "app",
-  "workspaceFolder": "/app",
+  "name": "photo_insight (py310)",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": "..",
+    "target": "dev"
+  },
+  "workspaceFolder": "/workspaces/photo_insight",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/photo_insight,type=bind",
   "customizations": {
     "vscode": {
       "extensions": [
@@ -14,7 +18,7 @@
         "python.defaultInterpreterPath": "/usr/local/bin/python",
         "python.testing.pytestEnabled": true,
         "python.testing.pytestArgs": ["tests"],
-        "python.analysis.extraPaths": ["/app/src"]
+        "python.analysis.extraPaths": ["/workspaces/photo_insight/src"]
       }
     }
   }
