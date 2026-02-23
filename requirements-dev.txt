@@ -11,3 +11,6 @@ matplotlib>=3.8,<4
 
 # ===== Data / Tool tests =====
 pandas>=2.0,<3
+
+# ===== Runtime-ish deps used in unit tests =====
+psutil>=5.9,<6

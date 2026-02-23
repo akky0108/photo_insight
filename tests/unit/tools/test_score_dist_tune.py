@@ -1,13 +1,12 @@
 # tests/test_score_dist_tune.py
 from __future__ import annotations
-import pytest
-pytestmark = pytest.mark.heavy
 
 import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 # --- make tools importable ---
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +21,8 @@ from tools.score_dist_tune import (  # noqa: E402
     build_evaluator_config_from_chosen_params,
     validate_dataframe_contract,
 )
+
+pytestmark = pytest.mark.heavy
 
 
 def test_score_from_raw_higher_is_better_basic():
