@@ -27,14 +27,13 @@ FROM base AS ci
 COPY requirements-dev.txt ./requirements-dev.txt
 RUN python -m pip install --prefer-binary -r ./requirements-dev.txt
 
+# ★CIで make を回すためにリポジトリを含める
+COPY . .
+
 
 FROM ci AS dev
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git make \
     && rm -rf /var/lib/apt/lists/*
-
-# ここでCOPYしても、devcontainerのbind mountが最終的に上書きするので
-# “依存キャッシュ用に必要なら残す” 程度の意味合い
-COPY . .
 
 CMD ["bash"]
