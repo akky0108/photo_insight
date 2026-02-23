@@ -3,6 +3,9 @@ python-dotenv>=1,<2
 PyYAML>=6,<7
 opencv-python-headless>=4.9,<5
 
-# rawpy binary compatibility (avoid numpy 2.x)
+# rawpy binary compatibility
 numpy>=1.23,<2
 rawpy>=0.18,<0.22
+
+# image loading backend
+imageio>=2.34,<3

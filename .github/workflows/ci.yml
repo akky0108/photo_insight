@@ -17,7 +17,6 @@ jobs:
   docker-ci:
     runs-on: ubuntu-latest
 
-    # unit-tests で使ってた env は Docker内にも渡す（必要なら増やす）
     env:
       NO_ALBUMENTATIONS_UPDATE: "1"
 
@@ -27,7 +26,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # キャッシュで高速化（安定性を落とさずに速くなる）
       - name: Build image (cached)
         uses: docker/build-push-action@v6
         with:
@@ -39,7 +37,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # まずは依存が入ってることを明示的に確認（yaml問題の再発防止）
       - name: Sanity check imports
         run: >
           docker run --rm
@@ -47,16 +44,17 @@ jobs:
           photo_insight:ci
           python -c "import yaml; import cv2; import rawpy; print('imports ok')"
 
-      # CIの契約：fmt-check + lint + test（Makefile側で統一）
-      - name: Run CI (make ci)
+      # PRは軽量（heavy除外）、pushはフル
+      - name: Run CI (make ci / ci-light)
         run: >
           docker run --rm
           -e NO_ALBUMENTATIONS_UPDATE=${{ env.NO_ALBUMENTATIONS_UPDATE }}
           photo_insight:ci
-          make ci
+          bash -lc "if [ '${{ github.event_name }}' = 'pull_request' ]; then make ci-light; else make ci; fi"
 
-      # 既存の回帰ゲート（これもDocker内で同一環境で回す）
+      # 回帰ゲートは push のみに限定（PRは軽くする）
       - name: Validate metric_summary (regression gate)
+        if: github.event_name == 'push'
         run: >
           docker run --rm
           -e NO_ALBUMENTATIONS_UPDATE=${{ env.NO_ALBUMENTATIONS_UPDATE }}

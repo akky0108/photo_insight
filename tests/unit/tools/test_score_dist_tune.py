@@ -1,5 +1,7 @@
 # tests/test_score_dist_tune.py
 from __future__ import annotations
+import pytest
+pytestmark = pytest.mark.heavy
 
 import sys
 from pathlib import Path

@@ -78,4 +78,8 @@ lint:
 test:
 	$(PYTEST) -q tests
 
+test-light:
+	$(PYTEST) -q -m "not heavy" tests
+
 ci: fmt-check lint test
+ci-light: fmt-check lint test-light
