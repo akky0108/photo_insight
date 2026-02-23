@@ -44,7 +44,8 @@ class DummyBatchProcessorWithFailingBatch(BaseBatchProcessor):
         self.processed_batches = []
         self.batch_size = 2
 
-    def load_data(self): return self.get_data()
+    def load_data(self):
+        return self.get_data()
 
     def get_data(self):
         # 6アイテム → 3バッチ（2件ずつ）
@@ -62,7 +63,8 @@ class DummyBatchProcessorWithFailingBatch(BaseBatchProcessor):
 
 
 class DummyBatchProcessorWithResult(BaseBatchProcessor):
-    def load_data(self): return self.get_data()
+    def load_data(self):
+        return self.get_data()
 
     def get_data(self):
         return [{"file_path": f"dummy_{i}.jpg"} for i in range(6)]

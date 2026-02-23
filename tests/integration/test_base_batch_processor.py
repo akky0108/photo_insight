@@ -35,9 +35,7 @@ def test_execute_runs_all_hooks_and_methods(tmp_path):
     # フック呼び出し回数チェック
     assert mock_hook_manager.execute_hooks.call_count == 6
 
-    actual_calls = [
-        args[0].value for args, kwargs in mock_hook_manager.execute_hooks.call_args_list
-    ]
+    actual_calls = [args[0].value for args, kwargs in mock_hook_manager.execute_hooks.call_args_list]
     expected_calls = [
         "pre_setup",
         "post_setup",
@@ -77,10 +75,7 @@ def test_signal_handler_triggers_cleanup():
     assert processor.cleanup_called is True
 
     # ログが出ているか
-    expected_msg = (
-        f"Received shutdown signal {signal.Signals(signal.SIGINT).name}. "
-        "Executing cleanup..."
-    )
+    expected_msg = f"Received shutdown signal {signal.Signals(signal.SIGINT).name}. " "Executing cleanup..."
     mock_logger.info.assert_any_call(expected_msg)
 
 
@@ -143,9 +138,7 @@ def test_process_handles_batch_failures_gracefully_with_detailed_log(tmp_path, c
 
     # ERRORログにスタックトレース情報が含まれているか検証
     error_records = [r for r in caplog.records if r.levelname == "ERROR"]
-    assert any(r.exc_info is not None for r in error_records), (
-        "Expected exc_info (stack trace) in error logs"
-    )
+    assert any(r.exc_info is not None for r in error_records), "Expected exc_info (stack trace) in error logs"
 
 
 @pytest.mark.parametrize("invalid_value", [None, 0])
