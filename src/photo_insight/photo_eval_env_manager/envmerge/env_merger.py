@@ -97,8 +97,10 @@ class EnvMerger:
         """
         conda_strs = [d for d in self.conda_deps if isinstance(d, str)]
         self._check_duplicate_packages(conda_strs, source="conda", allow_exact_duplicates=not self.strict)
-        self._check_duplicate_packages(self.pip_deps, source="pip", allow_exact_duplicates=not self.strict)
 
+        if self.strict:
+            self._check_duplicate_packages(self.pip_deps, source="pip", allow_exact_duplicates=False)
+            # strict=False なら重複チェックはしない（後段のdedupで先勝ちに寄せる）
         pip_versions = self._parse_pip_versions()
         for conda_pkg in self.conda_deps:
             name, version = self._split_conda_package(conda_pkg)
@@ -409,14 +411,23 @@ class EnvMerger:
         # pip 置換
         new_pip = []
         for pkg in self.pip_deps:
-            name = re.split(r"[=<>!~]+", pkg, 1)[0].lower()
+            name = re.split(r"[=<>!~]+", pkg, 1)[0].strip().lower()
             if is_gpu_package(name):
                 repl = get_replacement(name)
                 if repl is None:
                     self.logger.info(f"Removing GPU-only pip package: {pkg}")
                     continue
-                version_match = re.search(r"(==|>=|<=|>|<|~=)[\w.\+]+", pkg)
-                version = version_match.group(0) if version_match else ""
+
+                # e.g. "torch==2.1.0+cu118" -> op="==", ver="2.1.0+cu118"
+                m = re.search(r"(==|>=|<=|>|<|~=)\s*([^\s;]+)", pkg)
+                if m:
+                    op, ver = m.group(1), m.group(2)
+                    # drop local version suffix like "+cu118"
+                    ver = ver.split("+", 1)[0]
+                    version = f"{op}{ver}"
+                else:
+                    version = ""
+
                 new_pkg = f"{repl}{version}"
                 self.logger.info(f"Replacing {pkg} → {new_pkg}")
                 new_pip.append(new_pkg)
