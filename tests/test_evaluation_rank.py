@@ -1,6 +1,4 @@
 import os
-import tempfile
-import shutil
 import csv
 import pytest
 from photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_processor import (
@@ -11,7 +9,8 @@ from photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_process
 @pytest.fixture
 def dummy_config(tmp_path):
     config_path = tmp_path / "config.yaml"
-    config_path.write_text("""
+    config_path.write_text(
+        """
 paths:
   evaluation_data_dir: "{eval_dir}"
   output_data_dir: "{out_dir}"
@@ -33,7 +32,8 @@ weights:
     position: 0.05
     framing: 0.05
     direction: 0.05
-""".format(eval_dir=tmp_path, out_dir=tmp_path))
+""".format(eval_dir=tmp_path, out_dir=tmp_path)
+    )
     return str(config_path)
 
 
@@ -79,9 +79,7 @@ def sample_csv(tmp_path):
 
 
 def test_evaluation_pipeline(tmp_path, dummy_config, sample_csv):
-    processor = EvaluationRankBatchProcessor(
-        config_path=dummy_config, date="2025-06-22"
-    )
+    processor = EvaluationRankBatchProcessor(config_path=dummy_config, date="2025-06-22")
     processor.execute()
 
     # 出力ファイル確認
@@ -164,9 +162,7 @@ def test_sorted_output_order(tmp_path, dummy_config):
         )
 
     # 実行
-    processor = EvaluationRankBatchProcessor(
-        config_path=dummy_config, date="2025-06-22"
-    )
+    processor = EvaluationRankBatchProcessor(config_path=dummy_config, date="2025-06-22")
     processor.execute()
 
     # 結果確認
@@ -176,9 +172,7 @@ def test_sorted_output_order(tmp_path, dummy_config):
         rows = list(reader)
         assert len(rows) == 2
         scores = [float(row["overall_evaluation"]) for row in rows]
-        assert scores == sorted(
-            scores, reverse=True
-        ), "Rows are not sorted by overall_evaluation descending."
+        assert scores == sorted(scores, reverse=True), "Rows are not sorted by overall_evaluation descending."
 
 
 def test_overall_evaluation_face_mode(dummy_config):

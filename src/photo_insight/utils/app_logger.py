@@ -64,9 +64,7 @@ class AppLogger:
         # プロジェクトルートからデフォルトのconfig_fileパスを指定
         if config_file is None:
             if project_root:
-                config_file = os.path.join(
-                    project_root, "config", "logging_config.yaml"
-                )
+                config_file = os.path.join(project_root, "config", "logging_config.yaml")
             else:
                 config_file = os.path.join(
                     os.path.dirname(os.path.abspath(__file__)),
@@ -88,15 +86,10 @@ class AppLogger:
                         raise ValueError("Invalid config format")
                 print(f"Logging configured from {config_file}.")
             except (yaml.YAMLError, ValueError, FileNotFoundError) as e:
-                print(
-                    f"Error loading logging config: {e}. "
-                    f"Using default logging settings."
-                )
+                print(f"Error loading logging config: {e}. " f"Using default logging settings.")
                 logging.basicConfig(level=logging.DEBUG)
         else:
-            print(
-                f"Config file {config_file} not found. Using default logging settings."
-            )
+            print(f"Config file {config_file} not found. Using default logging settings.")
             logging.basicConfig(level=logging.DEBUG)
 
         # ロガーを設定

@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Type, Optional
 
-from photo_insight.batch_framework.base_batch import BaseBatchProcessor
+from photo_insight.core.batch_framework.base_batch import BaseBatchProcessor
 
 # -------------------------
 # Reserved keys (runner-owned)
@@ -50,7 +50,7 @@ def _load_processor_by_alias(name: str) -> Type[BaseBatchProcessor]:
         return EvaluationRankBatchProcessor
 
     if key in ("portrait_quality", "quality", "portrait"):
-        from photo_insight.portrait_quality_batch_processor import (
+        from photo_insight.batch_processor.portrait_quality import (
             PortraitQualityBatchProcessor,
         )
 
@@ -131,10 +131,7 @@ def _parse_unknown_args(unknown: list[str]) -> Dict[str, Any]:
 
         # Disallow collisions with runner/CLI-owned keys
         if key in _RESERVED_UNKNOWN_KEYS:
-            raise ValueError(
-                f"'{token}' is a reserved runner/CLI option and "
-                f"cannot be passed as an unknown arg."
-            )
+            raise ValueError(f"'{token}' is a reserved runner/CLI option and " f"cannot be passed as an unknown arg.")
 
         # flag only
         if i + 1 >= len(unknown) or unknown[i + 1].startswith("--"):
@@ -192,9 +189,7 @@ def _extract_runtime_overrides(exec_kwargs: Dict[str, Any]) -> Dict[str, Any]:
     return injected
 
 
-def _apply_runtime_overrides(
-    proc: BaseBatchProcessor, injected: Dict[str, Any]
-) -> None:
+def _apply_runtime_overrides(proc: BaseBatchProcessor, injected: Dict[str, Any]) -> None:
     """
     本実行時のみ、processor インスタンスに注入する。
     """
@@ -232,18 +227,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Config file path",
     )
     p.add_argument("--max-workers", type=int, default=2)
-    p.add_argument(
-        "--config-env", default=None, help="ConfigManager env name (optional)"
-    )
+    p.add_argument("--config-env", default=None, help="ConfigManager env name (optional)")
     p.add_argument(
         "--config-paths",
         default=None,
         help="Comma-separated config paths (optional). e.g. config.base.yaml,config.prod.yaml",  # noqa: E501
     )
 
-    p.add_argument(
-        "--dry-run", action="store_true", help="Resolve processor and kwargs then exit"
-    )
+    p.add_argument("--dry-run", action="store_true", help="Resolve processor and kwargs then exit")
     return p
 
 

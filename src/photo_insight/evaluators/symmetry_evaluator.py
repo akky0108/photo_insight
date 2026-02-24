@@ -36,14 +36,10 @@ class SymmetryEvaluator:
 
         # 左右のサイズが異なる場合、右半分を左半分のサイズにリサイズ
         if left_half.shape != right_half_flipped.shape:
-            right_half_flipped = cv2.resize(
-                right_half_flipped, (left_half.shape[1], left_half.shape[0])
-            )
+            right_half_flipped = cv2.resize(right_half_flipped, (left_half.shape[1], left_half.shape[0]))
 
         # 左右のピクセル差を計算し、対称性をスコアリング
         # ピクセル差が少ないほどスコアが高くなる
-        score_symmetry = 1 - np.mean(
-            np.abs(left_half.astype("float") - right_half_flipped.astype("float")) / 255
-        )
+        score_symmetry = 1 - np.mean(np.abs(left_half.astype("float") - right_half_flipped.astype("float")) / 255)
 
         return score_symmetry

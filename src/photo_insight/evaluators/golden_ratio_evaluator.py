@@ -39,8 +39,6 @@ class GoldenRatioEvaluator:
 
         # 黄金比ラインに近いほどスコアが高くなるように計算
         # 最小値（画像の幅や高さの6分の1）に基づいてスコアを正規化
-        score_golden = max(
-            0, 1 - (distance_to_golden / (min(self.width, self.height) / 6))
-        )
+        score_golden = max(0, 1 - (distance_to_golden / (min(self.width, self.height) / 6)))
 
         return score_golden

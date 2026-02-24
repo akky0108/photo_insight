@@ -37,9 +37,7 @@ def _atomic_write_text(text: str, dst: Path, encoding: str = "utf-8") -> None:
     dst.parent は必要に応じて作成する。
     """
     dst.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        "w", delete=False, dir=str(dst.parent), encoding=encoding
-    ) as f:
+    with tempfile.NamedTemporaryFile("w", delete=False, dir=str(dst.parent), encoding=encoding) as f:
         f.write(text)
         tmp_path = Path(f.name)
     os.replace(str(tmp_path), str(dst))
@@ -130,9 +128,7 @@ class ResultStore:
         meta = {"run_id": run_id, "created_at_utc": _now_utc_iso()}
         return RunContext(run_id=run_id, out_dir=out_dir, tmp_dir=tmp_dir, meta=meta)
 
-    def save_meta(
-        self, ctx: RunContext, extra: Optional[Dict[str, Any]] = None
-    ) -> Path:
+    def save_meta(self, ctx: RunContext, extra: Optional[Dict[str, Any]] = None) -> Path:
         """
         meta.json を atomic に保存する。
         """
@@ -143,9 +139,7 @@ class ResultStore:
         _atomic_write_text(json.dumps(meta, ensure_ascii=False, indent=2), path)
         return path
 
-    def save_jsonl(
-        self, ctx: RunContext, *, rows: list[dict], name: str = "results.jsonl"
-    ) -> Path:
+    def save_jsonl(self, ctx: RunContext, *, rows: list[dict], name: str = "results.jsonl") -> Path:
         """
         JSONL を atomic に保存する。
         numpy / Path / datetime 等が混ざっても落ちない。
@@ -176,10 +170,7 @@ class ResultStore:
             # 最終 fallback
             return str(o)
 
-        lines = (
-            "\n".join(json.dumps(r, ensure_ascii=False, default=_default) for r in rows)
-            + "\n"
-        )
+        lines = "\n".join(json.dumps(r, ensure_ascii=False, default=_default) for r in rows) + "\n"
 
         path = ctx.out_dir / name
         _atomic_write_text(lines, path)
@@ -210,9 +201,7 @@ class ResultStore:
         _atomic_write_text(text + "\n", path)
         return path
 
-    def save_text(
-        self, ctx: RunContext, *, text: str, name: str, encoding: str = "utf-8"
-    ) -> Path:
+    def save_text(self, ctx: RunContext, *, text: str, name: str, encoding: str = "utf-8") -> Path:
         """
         任意テキストを atomic に保存する（汎用）。
         """

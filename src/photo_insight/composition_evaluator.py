@@ -10,17 +10,9 @@ class CompositionEvaluator:
     def __init__(self, image_path=None, logger=None, weights=None):
         self.loader = ImageLoader(logger)
         self.exif_handler = ExifFileHandler()
-        self.logger = (
-            logger
-            if logger
-            else Logger(logger_name="CompositionEvaluator").get_logger()
-        )
+        self.logger = logger if logger else Logger(logger_name="CompositionEvaluator").get_logger()
 
-        self.weights = (
-            weights
-            if weights
-            else {"thirds": 1.0, "golden": 0.8, "symmetry": 1.0, "depth": 1.0}
-        )
+        self.weights = weights if weights else {"thirds": 1.0, "golden": 0.8, "symmetry": 1.0, "depth": 1.0}
 
         if image_path:
             self.load_image(image_path)

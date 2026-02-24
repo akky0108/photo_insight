@@ -209,9 +209,7 @@ dependencies:
     assert "numpy==1.23.0" in content
 
     ci_dict = yaml.safe_load(content)
-    pip_deps = next(
-        d["pip"] for d in ci_dict["dependencies"] if isinstance(d, dict) and "pip" in d
-    )
+    pip_deps = next(d["pip"] for d in ci_dict["dependencies"] if isinstance(d, dict) and "pip" in d)
     assert pip_deps == sorted(pip_deps)
 
 

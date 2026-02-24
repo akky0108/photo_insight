@@ -99,9 +99,7 @@ def test_cpu_only_version_conversion():
 
 
 def test_parse_conda_yaml():
-    dummy_yaml = {
-        "dependencies": ["python=3.10", "numpy", {"pip": ["requests", "scikit-learn"]}]
-    }
+    dummy_yaml = {"dependencies": ["python=3.10", "numpy", {"pip": ["requests", "scikit-learn"]}]}
     conda, pip = parse_conda_yaml(dummy_yaml)
     assert conda == ["python=3.10", "numpy"]
     assert pip == ["requests", "scikit-learn"]

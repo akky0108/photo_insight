@@ -45,9 +45,7 @@ class CompositeCompositionEvaluator(BaseCompositionEvaluator):
 
         self.face_weight: float = float(comp_conf.get("face_weight", 1.0))
         self.body_weight: float = float(comp_conf.get("body_weight", 1.0))
-        self.rule_of_thirds_weight: float = float(
-            comp_conf.get("rule_of_thirds_weight", 0.5)
-        )
+        self.rule_of_thirds_weight: float = float(comp_conf.get("rule_of_thirds_weight", 0.5))
 
         disc_conf = comp_conf.get("discretize_thresholds", {})
         self.threshold_excellent: float = float(disc_conf.get("excellent", 0.85))
@@ -101,10 +99,7 @@ class CompositeCompositionEvaluator(BaseCompositionEvaluator):
             face_boxes = []
         if not isinstance(face_boxes, list):
             return self._invalid_result(
-                reason=(
-                    f"invalid_input:face_boxes_type_mismatch:"
-                    f"{type(face_boxes).__name__}"
-                ),
+                reason=(f"invalid_input:face_boxes_type_mismatch:" f"{type(face_boxes).__name__}"),
                 face_results={},
                 body_results={},
             )
@@ -119,10 +114,7 @@ class CompositeCompositionEvaluator(BaseCompositionEvaluator):
             body_keypoints = []
         if not isinstance(body_keypoints, list):
             return self._invalid_result(
-                reason=(
-                    f"invalid_input:body_keypoints_type_mismatch:"
-                    f"{type(body_keypoints).__name__}"
-                ),
+                reason=(f"invalid_input:body_keypoints_type_mismatch:" f"{type(body_keypoints).__name__}"),
                 face_results={},
                 body_results={},
             )
@@ -130,12 +122,8 @@ class CompositeCompositionEvaluator(BaseCompositionEvaluator):
         # -------------------------
         # run underlying evaluators
         # -------------------------
-        face_results: Dict[str, Any] = (
-            self.face_evaluator.evaluate(image, face_boxes) or {}
-        )
-        body_results: Dict[str, Any] = (
-            self.body_evaluator.evaluate(image, body_keypoints) or {}
-        )
+        face_results: Dict[str, Any] = self.face_evaluator.evaluate(image, face_boxes) or {}
+        body_results: Dict[str, Any] = self.body_evaluator.evaluate(image, body_keypoints) or {}
 
         face_raw = face_results.get("face_composition_raw")
         body_raw = body_results.get("body_composition_raw")
@@ -189,23 +177,15 @@ class CompositeCompositionEvaluator(BaseCompositionEvaluator):
             body_score = self._to_discrete_score(body_raw)
 
         # RoT discrete score
-        rule_of_thirds_score = (
-            self._to_discrete_score(rule_of_thirds_raw)
-            if rule_of_thirds_raw is not None
-            else None
-        )
+        rule_of_thirds_score = self._to_discrete_score(rule_of_thirds_raw) if rule_of_thirds_raw is not None else None
 
         # contrib
         contrib_rule_of_thirds = (
-            self.rule_of_thirds_weight * float(rule_of_thirds_raw)
-            if rule_of_thirds_raw is not None
-            else None
+            self.rule_of_thirds_weight * float(rule_of_thirds_raw) if rule_of_thirds_raw is not None else None
         )
 
         contrib_body_composition = (
-            self.body_weight * float(body_raw)
-            if body_raw is not None and self.body_weight > 0.0
-            else None
+            self.body_weight * float(body_raw) if body_raw is not None and self.body_weight > 0.0 else None
         )
 
         # center expansion
@@ -305,7 +285,6 @@ class CompositeCompositionEvaluator(BaseCompositionEvaluator):
         body_raw: Optional[float],
         rule_of_thirds_raw: Optional[float] = None,
     ) -> Tuple[Optional[float], str]:
-
         if rule_of_thirds_raw is None or self.rule_of_thirds_weight <= 0.0:
             if face_raw is None and body_raw is None:
                 return None, "not_computed"
@@ -322,9 +301,7 @@ class CompositeCompositionEvaluator(BaseCompositionEvaluator):
                 raw = (float(face_raw) + float(body_raw)) / 2.0
                 return raw, "both_zero_weight"
 
-            raw = (float(face_raw) * w_face + float(body_raw) * w_body) / (
-                w_face + w_body
-            )
+            raw = (float(face_raw) * w_face + float(body_raw) * w_body) / (w_face + w_body)
             return raw, "face_and_body"
 
         has_face = face_raw is not None and face_raw > 0.0
@@ -354,11 +331,7 @@ class CompositeCompositionEvaluator(BaseCompositionEvaluator):
             parts.append("rule_of_thirds")
 
         if wsum <= 0.0:
-            vals = [
-                float(v)
-                for v in [face_raw, body_raw, rule_of_thirds_raw]
-                if v is not None
-            ]
+            vals = [float(v) for v in [face_raw, body_raw, rule_of_thirds_raw] if v is not None]
             if not vals:
                 return None, "not_computed"
             return float(sum(vals) / len(vals)), "fallback_average"
@@ -418,13 +391,9 @@ class CompositeCompositionEvaluator(BaseCompositionEvaluator):
 
         def _eval_with_center(
             center: Any, source: str
-        ) -> Tuple[
-            Optional[float], Optional[Tuple[float, float]], Optional[str], str, str
-        ]:
+        ) -> Tuple[Optional[float], Optional[Tuple[float, float]], Optional[str], str, str]:
             nonlocal evaluator
-            ok, norm_center, invalid_reason = self._validate_and_normalize_center(
-                center, image
-            )
+            ok, norm_center, invalid_reason = self._validate_and_normalize_center(center, image)
             if not ok:
                 return None, None, source, "invalid", invalid_reason
             if evaluator is None:
@@ -436,33 +405,25 @@ class CompositeCompositionEvaluator(BaseCompositionEvaluator):
 
         # 1) face_results["main_subject_center"]
         if "main_subject_center" in face_results:
-            score, c, s, st, r = _eval_with_center(
-                face_results.get("main_subject_center"), "main_subject_center"
-            )
+            score, c, s, st, r = _eval_with_center(face_results.get("main_subject_center"), "main_subject_center")
             if score is not None:
                 return score, c, s, st, r
 
         # 2) face_results["face_center"]
         if "face_center" in face_results:
-            score, c, s, st, r = _eval_with_center(
-                face_results.get("face_center"), "face_center"
-            )
+            score, c, s, st, r = _eval_with_center(face_results.get("face_center"), "face_center")
             if score is not None:
                 return score, c, s, st, r
 
         # 3) body_results["full_body_center"]
         if "full_body_center" in body_results:
-            score, c, s, st, r = _eval_with_center(
-                body_results.get("full_body_center"), "full_body_center"
-            )
+            score, c, s, st, r = _eval_with_center(body_results.get("full_body_center"), "full_body_center")
             if score is not None:
                 return score, c, s, st, r
 
         # 4) face_boxes[0]
         if face_boxes:
-            cx, cy, reason = self._center_from_face_box_with_reason(
-                face_boxes[0], image
-            )
+            cx, cy, reason = self._center_from_face_box_with_reason(face_boxes[0], image)
             if cx is not None and cy is not None:
                 score, c, s, st, r = _eval_with_center((cx, cy), "face_box")
                 if score is not None:
@@ -474,9 +435,7 @@ class CompositeCompositionEvaluator(BaseCompositionEvaluator):
 
         # 5) body_keypoints[0]
         if body_keypoints:
-            cx, cy, reason = self._center_from_body_keypoints_with_reason(
-                body_keypoints[0], image
-            )
+            cx, cy, reason = self._center_from_body_keypoints_with_reason(body_keypoints[0], image)
             if cx is not None and cy is not None:
                 score, c, s, st, r = _eval_with_center((cx, cy), "body_keypoints")
                 if score is not None:
@@ -485,8 +444,7 @@ class CompositeCompositionEvaluator(BaseCompositionEvaluator):
 
         # 6) none
         self.logger.debug(
-            "Rule-of-thirds center could not be determined; skipping RoT contribution. "
-            f"reason={last_reason}"
+            "Rule-of-thirds center could not be determined; skipping RoT contribution. " f"reason={last_reason}"
         )
         return None, None, None, "none", last_reason
 
@@ -548,9 +506,7 @@ class CompositeCompositionEvaluator(BaseCompositionEvaluator):
             return None, None, "img_size_invalid"
 
         # helper: finalize
-        def _finalize(
-            cx: float, cy: float
-        ) -> Tuple[Optional[float], Optional[float], str]:
+        def _finalize(cx: float, cy: float) -> Tuple[Optional[float], Optional[float], str]:
             if not (np.isfinite(cx) and np.isfinite(cy)):
                 return None, None, "face_box_center_nonfinite"
             return (
@@ -581,22 +537,14 @@ class CompositeCompositionEvaluator(BaseCompositionEvaluator):
                 return _finalize((x_min + x_max) / 2.0, (y_min + y_max) / 2.0)
 
             # pattern3: bbox: [x_min,y_min,x_max,y_max]
-            if (
-                "bbox" in box
-                and isinstance(box["bbox"], (list, tuple))
-                and len(box["bbox"]) == 4
-            ):
+            if "bbox" in box and isinstance(box["bbox"], (list, tuple)) and len(box["bbox"]) == 4:
                 x_min, y_min, x_max, y_max = map(float, box["bbox"])
                 if x_max <= x_min or y_max <= y_min:
                     return None, None, "face_box_degenerate_bbox"
                 return _finalize((x_min + x_max) / 2.0, (y_min + y_max) / 2.0)
 
             # pattern4: box: [x_min,y_min,x_max,y_max]
-            if (
-                "box" in box
-                and isinstance(box["box"], (list, tuple))
-                and len(box["box"]) == 4
-            ):
+            if "box" in box and isinstance(box["box"], (list, tuple)) and len(box["box"]) == 4:
                 x_min, y_min, x_max, y_max = map(float, box["box"])
                 if x_max <= x_min or y_max <= y_min:
                     return None, None, "face_box_degenerate_box"

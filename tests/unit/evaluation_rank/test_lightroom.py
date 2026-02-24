@@ -323,9 +323,7 @@ def _base_row(**kwargs):
 def test_apply_lightroom_fields_accepted_green_keywords_from_reason():
     r = _base_row(
         accepted_flag=1,
-        accepted_reason=(
-            "portrait group=A-1 o=80.82 " "tags=eye_contact, framing, expression"
-        ),
+        accepted_reason=("portrait group=A-1 o=80.82 " "tags=eye_contact, framing, expression"),
     )
     lr.apply_lightroom_fields(r, keyword_max_len=200)
 
@@ -338,10 +336,7 @@ def test_apply_lightroom_fields_accepted_green_keywords_from_reason():
 
 
 def test_apply_lightroom_fields_infer_green_from_reason_when_accepted_flag_missing():
-    msg = (
-        "portrait group=A-1 st=face_only rank=1/31 o=80.82 tags=eye_contact, "
-        + "framing, expression"
-    )
+    msg = "portrait group=A-1 st=face_only rank=1/31 o=80.82 tags=eye_contact, " + "framing, expression"
     r = _base_row(
         accepted_flag=0,
         accepted_reason=msg,
@@ -410,6 +405,4 @@ def test_apply_lightroom_fields_face_in_focus_yellow_when_not_top_and_not_second
     lr.apply_lightroom_fields(r, keyword_max_len=200)
 
     assert r["lr_color_label"] == "Yellow"
-    assert (
-        r["lr_keywords"] == ""
-    )  # Yellow でも effective_secondary/accepted じゃないので keywords は空の設計
+    assert r["lr_keywords"] == ""  # Yellow でも effective_secondary/accepted じゃないので keywords は空の設計

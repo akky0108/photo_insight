@@ -1,7 +1,7 @@
 import signal
 from unittest.mock import MagicMock
-import photo_insight.batch_framework.core.signal_handler as signal_handler_module
-from photo_insight.batch_framework.core.signal_handler import SignalHandler
+import photo_insight.core.batch_framework._internal.signal_handler as signal_handler_module
+from photo_insight.core.batch_framework._internal.signal_handler import SignalHandler
 
 
 def test_signal_handler_registration(monkeypatch):
@@ -32,7 +32,5 @@ def test_signal_handler_invokes_cleanup_and_exit(monkeypatch):
 
     handler._handle_shutdown(signal.SIGINT, None)
 
-    logger.info.assert_called_with(
-        "Received shutdown signal SIGINT. Executing cleanup..."
-    )
+    logger.info.assert_called_with("Received shutdown signal SIGINT. Executing cleanup...")
     mock_callback.assert_called_once()

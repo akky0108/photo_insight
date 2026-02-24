@@ -2,7 +2,6 @@ import numpy as np
 
 
 class MathUtils:
-
     @staticmethod
     def log_scale(value):
         """

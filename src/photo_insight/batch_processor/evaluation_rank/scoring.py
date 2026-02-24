@@ -166,9 +166,7 @@ def half_closed_eye_penalty_proxy(row: Dict[str, Any]) -> float:
     if not safe_bool(row.get("face_detected")):
         return 0.0
 
-    pitch = safe_float(
-        row.get("debug_pitch", row.get("pitch", 0.0)), 0.0
-    )  # 下向きは負方向を想定
+    pitch = safe_float(row.get("debug_pitch", row.get("pitch", 0.0)), 0.0)  # 下向きは負方向を想定
 
     gaze_y_raw = row.get("debug_gaze_y", None)
     if gaze_y_raw in ("", None):
@@ -179,9 +177,7 @@ def half_closed_eye_penalty_proxy(row: Dict[str, Any]) -> float:
         except (TypeError, ValueError):
             gaze_y = parse_gaze_y(row.get("gaze"))
 
-    eye = score01(
-        row, "debug_eye_contact", default=score01(row, "eye_contact_score", default=0.0)
-    )
+    eye = score01(row, "debug_eye_contact", default=score01(row, "eye_contact_score", default=0.0))
 
     if gaze_y is None:
         if pitch <= -35.0 and eye <= 0.85:
@@ -311,9 +307,7 @@ class EvaluationScorer:
         sharp = score01(row, "sharpness_score")
         local_sharp = score01(row, "local_sharpness_score")
         noise = pick_score(row, "noise_score_brightness_adjusted", "noise_score")
-        blur = pick_score(
-            row, "blurriness_score_brightness_adjusted", "blurriness_score"
-        )
+        blur = pick_score(row, "blurriness_score_brightness_adjusted", "blurriness_score")
         expo = score01(row, "exposure_score")
 
         # 信頼度（status）
@@ -325,9 +319,7 @@ class EvaluationScorer:
 
         base = 100.0
 
-        penalty_bd_points = self._tech_penalty_points(
-            sharp, local_sharp, noise, blur, expo
-        )
+        penalty_bd_points = self._tech_penalty_points(sharp, local_sharp, noise, blur, expo)
 
         # “不確実”なときはペナルティを縮退（=悪いと断定しない）
         rel = 1.0
@@ -340,9 +332,7 @@ class EvaluationScorer:
             rel = 0.55
 
         # 縮退適用
-        penalty_bd_points = {
-            k: float(v) * float(rel) for k, v in penalty_bd_points.items()
-        }
+        penalty_bd_points = {k: float(v) * float(rel) for k, v in penalty_bd_points.items()}
         penalty_total = sum(penalty_bd_points.values())
 
         score = base - penalty_total
@@ -378,16 +368,10 @@ class EvaluationScorer:
         half_pen = half_closed_eye_penalty_proxy(row)
         expr_effective = apply_half_closed_penalty_to_expression(expr, half_pen)
 
-        fsharp_r = self._reliability(
-            is_ok_status(row.get("face_sharpness_eval_status")), kind="sharpness"
-        )
+        fsharp_r = self._reliability(is_ok_status(row.get("face_sharpness_eval_status")), kind="sharpness")
         flocal_r = 1.0  # eval_status列が無い設計なら 1.0
-        fexpo_r = self._reliability(
-            is_ok_status(row.get("face_exposure_eval_status")), kind="exposure"
-        )
-        fcont_r = self._reliability(
-            is_ok_status(row.get("face_contrast_eval_status")), kind="contrast"
-        )
+        fexpo_r = self._reliability(is_ok_status(row.get("face_exposure_eval_status")), kind="exposure")
+        fcont_r = self._reliability(is_ok_status(row.get("face_contrast_eval_status")), kind="contrast")
         fnoise_r = 1.0  # face_noise_eval_status が無い設計なら 1.0
 
         bd = {
@@ -584,11 +568,7 @@ class EvaluationScorer:
                 w_tech /= total
                 w_comp /= total
 
-        base = (
-            (w_face * float(face.score))
-            + (w_tech * float(tech.score))
-            + (w_comp * float(comp.score))
-        )
+        base = (w_face * float(face.score)) + (w_tech * float(tech.score)) + (w_comp * float(comp.score))
         bonus = self._shot_type_resilience_bonus(row)
 
         out = base + bonus
@@ -604,9 +584,7 @@ class EvaluationScorer:
     def calibration(self) -> dict[str, float]:
         return {}
 
-    def technical_score_compat(
-        self, row: Dict[str, Any]
-    ) -> Tuple[float, Dict[str, float]]:
+    def technical_score_compat(self, row: Dict[str, Any]) -> Tuple[float, Dict[str, float]]:
         p = self.technical_score(row)
         return p.score, p.breakdown
 
@@ -614,8 +592,6 @@ class EvaluationScorer:
         p = self.face_score(row)
         return p.score, p.breakdown
 
-    def composition_score_compat(
-        self, row: Dict[str, Any]
-    ) -> Tuple[float, Dict[str, float]]:
+    def composition_score_compat(self, row: Dict[str, Any]) -> Tuple[float, Dict[str, float]]:
         p = self.composition_score(row)
         return p.score, p.breakdown

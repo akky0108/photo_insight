@@ -7,8 +7,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../s
 import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
-from photo_insight.batch_framework.base_batch import BaseBatchProcessor
-from photo_insight.batch_framework.core.hook_manager import HookType
+from photo_insight.core.batch_framework.base_batch import BaseBatchProcessor
+from photo_insight.core.batch_framework._internal.hook_manager import HookType
 
 
 # -----------------------------

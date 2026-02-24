@@ -85,9 +85,7 @@ def test_green_total_is_ceiled_and_min_applied() -> None:
     )
     engine = AcceptanceEngine(rules)
 
-    rows = [
-        _make_row(i, overall=80.0) for i in range(10)
-    ]  # 10枚 * 1% = 0.1 → ceil=1 だが min=3
+    rows = [_make_row(i, overall=80.0) for i in range(10)]  # 10枚 * 1% = 0.1 → ceil=1 だが min=3
     thresholds = engine.apply_accepted_flags(rows)
 
     greens = [r for r in rows if int(r.get("accepted_flag", 0)) == 1]
@@ -139,14 +137,10 @@ def test_green_promote_clears_secondary_flag() -> None:
     """
     Green にした場合 secondary_accept_flag は必ず 0 になる（混在防止）。
     """
-    rules = AcceptRules(
-        green_ratio_small=0.50, green_count_small_max=60, green_count_mid_max=120
-    )
+    rules = AcceptRules(green_ratio_small=0.50, green_count_small_max=60, green_count_mid_max=120)
     engine = AcceptanceEngine(rules)
 
-    rows = [
-        _make_row(i, overall=80.0 - i * 0.1, face=80.0, comp=80.0) for i in range(20)
-    ]
+    rows = [_make_row(i, overall=80.0 - i * 0.1, face=80.0, comp=80.0) for i in range(20)]
     thresholds = engine.apply_accepted_flags(rows)
 
     green_total = int(thresholds["green_total"])

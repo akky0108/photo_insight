@@ -142,9 +142,7 @@ def test_write_ranking_csv_normalizes_flags_to_01(tmp_path: Path) -> None:
             secondary_accept_flag="False",
             flag="1",
         ),
-        _mk_min_row(
-            file_name="b.NEF", accepted_flag="0", secondary_accept_flag="1", flag="no"
-        ),
+        _mk_min_row(file_name="b.NEF", accepted_flag="0", secondary_accept_flag="1", flag="no"),
     ]
 
     write_ranking_csv(output_csv=out, rows=rows, sort_for_ranking=False)
@@ -228,9 +226,7 @@ def test_write_ranking_csv_ignores_extras_keys(tmp_path: Path) -> None:
 
 def test_sort_rows_for_ranking_orders_as_spec() -> None:
     rows = [
-        _mk_min_row(
-            file_name="c.NEF", category="non_face", accepted_flag=1, overall_score=99.0
-        ),
+        _mk_min_row(file_name="c.NEF", category="non_face", accepted_flag=1, overall_score=99.0),
         _mk_min_row(
             file_name="b.NEF",
             category="portrait",
@@ -238,9 +234,7 @@ def test_sort_rows_for_ranking_orders_as_spec() -> None:
             secondary_accept_flag=1,
             overall_score=80.0,
         ),
-        _mk_min_row(
-            file_name="a.NEF", category="portrait", accepted_flag=1, overall_score=70.0
-        ),
+        _mk_min_row(file_name="a.NEF", category="portrait", accepted_flag=1, overall_score=70.0),
         _mk_min_row(
             file_name="d.NEF",
             category="portrait",
@@ -248,9 +242,7 @@ def test_sort_rows_for_ranking_orders_as_spec() -> None:
             flag=1,
             overall_score=95.0,
         ),
-        _mk_min_row(
-            file_name="e.NEF", category="portrait", accepted_flag=0, overall_score=96.0
-        ),
+        _mk_min_row(file_name="e.NEF", category="portrait", accepted_flag=0, overall_score=96.0),
     ]
 
     sorted_rows = sort_rows_for_ranking(rows)
@@ -274,12 +266,8 @@ def test_sort_rows_for_ranking_orders_as_spec() -> None:
 def test_write_ranking_csv_sort_for_ranking_true_applies_sort(tmp_path: Path) -> None:
     out = tmp_path / "ranking.csv"
     rows = [
-        _mk_min_row(
-            file_name="b.NEF", category="portrait", accepted_flag=0, overall_score=99.0
-        ),
-        _mk_min_row(
-            file_name="a.NEF", category="portrait", accepted_flag=1, overall_score=10.0
-        ),
+        _mk_min_row(file_name="b.NEF", category="portrait", accepted_flag=0, overall_score=99.0),
+        _mk_min_row(file_name="a.NEF", category="portrait", accepted_flag=1, overall_score=10.0),
     ]
 
     write_ranking_csv(output_csv=out, rows=rows, sort_for_ranking=True)
