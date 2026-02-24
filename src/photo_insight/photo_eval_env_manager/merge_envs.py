@@ -11,12 +11,7 @@ from photo_insight.photo_eval_env_manager.envmerge.env_utils import (
     parse_conda_yaml,
     parse_pip_requirements,
 )
-from photo_insight.photo_eval_env_manager.envmerge.exceptions import (
-    VersionMismatchError,
-    DuplicatePackageError,
-)
 from photo_insight.photo_eval_env_manager.envmerge.env_merger import EnvMerger
-from collections import defaultdict
 from photo_insight.utils.app_logger import AppLogger
 
 
@@ -27,15 +22,9 @@ def parse_args():
     Returns:
         argparse.Namespace: パースされた引数オブジェクト。
     """
-    parser = argparse.ArgumentParser(
-        description="Merge conda and pip dependencies into a reproducible environment."
-    )
-    parser.add_argument(
-        "--conda", type=Path, required=True, help="Path to environment.yml"
-    )
-    parser.add_argument(
-        "--pip", type=Path, required=True, help="Path to requirements.txt"
-    )
+    parser = argparse.ArgumentParser(description="Merge conda and pip dependencies into a reproducible environment.")
+    parser.add_argument("--conda", type=Path, required=True, help="Path to environment.yml")
+    parser.add_argument("--pip", type=Path, required=True, help="Path to requirements.txt")
     parser.add_argument(
         "--output",
         type=Path,

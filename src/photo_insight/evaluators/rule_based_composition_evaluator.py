@@ -135,13 +135,8 @@ class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
         )
 
         self.logger.debug(f"Composition rule-based raw score: {avg_score:.2f}")
-        self.logger.debug(
-            f"Face composition discrete score: "
-            f"{results[self.FACE_COMPOSITION_SCORE]:.2f}"
-        )
-        self.logger.debug(
-            f"Group ID: {results['group_id']}, Subgroup ID: {results['subgroup_id']}"
-        )
+        self.logger.debug(f"Face composition discrete score: " f"{results[self.FACE_COMPOSITION_SCORE]:.2f}")
+        self.logger.debug(f"Group ID: {results['group_id']}, Subgroup ID: {results['subgroup_id']}")
         return results
 
     # -----------------------
@@ -167,47 +162,29 @@ class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
     # -----------------------
     # 既存ロジック（そのまま）
     # -----------------------
-    def classify_group(
-        self, fp: float, fr: float, fd: float, fs: float, ec: float
-    ) -> str:
+    def classify_group(self, fp: float, fr: float, fd: float, fs: float, ec: float) -> str:
         """
         各スコアに基づき構図グループを分類。
         """
 
         def label_position(score):
-            return (
-                "position=well"
-                if score >= 0.8
-                else "position=moderate" if score >= 0.5 else "position=off"
-            )
+            return "position=well" if score >= 0.8 else "position=moderate" if score >= 0.5 else "position=off"
 
         def label_direction(score):
-            return (
-                "direction=good"
-                if score >= 0.8
-                else "direction=ok" if score >= 0.5 else "direction=bad"
-            )
+            return "direction=good" if score >= 0.8 else "direction=ok" if score >= 0.5 else "direction=bad"
 
         def label_scale(score):
             return (
                 "scale=very_small"
                 if score < 0.2
-                else (
-                    "scale=small"
-                    if score < 0.5
-                    else "scale=large" if score > 0.9 else "scale=ideal"
-                )
+                else ("scale=small" if score < 0.5 else "scale=large" if score > 0.9 else "scale=ideal")
             )
 
         def label_framing(score):
             return "framing=ok" if score >= 1 else "framing=problem"
 
         def label_eye_contact(score):
-            return (
-                "eye_contact=strong"
-                if score >= 0.8
-                else "eye_contact=weak" if score >= 0.5 else "eye_contact=none"
-            )
+            return "eye_contact=strong" if score >= 0.8 else "eye_contact=weak" if score >= 0.5 else "eye_contact=none"
 
         if all(score >= 0.8 for score in [fp, fr, fd, fs, ec]):
             return "composition=ideal"
@@ -222,9 +199,7 @@ class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
             ]
         )
 
-    def evaluate_face_position(
-        self, image: np.ndarray, face_boxes: list, results: dict
-    ):
+    def evaluate_face_position(self, image: np.ndarray, face_boxes: list, results: dict):
         """
         顔の位置スコア（三分割法との距離）を計算。
         """
@@ -249,9 +224,7 @@ class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
             (width / 3, 2 * height / 3),
             (2 * width / 3, 2 * height / 3),
         ]
-        distances = [
-            np.hypot(face_center_x - tx, face_center_y - ty) for tx, ty in thirds
-        ]
+        distances = [np.hypot(face_center_x - tx, face_center_y - ty) for tx, ty in thirds]
         max_distance = np.hypot(width / 3, height / 3)
         score = 1 - min(min(distances) / max_distance, 1)
         results[self.FACE_POSITION] = score
@@ -282,9 +255,7 @@ class RuleBasedCompositionEvaluator(BaseCompositionEvaluator):
 
         self.logger.debug(f"Framing score: {results[self.FRAMING]}")
 
-    def evaluate_face_direction(
-        self, image: np.ndarray, face_boxes: list, results: dict
-    ):
+    def evaluate_face_direction(self, image: np.ndarray, face_boxes: list, results: dict):
         """
         顔の向き（yaw）から正面度をスコア化。
         """

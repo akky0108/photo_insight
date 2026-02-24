@@ -95,9 +95,7 @@ def deduplicate_python(dependencies: list[str | dict]) -> list[str | dict]:
     return filtered
 
 
-def validate_versions(
-    conda_packages: dict[str, str], pip_packages: list[dict[str, str]]
-) -> None:
+def validate_versions(conda_packages: dict[str, str], pip_packages: list[dict[str, str]]) -> None:
     """
     conda と pip の両方に同じパッケージがある場合、バージョンが一致するかを検証する。
 
@@ -114,9 +112,7 @@ def validate_versions(
         if conda_entry:
             conda_ver = conda_entry.split("=")[-1] if "=" in conda_entry else None
             if conda_ver and conda_ver != pip_ver:
-                raise InvalidVersionError(
-                    f"Package '{name}' version mismatch: conda='{conda_ver}', pip='{pip_ver}'"
-                )
+                raise InvalidVersionError(f"Package '{name}' version mismatch: conda='{conda_ver}', pip='{pip_ver}'")
 
 
 def load_yaml_file(path: Path) -> dict:

@@ -2,7 +2,7 @@ import yaml
 from typing import Any, Dict, List
 from unittest.mock import MagicMock
 
-from photo_insight.batch_framework.base_batch import BaseBatchProcessor
+from photo_insight.core.batch_framework.base_batch import BaseBatchProcessor
 
 
 def _write_min_config(tmp_path) -> str:
@@ -27,9 +27,7 @@ class DataContractProcessor(BaseBatchProcessor):
 
 def test_setup_calls_load_data_once(tmp_path):
     config_path = _write_min_config(tmp_path)
-    p = DataContractProcessor(
-        config_path=config_path, logger=MagicMock(), max_workers=2
-    )
+    p = DataContractProcessor(config_path=config_path, logger=MagicMock(), max_workers=2)
 
     p.setup()
     assert p.load_calls == 1
@@ -39,9 +37,7 @@ def test_setup_calls_load_data_once(tmp_path):
 
 def test_process_does_not_reload_data(tmp_path):
     config_path = _write_min_config(tmp_path)
-    p = DataContractProcessor(
-        config_path=config_path, logger=MagicMock(), max_workers=2
-    )
+    p = DataContractProcessor(config_path=config_path, logger=MagicMock(), max_workers=2)
 
     p.setup()
     assert p.load_calls == 1

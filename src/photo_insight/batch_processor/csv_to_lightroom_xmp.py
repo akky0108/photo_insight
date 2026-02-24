@@ -228,10 +228,7 @@ def build_nef_index(base_dir: Path) -> dict[str, Path]:
 
     if dup:
         sample = list(dup.items())[:5]
-        msg = (
-            "⚠️ Duplicate NEF names detected under the search root. "
-            + "(showing up to 5)"
-        )
+        msg = "⚠️ Duplicate NEF names detected under the search root. " + "(showing up to 5)"
         print(msg)
         for name, paths in sample:
             print(f"  - {name}:")
@@ -363,9 +360,7 @@ def _existing_keywords(desc: ET.Element) -> List[str]:
     return out
 
 
-def _ensure_dc_subject(
-    desc: ET.Element, keywords: List[str], *, overwrite: bool
-) -> None:
+def _ensure_dc_subject(desc: ET.Element, keywords: List[str], *, overwrite: bool) -> None:
     """
     keywords を dc:subject に反映。
     overwrite=False の場合は既存キーワードを尊重しつつ「無ければ追加」。
@@ -500,9 +495,7 @@ def process_csv(
 
             # Rating：lr_rating を信頼（無ければ -1 扱い）
             lr_rating = safe_int(row.get("lr_rating", -1), default=-1)
-            rating = (
-                lr_rating if lr_rating >= 0 else safe_int(overall // 20, default=0)
-            )  # フォールバックは雑でOK
+            rating = lr_rating if lr_rating >= 0 else safe_int(overall // 20, default=0)  # フォールバックは雑でOK
 
             # Color：lr_labelcolor_key/display を最優先。無ければ lr_color_label から推定。
             lr_label_key = normalize_lr_label_key(get_str(row, "lr_labelcolor_key", ""))
@@ -578,9 +571,7 @@ def process_csv(
                     label_display,
                     keywords=keywords if write_keywords else None,
                 )
-                ET.ElementTree(xmp).write(
-                    xmp_path, encoding="utf-8", xml_declaration=True
-                )
+                ET.ElementTree(xmp).write(xmp_path, encoding="utf-8", xml_declaration=True)
                 print(
                     f"✨ NEW   {nef_name} ★{rating} Pick={pick} "
                     f"Color={label_display or ''} "
@@ -589,9 +580,7 @@ def process_csv(
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(
-        description="CSV → Lightroom XMP batch (lr_* contract-driven)"
-    )
+    p = argparse.ArgumentParser(description="CSV → Lightroom XMP batch (lr_* contract-driven)")
 
     p.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
     p.add_argument("--csv-glob", type=str, default=CSV_GLOB)
@@ -615,12 +604,8 @@ def parse_args() -> argparse.Namespace:
 
     # 強制更新系
     p.add_argument("--force-rating", action="store_true", help="Rating を強制上書き")
-    p.add_argument(
-        "--force-pick", action="store_true", help="Pick を強制上書き（注意）"
-    )
-    p.add_argument(
-        "--force-color", action="store_true", help="ColorLabel を強制上書き（注意）"
-    )
+    p.add_argument("--force-pick", action="store_true", help="Pick を強制上書き（注意）")
+    p.add_argument("--force-color", action="store_true", help="ColorLabel を強制上書き（注意）")
     p.add_argument(
         "--clear-color-if-pick0",
         action="store_true",

@@ -68,14 +68,10 @@ class BlurrinessEvaluator:
         self.laplacian_ksize = int(laplacian_ksize)
         self.gaussian_ksize = int(gaussian_ksize)
         self.gaussian_sigma = float(gaussian_sigma)
-        self.clip_percentile = (
-            float(clip_percentile) if clip_percentile is not None else None
-        )
+        self.clip_percentile = float(clip_percentile) if clip_percentile is not None else None
 
         # --- normalize weights to avoid future accidents ---
-        ws = np.array(
-            [self.grad_weight, self.lap_weight, self.diff_weight], dtype=np.float32
-        )
+        ws = np.array([self.grad_weight, self.lap_weight, self.diff_weight], dtype=np.float32)
         s = float(ws.sum())
         if s > 0:
             ws = ws / s
@@ -109,20 +105,12 @@ class BlurrinessEvaluator:
         # optional param overrides from config
         # (safe: ignore if missing / wrong type)
         try:
-            feature_cfg = (
-                blur_cfg.get("feature_params", {}) if isinstance(blur_cfg, dict) else {}
-            )
+            feature_cfg = blur_cfg.get("feature_params", {}) if isinstance(blur_cfg, dict) else {}
             if isinstance(feature_cfg, dict):
                 self.sobel_ksize = int(feature_cfg.get("sobel_ksize", self.sobel_ksize))
-                self.laplacian_ksize = int(
-                    feature_cfg.get("laplacian_ksize", self.laplacian_ksize)
-                )
-                self.gaussian_ksize = int(
-                    feature_cfg.get("gaussian_ksize", self.gaussian_ksize)
-                )
-                self.gaussian_sigma = float(
-                    feature_cfg.get("gaussian_sigma", self.gaussian_sigma)
-                )
+                self.laplacian_ksize = int(feature_cfg.get("laplacian_ksize", self.laplacian_ksize))
+                self.gaussian_ksize = int(feature_cfg.get("gaussian_ksize", self.gaussian_ksize))
+                self.gaussian_sigma = float(feature_cfg.get("gaussian_sigma", self.gaussian_sigma))
                 cp = feature_cfg.get("clip_percentile", self.clip_percentile)
                 self.clip_percentile = float(cp) if cp is not None else None
         except Exception:
@@ -271,9 +259,7 @@ class BlurrinessEvaluator:
             variance_of_laplacian = float(np.var(lap))
 
             # --- Gaussian difference variance ---
-            blurred = cv2.GaussianBlur(
-                gray01, (self.gaussian_ksize, self.gaussian_ksize), self.gaussian_sigma
-            )
+            blurred = cv2.GaussianBlur(gray01, (self.gaussian_ksize, self.gaussian_ksize), self.gaussian_sigma)
             diff = cv2.absdiff(gray01, blurred)
             diff = self._robust_clip(diff)
             variance_of_difference = float(np.var(diff))
@@ -290,9 +276,7 @@ class BlurrinessEvaluator:
                 result["blurriness_fallback_reason"] = "non_finite_raw"
                 return result
 
-            blurriness_score, blurriness_grade = self._to_score_and_grade(
-                float(blurriness_raw)
-            )
+            blurriness_score, blurriness_grade = self._to_score_and_grade(float(blurriness_raw))
 
             result.update(
                 {

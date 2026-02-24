@@ -13,9 +13,7 @@ def test_main_logs_exception_and_exits(monkeypatch):
     mock_logger = mock.Mock()
 
     # merge_envs 関数を例外を投げるように置き換える
-    monkeypatch.setattr(
-        target_module, "merge_envs", mock.Mock(side_effect=RuntimeError("Mocked error"))
-    )
+    monkeypatch.setattr(target_module, "merge_envs", mock.Mock(side_effect=RuntimeError("Mocked error")))
 
     # parse_args の戻り値をモック
     mock_args = mock.Mock(
@@ -31,9 +29,7 @@ def test_main_logs_exception_and_exits(monkeypatch):
     # AppLogger.get_logger() がモック logger を返すように
     mock_app_logger = mock.Mock()
     mock_app_logger.get_logger.return_value = mock_logger
-    monkeypatch.setattr(
-        target_module, "AppLogger", mock.Mock(return_value=mock_app_logger)
-    )
+    monkeypatch.setattr(target_module, "AppLogger", mock.Mock(return_value=mock_app_logger))
 
     # sys.exit をモック
     monkeypatch.setattr(sys, "exit", mock.Mock())

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 # --- make tools importable ---
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +21,8 @@ from tools.score_dist_tune import (  # noqa: E402
     build_evaluator_config_from_chosen_params,
     validate_dataframe_contract,
 )
+
+pytestmark = pytest.mark.heavy
 
 
 def test_score_from_raw_higher_is_better_basic():
@@ -54,9 +57,7 @@ def test_resolve_raw_col_noise_prefers_sigma_used_over_noise_raw():
             "noise_score": [0.0, 0.5, 1.0],
         }
     )
-    raw_col, raw_source, raw_direction, raw_transform, meta = resolve_raw_col(
-        df, "noise_score"
-    )
+    raw_col, raw_source, raw_direction, raw_transform, meta = resolve_raw_col(df, "noise_score")
     assert raw_col == "noise_sigma_used"
     assert raw_source == "noise_sigma_used"
     assert raw_direction == "lower_is_better"
@@ -72,9 +73,7 @@ def test_resolve_raw_col_noise_uses_sigma_when_noise_raw_missing():
             "noise_score": [1.0, 0.5, 0.0],
         }
     )
-    raw_col, raw_source, raw_direction, raw_transform, meta = resolve_raw_col(
-        df, "noise_score"
-    )
+    raw_col, raw_source, raw_direction, raw_transform, meta = resolve_raw_col(df, "noise_score")
     assert raw_col == "noise_sigma_used"
     assert raw_source == "noise_sigma_used"
     assert raw_direction == "lower_is_better"
@@ -113,9 +112,7 @@ def test_resolve_raw_col_non_noise_uses_metric_raw_if_present():
             "contrast_score": [0.0, 0.5, 1.0],
         }
     )
-    raw_col, raw_source, raw_direction, raw_transform, meta = resolve_raw_col(
-        df, "contrast_score"
-    )
+    raw_col, raw_source, raw_direction, raw_transform, meta = resolve_raw_col(df, "contrast_score")
     assert raw_col == "contrast_raw"
     assert raw_source == "raw"
     assert raw_direction == "higher_is_better"

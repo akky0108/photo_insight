@@ -173,17 +173,11 @@ def decide_accept(
                 or footroom_ratio < fb_footroom_min_for_class
             ):
                 # 足元ほぼ無し＆頭上に余白 → 上半身寄り
-                if (
-                    headroom_ratio >= upper_body_head_min
-                    and footroom_ratio <= upper_body_foot_max
-                ):
+                if headroom_ratio >= upper_body_head_min and footroom_ratio <= upper_body_foot_max:
                     return "upper_body"
 
                 # 高さも小さく、中央寄せ → 顔アップ寄り
-                if (
-                    body_height_ratio <= face_only_height_max
-                    and side_margin_min_ratio <= center_side_margin_min
-                ):
+                if body_height_ratio <= face_only_height_max and side_margin_min_ratio <= center_side_margin_min:
                     return "face_only"
 
                 # それ以外はとりあえず upper_body に寄せる
@@ -205,17 +199,11 @@ def decide_accept(
 
         # ---- full body 検出なし（顔あり）の場合 ----
         # 上半身：頭上に余白あり＆足元余白少なめ
-        if (
-            headroom_ratio >= upper_body_head_min
-            and footroom_ratio <= upper_body_foot_max
-        ):
+        if headroom_ratio >= upper_body_head_min and footroom_ratio <= upper_body_foot_max:
             return "upper_body"
 
         # 顔アップ：高さ控えめ & サイド余白少なめ（中央寄せ）
-        if (
-            body_height_ratio <= face_only_height_max
-            and side_margin_min_ratio <= center_side_margin_min
-        ):
+        if body_height_ratio <= face_only_height_max and side_margin_min_ratio <= center_side_margin_min:
             return "face_only"
 
         # デフォルトは face_only に寄せる
@@ -324,10 +312,7 @@ def decide_accept(
     )
 
     # full body 用ノイズ判定
-    noise_ok_for_full_body = (
-        _ok_from(face_noise_score, face_noise_grade_score, fb_face_noise_min)
-        or noise_ok
-    )
+    noise_ok_for_full_body = _ok_from(face_noise_score, face_noise_grade_score, fb_face_noise_min) or noise_ok
 
     # ==============================
     # コントラスト関連（full body 用）
@@ -363,8 +348,7 @@ def decide_accept(
         full_body_detected
         and pose_score_100 >= pose_min_100
         and full_body_cut_risk <= cut_risk_max
-        and footroom_ratio
-        >= fb_footroom_min  # ★ 必要ならここを上げて「足ナシ full body」を除外できる
+        and footroom_ratio >= fb_footroom_min  # ★ 必要ならここを上げて「足ナシ full body」を除外できる
         and noise_ok_for_full_body
         and contrast_ok_for_full_body
         and blurriness_score_for_decision >= blurriness_min_full
@@ -401,9 +385,7 @@ def decide_accept(
     fq_blur_min = _thr("face_quality_blur_min", 0.55)
     fq_delta_sharpness_min = _thr("face_quality_delta_face_sharpness_min", -10.0)
     fq_yaw_max = _thr("face_quality_yaw_max_abs_deg", 30.0)
-    fq_pitch_max = _thr(
-        "face_quality_pitch_max_abs_deg", 90.0
-    )  # ★ デフォルト 90° なので既存挙動は変えない
+    fq_pitch_max = _thr("face_quality_pitch_max_abs_deg", 90.0)  # ★ デフォルト 90° なので既存挙動は変えない
 
     contrast_ok_for_face_quality = _ok_from(
         face_contrast_score,

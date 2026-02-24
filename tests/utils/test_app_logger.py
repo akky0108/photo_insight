@@ -66,9 +66,7 @@ def test_log_to_file():
 
 def test_invalid_config_file():
     # 存在しないファイルを指定してエラーが発生するか
-    logger = AppLogger(
-        project_root=".", config_file="invalid_path.yaml", logger_name="TestLogger"
-    )
+    logger = AppLogger(project_root=".", config_file="invalid_path.yaml", logger_name="TestLogger")
     logger.info("This should use default config")
 
 

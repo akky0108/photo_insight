@@ -37,9 +37,7 @@ def test_validate_row_fail_saturation():
 def test_validate_row_fail_accepted_delta():
     row = _base_row()
     row["new_accepted_ratio"] = 0.60
-    ok, reasons = validate_row_701_5(
-        row, criteria=Criteria7015(accepted_delta_max=0.10)
-    )
+    ok, reasons = validate_row_701_5(row, criteria=Criteria7015(accepted_delta_max=0.10))
     assert ok is False
     assert any("accepted_delta" in r for r in reasons)
 
@@ -63,9 +61,7 @@ def test_validate_row_fail_in_range_ratio():
 def test_validate_row_direction_conflict_fail_when_enabled():
     row = _base_row()
     row["direction_final"] = "conflict"
-    ok, reasons = validate_row_701_5(
-        row, criteria=Criteria7015(direction_conflict_fail=True)
-    )
+    ok, reasons = validate_row_701_5(row, criteria=Criteria7015(direction_conflict_fail=True))
     assert ok is False
     assert "direction_conflict" in reasons
 
@@ -74,8 +70,6 @@ def test_validate_row_require_target_l1_improve():
     row = _base_row()
     row["current_tech_target_l1"] = 0.10
     row["new_tech_target_l1"] = 0.20  # regressed
-    ok, reasons = validate_row_701_5(
-        row, criteria=Criteria7015(require_target_l1_improve=True)
-    )
+    ok, reasons = validate_row_701_5(row, criteria=Criteria7015(require_target_l1_improve=True))
     assert ok is False
     assert any("tech_target_l1_regressed" in r for r in reasons)

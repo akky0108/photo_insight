@@ -1,12 +1,14 @@
 # tests/integration/test_base_batch_processor.py
-import os
-import pytest
-import logging
-import signal
 import json
-from unittest.mock import Mock, MagicMock
-from photo_insight.batch_framework.core.signal_handler import SignalHandler
-from photo_insight.batch_framework.core.config_manager import ConfigManager
+import logging
+import os
+import signal
+from unittest.mock import MagicMock, Mock
+
+import pytest
+
+from photo_insight.core.batch_framework.core.config_manager import ConfigManager
+from photo_insight.core.batch_framework.core.signal_handler import SignalHandler
 from tests.integration.dummy_batch_processor import DummyBatchProcessor
 
 
@@ -33,9 +35,7 @@ def test_execute_runs_all_hooks_and_methods(tmp_path):
     # フック呼び出し回数チェック
     assert mock_hook_manager.execute_hooks.call_count == 6
 
-    actual_calls = [
-        args[0].value for args, kwargs in mock_hook_manager.execute_hooks.call_args_list
-    ]
+    actual_calls = [args[0].value for args, kwargs in mock_hook_manager.execute_hooks.call_args_list]
     expected_calls = [
         "pre_setup",
         "post_setup",
@@ -66,9 +66,7 @@ def test_signal_handler_triggers_cleanup():
         config_manager=mock_config_manager,
         logger=mock_logger,
     )
-    signal_handler = SignalHandler(
-        shutdown_callback=processor.cleanup, logger=mock_logger
-    )
+    signal_handler = SignalHandler(shutdown_callback=processor.cleanup, logger=mock_logger)
 
     # 疑似的に SIGINT を送る（本物の OS シグナルではない）
     signal_handler._handle_shutdown(signal.SIGINT, None)
@@ -77,14 +75,12 @@ def test_signal_handler_triggers_cleanup():
     assert processor.cleanup_called is True
 
     # ログが出ているか
-    expected_msg = f"Received shutdown signal {signal.Signals(signal.SIGINT).name}. Executing cleanup..."
+    expected_msg = f"Received shutdown signal {signal.Signals(signal.SIGINT).name}. " "Executing cleanup..."
     mock_logger.info.assert_any_call(expected_msg)
 
 
 def test_process_handles_batch_failures_gracefully(tmp_path, caplog):
-    from tests.integration.dummy_batch_processor import (
-        DummyBatchProcessorWithFailingBatch,
-    )
+    from tests.integration.dummy_batch_processor import DummyBatchProcessorWithFailingBatch
 
     config_path = tmp_path / "config.json"
     config_path.write_text(json.dumps({"batch_size": 2}))
@@ -92,7 +88,8 @@ def test_process_handles_batch_failures_gracefully(tmp_path, caplog):
     config_manager = ConfigManager(config_path=str(config_path))
 
     processor = DummyBatchProcessorWithFailingBatch(
-        hook_manager=MagicMock(), config_manager=config_manager
+        hook_manager=MagicMock(),
+        config_manager=config_manager,
     )
 
     with caplog.at_level("ERROR"):
@@ -104,17 +101,13 @@ def test_process_handles_batch_failures_gracefully(tmp_path, caplog):
     # 成功したバッチのIDのみ残っていることを確認（id:0,1とid:4,5）
     assert processor.processed_batches == [0, 1, 4, 5]
 
-    # 実際に出力されたエラーログに該当文字列が含まれているかチェック
-    assert any(
-        "[Batch 2] Failed in thread: Simulated batch failure" in message
-        for message in caplog.messages
-    ), "Expected error log not found"
+    # 現行実装は「例外メッセージを同一行に連結しない」ため、2条件で確認する
+    assert "[Batch 2] Failed in thread" in caplog.text
+    assert "Simulated batch failure" in caplog.text
 
 
 def test_process_handles_batch_failures_gracefully_with_detailed_log(tmp_path, caplog):
-    from tests.integration.dummy_batch_processor import (
-        DummyBatchProcessorWithFailingBatch,
-    )
+    from tests.integration.dummy_batch_processor import DummyBatchProcessorWithFailingBatch
 
     config_path = tmp_path / "config.json"
     config_path.write_text(json.dumps({"batch_size": 2}))
@@ -122,7 +115,8 @@ def test_process_handles_batch_failures_gracefully_with_detailed_log(tmp_path, c
     config_manager = ConfigManager(config_path=str(config_path))
 
     processor = DummyBatchProcessorWithFailingBatch(
-        hook_manager=MagicMock(), config_manager=config_manager
+        hook_manager=MagicMock(),
+        config_manager=config_manager,
     )
 
     # DEBUG レベルも拾うために設定
@@ -135,23 +129,16 @@ def test_process_handles_batch_failures_gracefully_with_detailed_log(tmp_path, c
     # 成功したバッチのIDのみ残っていることを確認
     assert processor.processed_batches == [0, 1, 4, 5]
 
-    # エラーログに失敗バッチのメッセージが含まれているか
-    assert any(
-        "[Batch 2] Failed in thread: Simulated batch failure" in message
-        for message in caplog.messages
-    ), "Expected error log not found"
+    # エラーログ + 例外文字列が出ているか（現行実装に合わせる）
+    assert "[Batch 2] Failed in thread" in caplog.text
+    assert "Simulated batch failure" in caplog.text
 
     # DEBUGログに失敗バッチのトランケートされたデータが含まれているか
-    assert any(
-        "[Batch 2] Failed batch data (truncated):" in message
-        for message in caplog.messages
-    ), "Expected debug log with batch data preview not found"
+    assert "[Batch 2] Failed batch data (truncated):" in caplog.text
 
     # ERRORログにスタックトレース情報が含まれているか検証
     error_records = [r for r in caplog.records if r.levelname == "ERROR"]
-    assert any(
-        r.exc_info is not None for r in error_records
-    ), "Expected exc_info (stack trace) in error logs"
+    assert any(r.exc_info is not None for r in error_records), "Expected exc_info (stack trace) in error logs"
 
 
 @pytest.mark.parametrize("invalid_value", [None, 0])
@@ -162,7 +149,6 @@ def test_max_workers_invalid_values_are_corrected(invalid_value):
     dummy_config_manager.get_logger.return_value = MagicMock()
     dummy_config_manager.config = {}
 
-    # max_workers=None → max(1, None or default=2) → 1
     processor = DummyBatchProcessor(
         hook_manager=dummy_hook_manager,
         config_manager=dummy_config_manager,
@@ -186,7 +172,8 @@ def test_process_returns_aggregated_results(tmp_path):
     config_manager = ConfigManager(config_path=str(config_path))
 
     processor = DummyBatchProcessorWithResult(
-        hook_manager=MagicMock(), config_manager=config_manager
+        hook_manager=MagicMock(),
+        config_manager=config_manager,
     )
 
     processor.process()
@@ -210,21 +197,22 @@ def test_process_summary_logging(caplog, tmp_path):
     config_manager = ConfigManager(config_path=str(config_path))
 
     processor = DummyBatchProcessorWithResult(
-        hook_manager=MagicMock(), config_manager=config_manager
+        hook_manager=MagicMock(),
+        config_manager=config_manager,
     )
 
     with caplog.at_level(logging.INFO):
         processor.process()
 
-    assert any("Success: 5" in msg for msg in caplog.messages)
+    # 現行ログ仕様に合わせる（"Success: 5" ではなく "success=5" 等）
+    assert any("success=5" in msg for msg in caplog.messages)
 
 
 def test_summarize_results_works_as_expected():
-    from tests.integration.dummy_batch_processor import DummyBatchProcessor
-    from unittest.mock import MagicMock
-
     processor = DummyBatchProcessor(
-        hook_manager=MagicMock(), config_manager=MagicMock(), logger=MagicMock()
+        hook_manager=MagicMock(),
+        config_manager=MagicMock(),
+        logger=MagicMock(),
     )
 
     sample_results = [

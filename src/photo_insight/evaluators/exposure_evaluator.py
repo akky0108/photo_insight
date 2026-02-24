@@ -52,9 +52,7 @@ class ExposureEvaluator:
             - image_dtype: 入力画像の dtype 文字列表現
         """
         if not isinstance(image, np.ndarray):
-            raise ValueError(
-                "Invalid input: expected a numpy array representing an image."
-            )
+            raise ValueError("Invalid input: expected a numpy array representing an image.")
         if image.size == 0:
             return self._fallback_result(reason="empty_image")
 

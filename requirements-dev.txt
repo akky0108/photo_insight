@@ -1,5 +1,16 @@
 -r requirements.txt
 
-pytest>=8,<10
-flake8>=7,<8
-black>=24,<27
+# ===== Test =====
+pytest==8.3.2
+
+# ===== Lint / Format (single source of truth) =====
+ruff==0.6.9
+
+# ===== Tools / Plot =====
+matplotlib>=3.8,<4
+
+# ===== Data / Tool tests =====
+pandas>=2.0,<3
+
+# ===== Runtime-ish deps used in unit tests =====
+psutil>=5.9,<6

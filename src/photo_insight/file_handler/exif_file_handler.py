@@ -5,7 +5,6 @@ from photo_insight.file_handler.file_handler import FileHandler
 
 
 class ExifFileHandler(FileHandler):
-
     def __init__(self, raw_extensions=None):
         """コンストラクタ。対応するRAWファイルの拡張子を初期化"""
         super().__init__()
@@ -35,9 +34,7 @@ class ExifFileHandler(FileHandler):
                 return plugin.read(file_path)
             raise NotImplementedError(f"No plugin registered for format: {format}")
 
-    def write_file(
-        self, output_file_path, data, format="text", header=None, write_mode="w"
-    ):
+    def write_file(self, output_file_path, data, format="text", header=None, write_mode="w"):
         """ファイルにデータを書き込む"""
         plugin = self.get_plugin(format)
         if plugin:
@@ -75,9 +72,7 @@ class ExifFileHandler(FileHandler):
 
         # 指定した拡張子のRAWファイルをリストアップ
         files = [
-            f
-            for f in os.listdir(directory_path)
-            if any(f.lower().endswith(ext.lower()) for ext in file_extensions)
+            f for f in os.listdir(directory_path) if any(f.lower().endswith(ext.lower()) for ext in file_extensions)
         ]
 
         exif_data_list = []
@@ -161,9 +156,7 @@ class ExifFileHandler(FileHandler):
     def convert_focal_length(self, focal_length_value):
         """FocalLengthを数値に変換"""
         try:
-            if isinstance(focal_length_value, str) and focal_length_value.endswith(
-                "mm"
-            ):
+            if isinstance(focal_length_value, str) and focal_length_value.endswith("mm"):
                 return float(focal_length_value[:-2])
             return float(focal_length_value)
         except ValueError:
