@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
-from photo_insight.core.batch_framework.core.config_manager import ConfigManager
-from photo_insight.core.batch_framework.core.signal_handler import SignalHandler
+from photo_insight.core.batch_framework._internal.config_manager import ConfigManager
+from photo_insight.core.batch_framework._internal.signal_handler import SignalHandler
 from tests.integration.dummy_batch_processor import DummyBatchProcessor
 
 

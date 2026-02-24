@@ -1,4 +1,6 @@
-# src/batch_framework/core/config_manager.py
+"""
+src/batch_framework/_internal/config_manager.py
+"""
 from __future__ import annotations
 
 import os

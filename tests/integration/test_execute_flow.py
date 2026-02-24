@@ -2,7 +2,7 @@ import json
 from unittest.mock import MagicMock
 from pathlib import Path
 
-from photo_insight.core.batch_framework.core.config_manager import ConfigManager
+from photo_insight.core.batch_framework._internal.config_manager import ConfigManager
 from tests.integration.dummy_batch_processor import DummyBatchProcessor
 
 

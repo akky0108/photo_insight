@@ -28,9 +28,9 @@ except Exception:  # pragma: no cover
         pass
 
 
-from .core.hook_manager import HookManager, HookType
-from .core.config_manager import ConfigManager
-from .core.signal_handler import SignalHandler
+from ._internal.hook_manager import HookManager, HookType
+from ._internal.config_manager import ConfigManager
+from ._internal.signal_handler import SignalHandler
 from .utils.result_store import ResultStore, RunContext
 
 

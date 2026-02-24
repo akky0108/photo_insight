@@ -1,7 +1,7 @@
 import signal
 from unittest.mock import MagicMock
-import photo_insight.core.batch_framework.core.signal_handler as signal_handler_module
-from photo_insight.core.batch_framework.core.signal_handler import SignalHandler
+import photo_insight.core.batch_framework._internal.signal_handler as signal_handler_module
+from photo_insight.core.batch_framework._internal.signal_handler import SignalHandler
 
 
 def test_signal_handler_registration(monkeypatch):

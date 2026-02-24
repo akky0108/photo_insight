@@ -97,6 +97,9 @@ docs/**/pairs_*.csv
 docs/**/brightness_comp_summary.json
 docs/**/brightness_comp_pairs.csv
 
+# local docs
+docs/architecture.md
+
 # =========================
 # Environment snapshots (pip list / freeze)
 # =========================
@@ -104,3 +107,14 @@ pip_list*.json
 pip_list*.txt
 pip_freeze*.txt
 pip_freeze*.json
+
+# =========================
+# backups
+# =========================
+*.bak.*
+*.bak
+
+# =========================
+# local docker assets
+# =========================
+docker/

@@ -5,7 +5,7 @@ import logging
 import pytest
 from unittest.mock import MagicMock
 
-from photo_insight.core.batch_framework.core.config_manager import (
+from photo_insight.core.batch_framework._internal.config_manager import (
     ConfigManager,
     NullWatchFactory,
     DefaultConfigResolver,
