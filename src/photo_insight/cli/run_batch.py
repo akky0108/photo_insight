@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Type, Optional
 
-from photo_insight.batch_framework.base_batch import BaseBatchProcessor
+from photo_insight.core.batch_framework.base_batch import BaseBatchProcessor
 
 # -------------------------
 # Reserved keys (runner-owned)

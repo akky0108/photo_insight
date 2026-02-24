@@ -3,7 +3,7 @@ import pandas as pd
 import yaml
 import numpy as np
 from typing import List, Dict, Union
-from photo_insight.batch_framework.base_batch import BaseBatchProcessor
+from photo_insight.core.batch_framework.base_batch import BaseBatchProcessor
 
 
 class ThresholdCalculator(BaseBatchProcessor):

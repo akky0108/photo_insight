@@ -2,7 +2,7 @@ import os
 import time
 from file_handler.csv_file_handler import CSVFileHandler
 from photo_insight.utils.app_logger import Logger  # ログクラスをインポート
-from photo_insight.batch_framework.base_batch import BaseBatchProcessor
+from photo_insight.core.batch_framework.base_batch import BaseBatchProcessor
 from composition_evaluator import (
     CompositionEvaluator,
 )  # CompositionEvaluator クラスをインポート

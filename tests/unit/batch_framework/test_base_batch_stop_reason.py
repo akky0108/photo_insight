@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from photo_insight.batch_framework.base_batch import BaseBatchProcessor
+from photo_insight.core.batch_framework.base_batch import BaseBatchProcessor
 
 
 class DummyProcessor(BaseBatchProcessor):

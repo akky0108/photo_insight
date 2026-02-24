@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from photo_insight.batch_framework.base_batch import BaseBatchProcessor
+from photo_insight.core.batch_framework.base_batch import BaseBatchProcessor
 from .acceptance import AcceptanceEngine
 from .analysis.rejected_reason_stats import (
     RejectedReasonAnalyzer,

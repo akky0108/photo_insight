@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 import shutil
-from photo_insight.batch_framework.base_batch import (
+from photo_insight.core.batch_framework.base_batch import (
     BaseBatchProcessor,
 )  # バッチ処理の基底クラスをインポート
 

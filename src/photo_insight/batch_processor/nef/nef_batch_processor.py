@@ -7,8 +7,8 @@ from threading import Lock
 from collections import defaultdict
 
 from photo_insight.file_handler.exif_file_handler import ExifFileHandler
-from photo_insight.batch_framework.base_batch import BaseBatchProcessor
-from photo_insight.batch_framework.utils.io_utils import (
+from photo_insight.core.batch_framework.base_batch import BaseBatchProcessor
+from photo_insight.core.batch_framework.utils.io_utils import (
     group_by_key,
     write_csv_with_lock,
 )

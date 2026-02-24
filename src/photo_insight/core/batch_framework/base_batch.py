@@ -28,10 +28,10 @@ except Exception:  # pragma: no cover
         pass
 
 
-from photo_insight.batch_framework.core.hook_manager import HookManager, HookType
-from photo_insight.batch_framework.core.config_manager import ConfigManager
-from photo_insight.batch_framework.core.signal_handler import SignalHandler
-from photo_insight.batch_framework.utils.result_store import ResultStore, RunContext
+from .core.hook_manager import HookManager, HookType
+from .core.config_manager import ConfigManager
+from .core.signal_handler import SignalHandler
+from .utils.result_store import ResultStore, RunContext
 
 
 def _normpath(p: str) -> str:

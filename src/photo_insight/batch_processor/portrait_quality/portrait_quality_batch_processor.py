@@ -9,7 +9,7 @@ from threading import Event
 from typing import Any, List, Dict, Optional, Union
 from concurrent.futures import ThreadPoolExecutor, as_completed, CancelledError
 
-from photo_insight.batch_framework.base_batch import BaseBatchProcessor
+from photo_insight.core.batch_framework.base_batch import BaseBatchProcessor
 from photo_insight.image_loader import ImageLoader
 from photo_insight.evaluators.portrait_quality.portrait_quality_evaluator import (
     PortraitQualityEvaluator,
