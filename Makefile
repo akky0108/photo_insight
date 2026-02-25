@@ -82,10 +82,10 @@ test-light:
 	$(PYTEST) -q tests/unit -m "not heavy"
 
 test-heavy:
-	pytest -q -m "heavy" --run-heavy
+	$(PYTEST) -q -m "heavy" --run-heavy
 
 test-integration:
-	pytest -q tests/integration -m "integration" --run-heavy
+	$(PYTEST) -q tests/integration -m "integration" --run-heavy
 
 ci: fmt-check lint test
 ci-light: fmt-check lint test-light
