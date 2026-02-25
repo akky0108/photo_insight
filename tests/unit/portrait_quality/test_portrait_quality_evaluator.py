@@ -72,6 +72,7 @@ def test_portrait_quality_evaluate_no_face_detected(tmp_path):
     assert len(results["faces"]) == 0
 
 
+@pytest.mark.heavy
 @pytest.mark.parametrize(
     "filename, expected_face_detected",
     [

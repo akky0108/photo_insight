@@ -1,0 +1,41 @@
+# syntax=docker/dockerfile:1.7
+ARG CUDA_IMAGE=nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+
+FROM ${CUDA_IMAGE} AS base
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    VENV_PATH=/opt/venv
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3.10 python3.10-venv python3-pip \
+      libraw20 \
+      libglib2.0-0 \
+      tini \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3.10 -m venv ${VENV_PATH}
+ENV PATH="${VENV_PATH}/bin:${PATH}"
+WORKDIR /work
+
+FROM base AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential pkg-config libraw-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt requirements-dev.txt ./
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -U pip wheel setuptools \
+    && pip wheel --wheel-dir /wheels -r requirements-dev.txt
+
+FROM base AS dev
+COPY --from=builder /wheels /wheels
+COPY requirements.txt requirements-dev.txt ./
+RUN pip install --no-index --find-links=/wheels -r requirements-dev.txt \
+    && rm -rf /wheels
+CMD ["bash"]
+
+FROM dev AS ci

@@ -1,25 +1,23 @@
 {
-  "name": "photo_insight (py310)",
-  "build": {
-    "dockerfile": "../Dockerfile",
-    "context": "..",
-    "target": "dev"
-  },
-  "workspaceFolder": "/workspaces/photo_insight",
-  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/photo_insight,type=bind",
+  "name": "photo_insight",
+  "dockerComposeFile": ["../docker-compose.yml"],
+  "service": "app",
+  "workspaceFolder": "/work",
+  "shutdownAction": "stopCompose",
   "customizations": {
     "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "/opt/venv/bin/python",
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": ["-q", "tests"],
+        "editor.formatOnSave": true
+      },
       "extensions": [
         "ms-python.python",
         "ms-python.vscode-pylance",
-        "ms-azuretools.vscode-docker"
-      ],
-      "settings": {
-        "python.defaultInterpreterPath": "/usr/local/bin/python",
-        "python.testing.pytestEnabled": true,
-        "python.testing.pytestArgs": ["tests"],
-        "python.analysis.extraPaths": ["/workspaces/photo_insight/src"]
-      }
+        "charliermarsh.ruff"
+      ]
     }
-  }
+  },
+  "postCreateCommand": "python -V && pip -V && ruff --version && pytest --version"
 }

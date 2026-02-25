@@ -700,10 +700,13 @@ class PortraitQualityEvaluator:
                 return str(v)
 
         faces = results.get("faces", [])
+
+        # results["faces"] は構造体のまま（unitテスト/呼び出し側の契約）
+        # 文字列化が必要な場合に備えて別キーに置く
         if isinstance(faces, (list, dict)):
-            results["faces"] = _to_json_str(faces)
+            results["faces_json"] = _to_json_str(faces)
         else:
-            results["faces"] = str(faces)
+            results["faces_json"] = str(faces)
 
         gaze = results.get("gaze")
         if isinstance(gaze, (list, dict)):

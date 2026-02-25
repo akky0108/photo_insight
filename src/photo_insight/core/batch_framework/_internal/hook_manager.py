@@ -1,8 +1,9 @@
 """
 src/batch_framework/_internal/hook_manager.py
 """
+
 from __future__ import annotations
-    
+
 from enum import Enum
 from typing import Callable, Dict, List, NamedTuple
 from concurrent.futures import ThreadPoolExecutor
