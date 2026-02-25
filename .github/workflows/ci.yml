@@ -8,30 +8,20 @@ on:
       - develop
   workflow_dispatch:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Choose Make target
-        id: tgt
+      - name: Build (compose)
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "make_target=ci-light" >> $GITHUB_OUTPUT
-          else
-            echo "make_target=ci" >> $GITHUB_OUTPUT
-          fi
+          docker compose build app-ci
 
-      - name: Build CI image (CPU)
+      - name: CI Light (compose)
         run: |
-          docker build --target ci -t photo_insight-ci:local .
-
-      - name: Run in container
-        run: |
-          docker run --rm \
-            -v "${{ github.workspace }}:/work" \
-            -w /work \
-            photo_insight-ci:local \
-            make ${{ steps.tgt.outputs.make_target }}
+          docker compose run --rm app-ci make ci-light

@@ -14,6 +14,22 @@ services:
     command: bash
     tty: true
 
+  # CI専用
+  app-ci:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ci
+    working_dir: /work
+    volumes:
+      - ./:/work:cached
+      - pip-cache:/root/.cache/pip
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/work/src
+    command: make ci-light
+    tty: false
+
   app-gpu:
     build:
       context: .

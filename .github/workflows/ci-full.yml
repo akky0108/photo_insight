@@ -1,0 +1,13 @@
+name: CI Full (manual)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  full:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          docker compose build app-ci
+          docker compose run --rm app-ci make ci
