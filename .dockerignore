@@ -1,35 +1,58 @@
-# Git / CI
+# VCS
 .git
-.github
+.gitignore
 
-# IDE
-.vscode
-.idea
-
-# Python caches
+# Python
 __pycache__/
-*.py[cod]
+*.pyc
+*.pyo
+*.pyd
 .pytest_cache/
-.cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
 
-# Virtual environments
+# venv / conda
 .venv/
 venv/
-photo_eval_env/
-.env
+env/
+.conda/
+conda/
+*.conda
 
-# Logs / outputs（巨大化しやすい）
-logs/
-output/
-runs/
-temp/
-processed_txt/
-wandb/
+# IDE
+.vscode/
+.idea/
 
-# Notebooks
-.ipynb_checkpoints/
-notebooks/
-
-# OS junk
+# OS
 .DS_Store
 Thumbs.db
+
+# Devcontainer
+.devcontainer/
+
+# Data / outputs (必要なら調整)
+*.nef
+*.NEF
+*.dng
+*.DNG
+*.cr2
+*.CR2
+*.arw
+*.ARW
+*.rw2
+*.RW2
+*.orf
+*.ORF
+*.jpg
+*.jpeg
+*.png
+*.tif
+*.tiff
+
+# Logs
+*.log

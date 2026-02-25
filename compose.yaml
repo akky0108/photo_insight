@@ -1,9 +1,48 @@
 services:
   app:
-    build: .
-    image: photo_insight:dev
-    working_dir: /app
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+    working_dir: /work
     volumes:
-      - .:/app
+      - ./:/work:cached
+      - pip-cache:/root/.cache/pip
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/work/src
+    command: bash
     tty: true
-    stdin_open: true
+
+  app-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+      target: dev
+    working_dir: /work
+    volumes:
+      - ./:/work:cached
+      - pip-cache:/root/.cache/pip
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/work/src
+    command: bash
+    tty: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+
+  runtime:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    working_dir: /work
+    volumes:
+      - ./:/work:cached
+    command: python -c "print('runtime ok')"
+
+volumes:
+  pip-cache:

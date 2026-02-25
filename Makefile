@@ -81,5 +81,40 @@ test:
 test-light:
 	$(PYTEST) -q tests/unit -m "not heavy"
 
+test-heavy:
+	pytest -q -m "heavy" --run-heavy
+
+test-integration:
+	pytest -q tests/integration -m "integration" --run-heavy
+
 ci: fmt-check lint test
 ci-light: fmt-check lint test-light
+
+# ---- Docker helpers ----
+DOCKER_COMPOSE ?= docker compose
+SERVICE ?= app
+
+docker-build:
+	$(DOCKER_COMPOSE) build $(SERVICE)
+
+docker-shell:
+	$(DOCKER_COMPOSE) run --rm $(SERVICE) bash
+
+docker-ci:
+	$(DOCKER_COMPOSE) run --rm $(SERVICE) make ci
+
+docker-ci-light:
+	$(DOCKER_COMPOSE) run --rm $(SERVICE) make ci-light
+
+docker-test:
+	$(DOCKER_COMPOSE) run --rm $(SERVICE) make test
+
+docker-lint:
+	$(DOCKER_COMPOSE) run --rm $(SERVICE) make lint
+
+docker-fmt-check:
+	$(DOCKER_COMPOSE) run --rm $(SERVICE) make fmt-check
+
+# GPU版（必要なときだけ）
+docker-ci-gpu:
+	$(DOCKER_COMPOSE) run --rm app-gpu make ci

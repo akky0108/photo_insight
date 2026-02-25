@@ -128,7 +128,9 @@ class ImagePreprocessor:
             return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
         if img.ndim == 3 and img.shape[-1] == 3:
             return img
-        raise ValueError("Invalid image shape. expected 2D or HxWx3.")
+        if img.ndim == 3 and img.shape[-1] == 4:
+            return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+        raise ValueError("Invalid image shape. expected 2D or HxWx3 or HxWx4.")
 
     def _convert_bgr_to_rgb(self, image: np.ndarray) -> np.ndarray:
         if image.ndim == 3:

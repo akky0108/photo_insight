@@ -118,3 +118,43 @@ pip_freeze*.json
 # local docker assets
 # =========================
 docker/
+
+# =========================
+# Lint / type caches
+# =========================
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.dmypy.json
+
+# =========================
+# Additional virtualenv names
+# =========================
+env/
+ENV/
+
+# =========================
+# Image / RAW data (safety)
+# =========================
+*.nef
+*.NEF
+*.dng
+*.DNG
+*.cr2
+*.CR2
+*.arw
+*.ARW
+*.rw2
+*.RW2
+*.orf
+*.ORF
+*.jpg
+*.jpeg
+*.png
+*.tif
+*.tiff
+
+# =========================
+# Misc tools
+# =========================
+.matplotlib/

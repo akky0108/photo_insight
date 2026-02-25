@@ -1,23 +1,37 @@
-name: CI (manual)
+name: CI (Docker)
 
 on:
-  workflow_dispatch: {}
-
-permissions:
-  contents: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  pull_request:
+  push:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
 
 jobs:
-  ci-manual:
+  test:
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Show why CI is manual
+      - name: Choose Make target
+        id: tgt
         run: |
-          echo "CI is temporarily manual-only during Docker migration."
-          echo "This avoids failures due to unstable tooling/deps (e.g., ruff not installed yet)."
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "make_target=ci-light" >> $GITHUB_OUTPUT
+          else
+            echo "make_target=ci" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build CI image (CPU)
+        run: |
+          docker build --target ci -t photo_insight-ci:local .
+
+      - name: Run in container
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/work" \
+            -w /work \
+            photo_insight-ci:local \
+            make ${{ steps.tgt.outputs.make_target }}

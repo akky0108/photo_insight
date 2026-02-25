@@ -1,14 +1,17 @@
-import sys
 import os
-
-# ★ 先に src を import path に入れる（重要）
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
-
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
+
+import pytest
+
 from photo_insight.core.batch_framework.base_batch import BaseBatchProcessor
 from photo_insight.core.batch_framework._internal.hook_manager import HookType
+
+
+# -----------------------------
+# repo root (tests/直下固定)
+# -----------------------------
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 # -----------------------------
@@ -16,16 +19,39 @@ from photo_insight.core.batch_framework._internal.hook_manager import HookType
 # -----------------------------
 @pytest.fixture(autouse=True)
 def _set_test_config_env(monkeypatch):
-    repo_root = Path(__file__).resolve().parents[1]
-
     # ConfigManager がここを見る
-    monkeypatch.setenv("PROJECT_ROOT", str(repo_root))
+    monkeypatch.setenv("PROJECT_ROOT", str(REPO_ROOT))
 
     # 既存fixtureで使ってるパスに合わせる（tests/fixtures/test_config.yaml）
-    cfg = repo_root / "tests" / "fixtures" / "test_config.yaml"
+    cfg = REPO_ROOT / "tests" / "fixtures" / "test_config.yaml"
     monkeypatch.setenv("CONFIG_PATH", str(cfg))
 
 
+# -----------------------------
+# Heavy / GPU opt-in（将来用）
+# -----------------------------
+def pytest_addoption(parser):
+    parser.addoption("--run-heavy", action="store_true", default=False, help="Run tests marked as heavy")
+    parser.addoption("--run-gpu", action="store_true", default=False, help="Run tests marked as gpu")
+
+
+def pytest_collection_modifyitems(config, items):
+    run_heavy = config.getoption("--run-heavy")
+    run_gpu = config.getoption("--run-gpu")
+
+    skip_heavy = pytest.mark.skip(reason="need --run-heavy to run")
+    skip_gpu = pytest.mark.skip(reason="need --run-gpu to run")
+
+    for item in items:
+        if "heavy" in item.keywords and not run_heavy:
+            item.add_marker(skip_heavy)
+        if "gpu" in item.keywords and not run_gpu:
+            item.add_marker(skip_gpu)
+
+
+# -----------------------------
+# Common fixtures
+# -----------------------------
 @pytest.fixture
 def fixture_config_path():
     return os.path.join("tests", "fixtures", "test_config.yaml")
@@ -41,17 +67,12 @@ def fixture_output_dir():
     return os.path.join("tests", "fixtures", "output")
 
 
-@pytest.fixture
-def dummy_processor():
-    return DummyBatchProcessor()
-
-
+# -----------------------------
+# Dummy Processor
+# -----------------------------
 class DummyBatchProcessor(BaseBatchProcessor):
-    def _process_batch(self, batch):
-        pass
-
     def __init__(self, *args, **kwargs):
-        # 通常のBaseBatchProcessorをモックしやすく簡素化
+        # BaseBatchProcessor をモックしやすく簡素化
         self.project_root = os.getcwd()
         self.default_config = {
             "batch_size": 100,
@@ -64,3 +85,11 @@ class DummyBatchProcessor(BaseBatchProcessor):
         self.max_workers = 2
         self.max_process_count = None
         self.processed_count = 0
+
+    def _process_batch(self, batch):
+        pass
+
+
+@pytest.fixture
+def dummy_processor():
+    return DummyBatchProcessor()
