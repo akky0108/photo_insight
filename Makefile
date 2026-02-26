@@ -76,7 +76,7 @@ lint:
 	$(RUFF) check src tests
 
 test:
-	$(PYTEST) -q tests
+	$(PYTEST) -q tests -m "not integration and not heavy"
 
 test-light:
 	$(PYTEST) -q tests/unit -m "not heavy"
@@ -85,10 +85,11 @@ test-heavy:
 	$(PYTEST) -q -m "heavy" --run-heavy
 
 test-integration:
-	$(PYTEST) -q tests/integration -m "integration" --run-heavy
+	$(PYTEST) -q tests/integration -m "not heavy"
 
 ci: fmt-check lint test
 ci-light: fmt-check lint test-light
+ci-full: fmt-check lint test test-integration
 
 # ---- Docker helpers ----
 DOCKER_COMPOSE ?= docker compose
@@ -108,6 +109,9 @@ docker-ci-light:
 
 docker-test:
 	$(DOCKER_COMPOSE) run --rm $(SERVICE) make test
+
+docker-integration:
+	$(DOCKER_COMPOSE) run --rm $(SERVICE) make test-integration
 
 docker-lint:
 	$(DOCKER_COMPOSE) run --rm $(SERVICE) make lint

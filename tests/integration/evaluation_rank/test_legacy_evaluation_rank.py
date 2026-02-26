@@ -5,6 +5,9 @@ from photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_process
     EvaluationRankBatchProcessor,
 )
 
+pytestmark = pytest.mark.integration
+pytestmark = pytest.mark.heavy
+
 
 @pytest.fixture
 def dummy_config(tmp_path):

@@ -93,3 +93,68 @@ class DummyBatchProcessor(BaseBatchProcessor):
 @pytest.fixture
 def dummy_processor():
     return DummyBatchProcessor()
+
+
+# =============================
+# evaluation_rank fixtures
+# =============================
+import json
+from typing import Any, Dict, List
+
+
+@pytest.fixture()
+def required_columns() -> List[str]:
+    # INPUT_REQUIRED_COLUMNS を SSOT として利用
+    from photo_insight.batch_processor.evaluation_rank.contract import INPUT_REQUIRED_COLUMNS
+
+    return list(INPUT_REQUIRED_COLUMNS)
+
+
+def _default_value_for_eval(col: str, i: int) -> Any:
+    # 最低限の型/表現だけ合わせる（normalize層が吸える形）
+    if col in ("file_name", "group_id", "subgroup_id", "shot_type", "accepted_reason"):
+        return f"{col}_{i}"
+
+    if col == "faces":
+        # _safe_parse_faces が json として読める形式
+        return json.dumps(
+            [
+                {
+                    "confidence": 0.9,
+                    "eye_closed_prob": 0.1,
+                    "eye_lap_var": 0.2,
+                    "eye_patch_size": 32,
+                }
+            ]
+        )
+
+    if col in ("face_detected", "full_body_detected"):
+        return "true"
+
+    if col == "accepted_flag":
+        return "0"
+
+    # それ以外は数値っぽく
+    return 0.0
+
+
+@pytest.fixture()
+def minimal_required_row(required_columns: List[str]) -> Dict[str, Any]:
+    row = {c: _default_value_for_eval(c, 0) for c in required_columns}
+    # よく使うキーは明示
+    row["file_name"] = "IMG_0001.NEF"
+    row["group_id"] = "g1"
+    row["subgroup_id"] = "sg1"
+    row["shot_type"] = "portrait"
+    row["accepted_flag"] = "0"
+    row["accepted_reason"] = ""
+    return row
+
+
+@pytest.fixture()
+def minimal_required_rows(minimal_required_row: Dict[str, Any]) -> List[Dict[str, Any]]:
+    r1 = dict(minimal_required_row)
+    r2 = dict(minimal_required_row)
+    r2["file_name"] = "IMG_0002.NEF"
+    r2["subgroup_id"] = "sg2"
+    return [r1, r2]
