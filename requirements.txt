@@ -9,6 +9,4 @@ numpy>=1.23,<2
 # RAW (NEF) support
 rawpy>=0.18,<0.22
 
-# image loading backend
 imageio>=2.34,<3
-Pillow>=10,<12
