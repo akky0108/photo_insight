@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest import mock
 from photo_insight.photo_eval_env_manager import merge_envs as target_module
 from photo_insight.photo_eval_env_manager.merge_envs import run_cli
-from photo_insight.utils.app_logger import AppLogger
+from photo_insight.core.logging import AppLogger
 import photo_insight.photo_eval_env_manager.merge_envs as main_module
 
 

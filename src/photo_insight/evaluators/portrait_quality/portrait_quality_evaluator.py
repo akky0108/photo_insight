@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 import yaml
 
-from photo_insight.utils.app_logger import Logger
+from photo_insight.core.logging import Logger
 
 from photo_insight.image_utils.image_preprocessor import ImagePreprocessor
 

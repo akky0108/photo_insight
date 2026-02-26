@@ -12,7 +12,7 @@ from photo_insight.photo_eval_env_manager.envmerge.env_utils import (
     parse_pip_requirements,
 )
 from photo_insight.photo_eval_env_manager.envmerge.env_merger import EnvMerger
-from photo_insight.utils.app_logger import AppLogger
+from photo_insight.core.logging import AppLogger
 
 
 def parse_args():

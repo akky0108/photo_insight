@@ -15,7 +15,7 @@ from photo_insight.evaluators.base_composition_evaluator import BaseCompositionE
 from photo_insight.evaluators.rule_of_thirds_evaluator import (
     RuleOfThirdsEvaluator,
 )  # ★ 追加
-from photo_insight.utils.app_logger import Logger
+from photo_insight.core.logging import Logger
 
 
 class CompositeCompositionEvaluator(BaseCompositionEvaluator):

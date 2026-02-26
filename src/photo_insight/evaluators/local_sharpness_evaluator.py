@@ -5,7 +5,7 @@ import numpy as np
 from typing import Any, Dict, Optional
 
 from photo_insight.utils.image_utils import ImageUtils
-from photo_insight.utils.app_logger import Logger
+from photo_insight.core.logging import Logger
 
 
 class LocalSharpnessEvaluator:

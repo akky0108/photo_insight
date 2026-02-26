@@ -3,7 +3,7 @@ import numpy as np
 from typing import Dict, Any, Optional
 
 from photo_insight.utils.image_utils import ImageUtils
-from photo_insight.utils.app_logger import Logger
+from photo_insight.core.logging import Logger
 
 
 class SharpnessEvaluator:

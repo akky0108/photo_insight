@@ -12,7 +12,7 @@ import numpy as np
 from PIL import ExifTags, Image
 
 from photo_insight.image_loader import ImageLoader
-from photo_insight.utils.app_logger import Logger
+from photo_insight.core.logging import Logger
 from photo_insight.utils.image_utils import ImageUtils
 
 

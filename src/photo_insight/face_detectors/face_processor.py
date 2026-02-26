@@ -4,7 +4,7 @@ import numpy as np
 from typing import Optional, Dict, Any, Sequence, Union
 
 from photo_insight.evaluators.face_evaluator import FaceEvaluator
-from photo_insight.utils.app_logger import Logger
+from photo_insight.core.logging import Logger
 
 BoxLike = Union[Sequence[float], Sequence[int]]  # [x1, y1, x2, y2]
 

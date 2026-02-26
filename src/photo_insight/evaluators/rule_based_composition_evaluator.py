@@ -1,6 +1,6 @@
 import numpy as np
 from photo_insight.evaluators.base_composition_evaluator import BaseCompositionEvaluator
-from photo_insight.utils.app_logger import Logger
+from photo_insight.core.logging import Logger
 from typing import Any, Dict, Optional
 
 

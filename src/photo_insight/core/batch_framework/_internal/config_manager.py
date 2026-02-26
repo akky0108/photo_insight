@@ -405,7 +405,7 @@ class ConfigManager:
         # 1) try project Logger
         # -----------------------------
         try:
-            from photo_insight.utils.app_logger import Logger as AppLogger  # type: ignore  # noqa: E501,E402
+            from photo_insight.core.logging import Logger as AppLogger  # type: ignore  # noqa: E501,E402
 
             return AppLogger(
                 project_root=self.project_root,
