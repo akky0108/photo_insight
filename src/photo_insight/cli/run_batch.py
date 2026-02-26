@@ -38,7 +38,7 @@ def _load_processor_by_alias(name: str) -> Type[BaseBatchProcessor]:
     key = (name or "").strip().lower()
 
     if key in ("nef", "nef_file", "nef_file_batch"):
-        from photo_insight.batch_processor.nef_batch_process import NEFFileBatchProcess
+        from photo_insight.pipelines.nef_batch_process import NEFFileBatchProcess
 
         return NEFFileBatchProcess
 
