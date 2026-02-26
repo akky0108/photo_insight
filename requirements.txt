@@ -1,1 +1,10 @@
 requests==2.31.0
+python-dotenv>=1,<2
+PyYAML>=6,<7
+
+# image stack
+opencv-python-headless>=4.9,<5
+numpy>=1.23,<2
+
+# RAW (NEF) support
+rawpy>=0.18,<0.22
