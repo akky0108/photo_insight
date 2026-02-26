@@ -8,7 +8,10 @@ PYTEST ?= $(PYTHON) -m pytest
 BASE_YML := environment_base.yml
 PIP_JSON := pip_list.json
 FINAL_YML := environment_combined.yml
-REQUIREMENTS := requirements.txt
+
+# ★ ここが事故の元。生成物は generated/ に逃がす
+REQUIREMENTS := generated/requirements.txt
+
 CI_YML := environment_ci.yml
 EXCLUDE_CI := .github/exclude_for_ci.txt
 
@@ -26,8 +29,8 @@ help:
 	@echo ""
 	@echo "  make merge           Merge Conda + pip environments (outputs .yml and .txt)"
 	@echo "  make dry-run         Check merge result without writing files"
-	@echo "  make only-pip        Extract pip-only dependencies to requirements.txt"
-	@echo "  make audit           Audit security issues in requirements.txt using pip-audit"
+	@echo "  make only-pip        Extract pip-only dependencies to $(REQUIREMENTS)"
+	@echo "  make audit           Audit security issues in $(REQUIREMENTS) using pip-audit"
 	@echo "  make clean           Delete generated environment files"
 	@echo "  make check-ci-env    [CI] Run merge and check for unexpected changes"
 	@echo "  make fmt             Format code with ruff"
@@ -41,6 +44,7 @@ merge:
 		echo "Error: $(PIP_JSON) not found. Run 'pip list --format=json > $(PIP_JSON)' first."; \
 		exit 1; \
 	fi
+	@mkdir -p $(dir $(REQUIREMENTS))
 	$(PYTHON) $(MERGE_SCRIPT) --base $(BASE_YML) --pip-json $(PIP_JSON) \
 		--final $(FINAL_YML) --requirements $(REQUIREMENTS) \
 		--ci $(CI_YML) --exclude-for-ci $(EXCLUDE_CI) $(EXTRA_ARGS)
@@ -51,10 +55,12 @@ dry-run:
 		--ci $(CI_YML) --exclude-for-ci $(EXCLUDE_CI) --dry-run
 
 only-pip:
+	@mkdir -p $(dir $(REQUIREMENTS))
 	$(PYTHON) $(MERGE_SCRIPT) --pip-json $(PIP_JSON) \
 		--requirements $(REQUIREMENTS) --only-pip
 
 audit:
+	@mkdir -p $(dir $(REQUIREMENTS))
 	$(PYTHON) $(MERGE_SCRIPT) --pip-json $(PIP_JSON) \
 		--requirements $(REQUIREMENTS) --only-pip --audit
 	pip-audit -r $(REQUIREMENTS) || true
