@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from photo_insight.batch_processor.nef_batch_process import NEFFileBatchProcess
+from photo_insight.pipelines.nef.nef_batch_process import NEFFileBatchProcess
 
 
 # --- 共通フィクスチャ ---
