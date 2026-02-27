@@ -1,7 +1,7 @@
 # tests/utils/test_app_logger.py
 
 import os
-from photo_insight.utils.app_logger import AppLogger
+from photo_insight.core.logging import AppLogger
 
 
 def test_singleton_behavior():

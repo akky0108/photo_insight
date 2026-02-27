@@ -2,7 +2,7 @@ import numpy as np
 from typing import List, Optional, Tuple, Dict, Any
 
 from photo_insight.evaluators.base_composition_evaluator import BaseCompositionEvaluator
-from photo_insight.utils.app_logger import Logger
+from photo_insight.core.logging import Logger
 
 
 class FullBodyCompositionEvaluator(BaseCompositionEvaluator):

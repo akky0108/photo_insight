@@ -4,7 +4,7 @@ import re
 import warnings
 from typing import Optional
 from pathlib import Path
-from photo_insight.utils.app_logger import AppLogger
+from photo_insight.core.logging import AppLogger
 from photo_insight.photo_eval_env_manager.envmerge.exceptions import (
     VersionMismatchError,
     DuplicatePackageError,

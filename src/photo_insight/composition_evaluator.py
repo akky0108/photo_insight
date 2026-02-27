@@ -3,7 +3,7 @@ import rawpy
 from skimage.metrics import structural_similarity as ssim
 from photo_insight.file_handler.exif_file_handler import ExifFileHandler
 from photo_insight.image_loader import ImageLoader
-from photo_insight.utils.app_logger import Logger
+from photo_insight.core.logging import Logger
 
 
 class CompositionEvaluator:

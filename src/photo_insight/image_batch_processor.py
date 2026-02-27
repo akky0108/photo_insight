@@ -6,7 +6,7 @@ import numpy as np
 import os
 from typing import List, Dict, Optional
 from photo_insight.core.batch_framework.base_batch import BaseBatchProcessor
-from photo_insight.utils.app_logger import Logger
+from photo_insight.core.logging import Logger
 from photo_insight.image_loader import ImageLoader
 
 DEFAULT_IMAGE_DIR = "/mnt/l/picture/2025"

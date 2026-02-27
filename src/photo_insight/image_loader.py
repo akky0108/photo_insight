@@ -8,7 +8,7 @@ import imageio.v3 as iio
 from PIL import Image
 import numpy as np
 
-from photo_insight.utils.app_logger import Logger
+from photo_insight.core.logging import Logger
 
 # rawpy is an optional dependency.
 # CI / unit tests may not install it, so avoid import-time crash.
