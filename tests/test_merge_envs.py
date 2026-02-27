@@ -1,6 +1,8 @@
 import os
 import pytest
 import logging
+from unittest.mock import Mock
+
 from photo_insight.photo_eval_env_manager.merge_envs import (
     merge_envs,
     parse_conda_yaml,
@@ -10,90 +12,97 @@ from photo_insight.photo_eval_env_manager.envmerge.exceptions import (
     VersionMismatchError,
     DuplicatePackageError,
 )
-from unittest.mock import Mock
 
-# テストで使用するfixtureファイルのパスを設定
+# 入力fixture（読み取り専用）
 BASE_YML = "tests/fixtures/environment_base.yml"
 BASE_YML_DUP = "tests/fixtures/environment_base_with_dup.yml"
 BASE_YML_MIS = "tests/fixtures/environment_base_with_mis.yml"
 PIP_JSON = "tests/fixtures/pip_list.json"
-FINAL_YML = "tests/fixtures/environment_combined.yml"
-REQUIREMENTS_TXT = "tests/fixtures/requirements.txt"
-CI_YML = "tests/fixtures/environment_ci.yml"
 EXCLUDE_CI_TXT = "tests/fixtures/exclude_ci.txt"
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 ENV_NAME = "photo_eval_env"
 
 
-def test_merge_envs_success():
+def test_merge_envs_success(tmp_path):
+    # 出力はすべてテンポラリへ（リポジトリ配下を書き換えない）
+    final_yml = tmp_path / "environment_combined.yml"
+    requirements_txt = tmp_path / "requirements.txt"
+    ci_yml = tmp_path / "environment_ci.yml"
+
     with open(EXCLUDE_CI_TXT) as f:
         exclude_for_ci = [line.strip() for line in f if line.strip()]
 
     merge_envs(
         base_yml=BASE_YML,
         pip_json=PIP_JSON,
-        final_yml=FINAL_YML,
-        requirements_txt=REQUIREMENTS_TXT,
-        ci_yml=CI_YML,
+        final_yml=str(final_yml),
+        requirements_txt=str(requirements_txt),
+        ci_yml=str(ci_yml),
         exclude_for_ci=exclude_for_ci,
     )
 
-    assert os.path.exists(FINAL_YML)
-    assert os.path.exists(REQUIREMENTS_TXT)
+    assert final_yml.exists()
+    assert requirements_txt.exists()
+    assert ci_yml.exists()
 
-    with open(REQUIREMENTS_TXT) as f:
+    with open(requirements_txt) as f:
         content = f.read()
         assert "requests==2.31.0" in content
         assert "flask==2.0.1" in content
 
-    with open(FINAL_YML) as f:
+    with open(final_yml) as f:
         yml_content = f.read()
         assert "requests==2.31.0" in yml_content
 
-    assert os.path.exists(CI_YML)
-    with open(CI_YML) as f:
+    with open(ci_yml) as f:
         ci_content = f.read()
         assert "requests" not in ci_content
         assert "flask==2.0.1" in ci_content
 
 
-def test_duplicate_package_error():
+def test_duplicate_package_error(tmp_path):
     base_yml_with_dup = os.path.join(FIXTURES_DIR, "environment_base_with_dup.yml")
+    out_final = tmp_path / "environment_combined.yml"
+    out_req = tmp_path / "requirements.txt"
+
     with pytest.raises(DuplicatePackageError):
         merge_envs(
             base_yml=base_yml_with_dup,
             pip_json=PIP_JSON,
-            final_yml=FINAL_YML,
-            requirements_txt=REQUIREMENTS_TXT,
+            final_yml=str(out_final),
+            requirements_txt=str(out_req),
             strict=True,
         )
 
 
 def test_base_yml_not_found():
     with pytest.raises(FileNotFoundError):
-        merge_envs("non_existent_file.yml", PIP_JSON, FINAL_YML, REQUIREMENTS_TXT)
+        merge_envs("non_existent_file.yml", PIP_JSON, "dummy.yml", "dummy.txt")
 
 
 def test_pip_json_not_found():
     with pytest.raises(FileNotFoundError):
-        merge_envs(BASE_YML, "non_existent_pip_list.json", FINAL_YML, REQUIREMENTS_TXT)
+        merge_envs(BASE_YML, "non_existent_pip_list.json", "dummy.yml", "dummy.txt")
 
 
 def test_version_mismatch_strict():
     with pytest.raises(VersionMismatchError):
-        merge_envs(BASE_YML_MIS, PIP_JSON, FINAL_YML, REQUIREMENTS_TXT, strict=True)
+        merge_envs(BASE_YML_MIS, PIP_JSON, "dummy.yml", "dummy.txt", strict=True)
 
 
-def test_cpu_only_version_conversion():
+def test_cpu_only_version_conversion(tmp_path):
+    out_final = tmp_path / "environment_combined.yml"
+    out_req = tmp_path / "requirements.txt"
+
     merge_envs(
         base_yml=BASE_YML,
         pip_json=PIP_JSON,
-        final_yml=FINAL_YML,
-        requirements_txt=REQUIREMENTS_TXT,
+        final_yml=str(out_final),
+        requirements_txt=str(out_req),
         cpu_only=True,
     )
 
-    with open(REQUIREMENTS_TXT) as f:
+    with open(out_req) as f:
         content = f.read()
         assert "torch-cpu==1.9.0" in content
 
@@ -124,8 +133,8 @@ def test_merge_envs_logs_exception_on_version_mismatch():
         merge_envs(
             base_yml=BASE_YML_MIS,
             pip_json=PIP_JSON,
-            final_yml=FINAL_YML,
-            requirements_txt=REQUIREMENTS_TXT,
+            final_yml="dummy.yml",
+            requirements_txt="dummy.txt",
             strict=True,
             logger=mock_logger,
         )
@@ -139,15 +148,19 @@ def test_merge_envs_logs_exception_on_version_mismatch():
         ("tests/fixtures/requirements.txt", ["torch-cpu==1.9.0", "flask==2.0.1"]),
     ],
 )
-def test_merge_envs_with_explicit_pip_format(pip_path, expected_pkgs):
+def test_merge_envs_with_explicit_pip_format(tmp_path, pip_path, expected_pkgs):
+    out_final = tmp_path / "environment_combined.yml"
+    out_req = tmp_path / "requirements.txt"
+
     merge_envs(
         base_yml=BASE_YML,
         pip_json=pip_path,
-        final_yml=FINAL_YML,
-        requirements_txt=REQUIREMENTS_TXT,
+        final_yml=str(out_final),
+        requirements_txt=str(out_req),
         cpu_only=True,
     )
-    with open(REQUIREMENTS_TXT) as f:
+
+    with open(out_req) as f:
         content = f.read()
         for pkg in expected_pkgs:
             assert pkg in content
