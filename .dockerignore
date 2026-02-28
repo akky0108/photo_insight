@@ -1,0 +1,58 @@
+# VCS
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# venv / conda
+.venv/
+venv/
+env/
+.conda/
+conda/
+*.conda
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Devcontainer
+.devcontainer/
+
+# Data / outputs (必要なら調整)
+*.nef
+*.NEF
+*.dng
+*.DNG
+*.cr2
+*.CR2
+*.arw
+*.ARW
+*.rw2
+*.RW2
+*.orf
+*.ORF
+*.jpg
+*.jpeg
+*.png
+*.tif
+*.tiff
+
+# Logs
+*.log

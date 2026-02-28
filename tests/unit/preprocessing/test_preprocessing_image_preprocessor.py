@@ -30,7 +30,7 @@ def test_ndarray_input_with_gamma(dummy_image):
     assert not np.array_equal(result["original"], dummy_image)
 
 
-@patch("image_utils.image_preprocessor.ImageLoader")
+@patch("photo_insight.image_utils.image_preprocessor.ImageLoader")
 def test_path_input_with_exif(mock_loader_class, dummy_image, tmp_path):
     # 仮のJPEGファイル作成
     img_path = tmp_path / "test.jpg"

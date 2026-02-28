@@ -23,9 +23,7 @@ class FaceDetectorBase(ABC):
 
 
 class BaseFaceDetector(FaceDetectorBase):
-    def __init__(
-        self, confidence_threshold=0.5, logger: Optional[logging.Logger] = None
-    ):
+    def __init__(self, confidence_threshold=0.5, logger: Optional[logging.Logger] = None):
         self.confidence_threshold = confidence_threshold
         self.logger = logger or logging.getLogger(__name__)
         if not self.logger.hasHandlers():

@@ -1,3 +1,27 @@
 [tool.black]
-line-length = 88
-target-version = ['py310']
+line-length = 120
+target-version = ["py310"]
+
+[tool.isort]
+profile = "black"
+line_length = 120
+combine_as_imports = true
+include_trailing_comma = true
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+markers = [
+  "heavy: slow or environment-dependent tests (disabled in ci-light)",
+  "integration: integration tests (often heavy)",
+  "gpu: requires NVIDIA GPU runtime"
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = ["E501"]
+per-file-ignores = { "tests/**" = ["E402"] }

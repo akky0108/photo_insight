@@ -5,7 +5,7 @@ import logging
 import pytest
 from unittest.mock import MagicMock
 
-from photo_insight.batch_framework.core.config_manager import (
+from photo_insight.core.batch_framework._internal.config_manager import (
     ConfigManager,
     NullWatchFactory,
     DefaultConfigResolver,
@@ -25,11 +25,7 @@ from photo_insight.batch_framework.core.config_manager import (
 )
 def test_get_memory_threshold_behavior(config_value, expected, log_message, caplog):
     # ここは「ファイル読み込み不要」なので auto_load=False でOK
-    config = (
-        {"batch": {"memory_threshold": config_value}}
-        if config_value is not None
-        else {}
-    )
+    config = {"batch": {"memory_threshold": config_value}} if config_value is not None else {}
 
     logger_name = "test_logger"
     logger = logging.getLogger(logger_name)
@@ -40,9 +36,7 @@ def test_get_memory_threshold_behavior(config_value, expected, log_message, capl
         config_path="dummy.yaml",  # resolve を通すためだけ（auto_load=False なら読まない）
         logger=logger,
         watch_factory=NullWatchFactory(),
-        resolver=DefaultConfigResolver(
-            strict_missing=False
-        ),  # dummy.yaml が無くても落ちない
+        resolver=DefaultConfigResolver(strict_missing=False),  # dummy.yaml が無くても落ちない
         auto_load=False,
     )
     manager.config = config
@@ -52,9 +46,7 @@ def test_get_memory_threshold_behavior(config_value, expected, log_message, capl
 
     assert result == expected
     if log_message:
-        assert any(
-            log_message in message for message in caplog.messages
-        ), caplog.messages
+        assert any(log_message in message for message in caplog.messages), caplog.messages
 
 
 def test_load_config_from_file():
@@ -121,9 +113,7 @@ def test_logger_called_on_load():
     os.remove(tmp_path)
 
 
-@pytest.mark.skip(
-    reason="watchdog に依存しCIでflakyになりやすい。必要なら統合テストへ。"
-)
+@pytest.mark.skip(reason="watchdog に依存しCIでflakyになりやすい。必要なら統合テストへ。")
 def test_config_change_triggers_callback():
     # どうしてもやるなら WatchdogFactory を明示し、
     # CIではスキップ、ローカルでのみ実行推奨。

@@ -1,4 +1,7 @@
-# src/batch_framework/core/hook_manager.py
+"""
+src/batch_framework/_internal/hook_manager.py
+"""
+
 from __future__ import annotations
 
 from enum import Enum
@@ -27,9 +30,7 @@ class HookExecutionError(RuntimeError):
     def __init__(self, hook_type: HookType, errors: List[BaseException]):
         self.hook_type = hook_type
         self.errors = errors
-        msg = f"{hook_type.name} hooks failed: " + ", ".join(
-            f"{type(e).__name__}: {e}" for e in errors
-        )
+        msg = f"{hook_type.name} hooks failed: " + ", ".join(f"{type(e).__name__}: {e}" for e in errors)
         super().__init__(msg)
 
 
@@ -44,9 +45,7 @@ class HookManager:
     """
 
     def __init__(self, max_workers: int = 2, logger=None):
-        self.hooks: Dict[HookType, List[Hook]] = {
-            hook_type: [] for hook_type in HookType
-        }
+        self.hooks: Dict[HookType, List[Hook]] = {hook_type: [] for hook_type in HookType}
         self.max_workers = max(1, int(max_workers or 0))
         self.logger = logger
 

@@ -93,9 +93,7 @@ def sort_rows_for_ranking(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 # =========================
 
 
-def _normalize_row_for_output(
-    row: Dict[str, Any], columns: Sequence[str]
-) -> Dict[str, Any]:
+def _normalize_row_for_output(row: Dict[str, Any], columns: Sequence[str]) -> Dict[str, Any]:
     """
     OUTPUT_COLUMNS を満たすように row を正規化する。
     - 欠損列は "" で埋める（契約として必ず出力列を揃える）
@@ -123,9 +121,7 @@ def _normalize_row_for_output(
     return out
 
 
-def write_csv_contract(
-    path: Path, rows: List[Dict[str, Any]], columns: Sequence[str]
-) -> None:
+def write_csv_contract(path: Path, rows: List[Dict[str, Any]], columns: Sequence[str]) -> None:
     """
     Contract(列順・列数) を完全に守って CSV を書く。
     """

@@ -5,9 +5,7 @@ import sys
 def run_pip_list(output_file):
     try:
         print("\n📦 Running 'pip list'...")
-        result = subprocess.run(
-            ["pip", "list", "--format=json"], check=True, capture_output=True, text=True
-        )
+        result = subprocess.run(["pip", "list", "--format=json"], check=True, capture_output=True, text=True)
         with open(output_file, "w") as f:
             f.write(result.stdout)
         print(f"✅ Generated {output_file}")

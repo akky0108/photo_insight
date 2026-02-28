@@ -4,7 +4,7 @@ import numpy as np
 from typing import Optional, Dict, Any, Sequence, Union
 
 from photo_insight.evaluators.face_evaluator import FaceEvaluator
-from photo_insight.utils.app_logger import Logger
+from photo_insight.core.logging import Logger
 
 BoxLike = Union[Sequence[float], Sequence[int]]  # [x1, y1, x2, y2]
 
@@ -37,9 +37,7 @@ class FaceProcessor:
     # 実装側（PortraitQualityEvaluator）では FaceProcessor.crop_face(image, face_dict) を渡す。
     # 両方を受けられるようにする。
     @staticmethod
-    def crop_face(
-        image: np.ndarray, face: Union[dict, BoxLike, None]
-    ) -> Optional[np.ndarray]:
+    def crop_face(image: np.ndarray, face: Union[dict, BoxLike, None]) -> Optional[np.ndarray]:
         if image is None:
             return None
 
@@ -74,8 +72,4 @@ class FaceProcessor:
     def extract_attributes(face: dict) -> Dict[str, Any]:
         if not isinstance(face, dict):
             return {}
-        return {
-            attr: face[attr]
-            for attr in ["yaw", "pitch", "roll", "gaze"]
-            if attr in face
-        }
+        return {attr: face[attr] for attr in ["yaw", "pitch", "roll", "gaze"] if attr in face}

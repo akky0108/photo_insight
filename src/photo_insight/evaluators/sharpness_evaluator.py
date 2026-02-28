@@ -3,7 +3,7 @@ import numpy as np
 from typing import Dict, Any, Optional
 
 from photo_insight.utils.image_utils import ImageUtils
-from photo_insight.utils.app_logger import Logger
+from photo_insight.core.logging import Logger
 
 
 class SharpnessEvaluator:
@@ -64,9 +64,7 @@ class SharpnessEvaluator:
                 - sharpness_eval_status
         """
         if image is None or not isinstance(image, np.ndarray) or image.size == 0:
-            self.logger.warning(
-                "SharpnessEvaluator: invalid image. fallback to neutral."
-            )
+            self.logger.warning("SharpnessEvaluator: invalid image. fallback to neutral.")
             return {
                 self.RAW_KEY: None,
                 self.SCORE_KEY: 0.5,  # ニュートラル
@@ -108,9 +106,7 @@ class SharpnessEvaluator:
             }
 
             # 必要ならデバッグ用ログ
-            self.logger.debug(
-                f"sharpness_raw={variance:.3f}, sharpness_score={score:.2f}"
-            )
+            self.logger.debug(f"sharpness_raw={variance:.3f}, sharpness_score={score:.2f}")
 
             return result
 

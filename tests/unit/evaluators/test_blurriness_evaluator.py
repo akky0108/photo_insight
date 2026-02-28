@@ -59,9 +59,7 @@ def test_blurriness_evaluator_thresholds_sorted_even_if_unsorted():
 
 
 def test_blurriness_evaluator_weights_are_normalized():
-    ev = BlurrinessEvaluator(
-        grad_weight=2.0, lap_weight=2.0, diff_weight=1.0, logger=None, config={}
-    )
+    ev = BlurrinessEvaluator(grad_weight=2.0, lap_weight=2.0, diff_weight=1.0, logger=None, config={})
     s = ev.grad_weight + ev.lap_weight + ev.diff_weight
     assert abs(s - 1.0) < 1e-6
     assert ev.grad_weight > 0 and ev.lap_weight > 0 and ev.diff_weight > 0
