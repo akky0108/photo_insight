@@ -38,21 +38,17 @@ def _load_processor_by_alias(name: str) -> Type[BaseBatchProcessor]:
     key = (name or "").strip().lower()
 
     if key in ("nef", "nef_file", "nef_file_batch"):
-        from photo_insight.pipelines.nef_batch_process import NEFFileBatchProcess
+        from photo_insight.pipelines.nef.nef_batch_process import NEFFileBatchProcess
 
         return NEFFileBatchProcess
 
     if key in ("evaluation_rank", "rank", "eval_rank"):
-        from photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_processor import (  # noqa: E501,E402
-            EvaluationRankBatchProcessor,
-        )
+        from photo_insight.pipelines.evaluation_rank import EvaluationRankBatchProcessor
 
         return EvaluationRankBatchProcessor
 
     if key in ("portrait_quality", "quality", "portrait"):
-        from photo_insight.batch_processor.portrait_quality import (
-            PortraitQualityBatchProcessor,
-        )
+        from photo_insight.pipelines.portrait_quality import PortraitQualityBatchProcessor
 
         return PortraitQualityBatchProcessor
 

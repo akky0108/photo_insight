@@ -1,3 +1,3 @@
-from photo_insight.batch_processor.portrait_quality import PortraitQualityBatchProcessor
+from photo_insight.pipelines.portrait_quality import PortraitQualityBatchProcessor
 
 __all__ = ["PortraitQualityBatchProcessor"]
