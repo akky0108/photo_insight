@@ -1,0 +1,43 @@
+# config/config.base.yaml
+
+exif_fields:
+  - "FileName"
+  - "Model"
+  - "Lens"
+  - "ExposureTime"
+  - "FocalLength"
+  - "ShutterSpeed"
+  - "Aperture"
+  - "ISO"
+  - "Rating"
+  - "ImageHeight"
+  - "ImageWidth"
+  - "Orientation"
+  - "BitDepth"
+
+defaults:
+  min_score: 0.0
+  max_score: 1.0
+
+weights:
+  face_detected:
+    face_sharpness_score: 0.3
+    face_contrast_score: 0.2
+    face_noise_score: 0.1
+    sharpness_score: 0.2
+    contrast_score: 0.1
+    noise_score: 0.1
+    blurriness_score: 0.0
+  no_face_detected:
+    sharpness_score: 0.5
+    contrast_score: 0.3
+    noise_score: 0.2
+    blurriness_score: 0.0
+
+batch_size: 10
+
+batch:
+  memory_threshold: 90
+
+quality_thresholds_path: config/evaluator_thresholds.yaml
+quality_profile: portrait
