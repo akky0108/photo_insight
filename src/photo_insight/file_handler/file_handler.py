@@ -4,7 +4,6 @@ from typing import Optional, Dict, List
 
 
 class FileHandler(ABC):
-
     plugins = {}
     DEFAULT_FORMAT = "text"  # デフォルトのファイルフォーマットをクラス変数として設定
 
@@ -67,9 +66,7 @@ class FileHandler(ABC):
             return os.path.getsize(file_path)
         return None
 
-    def validate_format(
-        self, file_path: str, expected_formats: Optional[List[str]] = None
-    ):
+    def validate_format(self, file_path: str, expected_formats: Optional[List[str]] = None):
         """
         ファイルの拡張子が期待されるフォーマット（単一または複数）と一致するか確認する。
         expected_formatsがNoneの場合はインスタンスのデフォルトフォーマットと比較。

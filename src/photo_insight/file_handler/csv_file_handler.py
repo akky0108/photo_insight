@@ -5,7 +5,6 @@ import csv
 
 
 class CSVPlugin:
-
     @staticmethod
     def read(file_path):
         with open(file_path, mode="r", newline="", encoding="utf-8") as file:
@@ -22,14 +21,11 @@ class CSVPlugin:
 
 
 class CSVFileHandler(FileHandler):
-
     def __init__(self, config=None):
         super().__init__(config)
         self.plugin = self.get_plugin("csv")
 
-    def read_file(
-        self, file_path, format="csv", filters=None, sort_key=None, reverse=False
-    ):
+    def read_file(self, file_path, format="csv", filters=None, sort_key=None, reverse=False):
         if not self.file_exists(file_path):
             raise FileNotFoundError(f"ファイルが存在しません: {file_path}")
 
@@ -38,9 +34,7 @@ class CSVFileHandler(FileHandler):
 
             # フィルタリング
             if filters:
-                data = [
-                    row for row in data if all(row[k] == v for k, v in filters.items())
-                ]
+                data = [row for row in data if all(row[k] == v for k, v in filters.items())]
 
             # 並び替え
             if sort_key:

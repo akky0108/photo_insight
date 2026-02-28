@@ -1,12 +1,13 @@
 # tests/integration/dummy_batch_processor.py
+from __future__ import annotations
 
-from photo_insight.batch_framework.base_batch import BaseBatchProcessor
+from typing import Any, Dict, List
+
+from photo_insight.core.batch_framework.base_batch import BaseBatchProcessor
 
 
 class DummyBatchProcessor(BaseBatchProcessor):
-    def __init__(
-        self, hook_manager, config_manager, signal_handler=None, logger=None, **kwargs
-    ):
+    def __init__(self, hook_manager, config_manager, signal_handler=None, logger=None, **kwargs):
         super().__init__(
             hook_manager=hook_manager,
             config_manager=config_manager,
@@ -29,8 +30,8 @@ class DummyBatchProcessor(BaseBatchProcessor):
         # ダミー実装（何もしない）
         pass
 
-    def get_data(self):
-        # ダミー実装：空のデータを返す
+    def load_data(self) -> List[Dict[str, Any]]:
+        # integration test 用：空データでOK（execute/processの流れ確認が目的）
         return []
 
     def cleanup(self):
@@ -42,6 +43,9 @@ class DummyBatchProcessorWithFailingBatch(BaseBatchProcessor):
         super().__init__(*args, **kwargs)
         self.processed_batches = []
         self.batch_size = 2
+
+    def load_data(self):
+        return self.get_data()
 
     def get_data(self):
         # 6アイテム → 3バッチ（2件ずつ）
@@ -59,6 +63,9 @@ class DummyBatchProcessorWithFailingBatch(BaseBatchProcessor):
 
 
 class DummyBatchProcessorWithResult(BaseBatchProcessor):
+    def load_data(self):
+        return self.get_data()
+
     def get_data(self):
         return [{"file_path": f"dummy_{i}.jpg"} for i in range(6)]
 

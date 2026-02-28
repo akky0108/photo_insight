@@ -138,9 +138,7 @@ def validate_input_contract(*, header: Sequence[str], csv_path: Path) -> None:
         preview = ", ".join(missing[:20])
         suffix = "" if len(missing) <= 20 else f" ...(+{len(missing) - 20})"
         raise ValueError(
-            f"Input CSV contract violation: missing {len(missing)} columns in "
-            f"{csv_path}: "
-            f"{preview}{suffix}"
+            f"Input CSV contract violation: missing {len(missing)} columns in " f"{csv_path}: " f"{preview}{suffix}"
         )
 
 

@@ -46,9 +46,7 @@ class RuleOfThirdsEvaluator:
         self.height, self.width = image.shape[:2]
 
         if self.height <= 0 or self.width <= 0:
-            raise ValueError(
-                f"image shape is invalid: height={self.height}, width={self.width}"
-            )
+            raise ValueError(f"image shape is invalid: height={self.height}, width={self.width}")
 
         # あらかじめ 3 分割ラインを計算しておく
         self.thirds_x = (self.width / 3.0, 2.0 * self.width / 3.0)

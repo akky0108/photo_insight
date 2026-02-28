@@ -90,9 +90,7 @@ class ImageUtils:
         rows, cols = image.shape[:2]
         # 画像のランダム回転
         rotation_angle = random.uniform(-15, 15)
-        rotation_matrix = cv2.getRotationMatrix2D(
-            (cols / 2, rows / 2), rotation_angle, 1
-        )
+        rotation_matrix = cv2.getRotationMatrix2D((cols / 2, rows / 2), rotation_angle, 1)
         rotated_image = cv2.warpAffine(image, rotation_matrix, (cols, rows))
 
         # スケール調整
@@ -146,9 +144,7 @@ class ImageUtils:
         return scaled_image
 
     @staticmethod
-    def apply_noise_filter(
-        image: np.ndarray, method: str = "median", kernel_size: int = 5
-    ) -> np.ndarray:
+    def apply_noise_filter(image: np.ndarray, method: str = "median", kernel_size: int = 5) -> np.ndarray:
         """
         ノイズを軽減するためにフィルタを適用。デフォルトはメディアンフィルタ。
 
@@ -274,6 +270,4 @@ class ImageUtils:
         if max(h, w) <= max_dimension:
             return image
         scale = max_dimension / max(h, w)
-        return cv2.resize(
-            image, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA
-        )
+        return cv2.resize(image, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)

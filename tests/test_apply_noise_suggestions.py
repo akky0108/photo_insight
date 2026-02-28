@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-import json
 
 from tools.apply_noise_suggestions import (
     extract_noise_sigmas_from_params,
@@ -70,13 +68,7 @@ def test_patch_yaml_text_config_updates_existing_noise_block_values():
 
 
 def test_patch_yaml_text_config_inserts_missing_keys_inside_noise_block():
-    old = (
-        "noise:\n"
-        "  # comment\n"
-        "contrast:\n"
-        "  discretize_thresholds_raw:\n"
-        "    poor: 1\n"
-    )
+    old = "noise:\n" "  # comment\n" "contrast:\n" "  discretize_thresholds_raw:\n" "    poor: 1\n"
     sig = extract_noise_sigmas_from_params(
         {
             "noise": {

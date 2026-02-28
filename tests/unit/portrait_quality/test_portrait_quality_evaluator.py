@@ -5,7 +5,7 @@ import pytest
 from photo_insight.evaluators.portrait_quality.portrait_quality_evaluator import (
     PortraitQualityEvaluator,
 )
-from photo_insight.utils.app_logger import Logger
+from photo_insight.core.logging import Logger
 
 ASSETS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../assets"))
 
@@ -72,6 +72,7 @@ def test_portrait_quality_evaluate_no_face_detected(tmp_path):
     assert len(results["faces"]) == 0
 
 
+@pytest.mark.heavy
 @pytest.mark.parametrize(
     "filename, expected_face_detected",
     [
@@ -88,9 +89,7 @@ def test_portrait_quality_evaluation(filename, expected_face_detected):
 
     assert isinstance(result, dict), "結果は辞書であるべき"
     assert "face_detected" in result, "'face_detected' キーが存在しない"
-    assert (
-        result["face_detected"] == expected_face_detected
-    ), f"顔検出結果が期待と異なります: {filename}"
+    assert result["face_detected"] == expected_face_detected, f"顔検出結果が期待と異なります: {filename}"
 
     for key in ["sharpness_score", "blurriness_score", "contrast_score"]:
         assert key in result, f"{key} が結果に含まれていません"

@@ -1,6 +1,6 @@
 import yaml
 from pathlib import Path
-from photo_insight.utils.app_logger import AppLogger
+from photo_insight.core.logging import AppLogger
 
 logger = AppLogger().get_logger()
 

@@ -106,9 +106,7 @@ def _assert_contract_for_contrast_result(r: dict) -> None:
         ),
     ],
 )
-def test_contrast_evaluator_config_thresholds_affect_score(
-    cfg, expected_score, expected_grade
-):
+def test_contrast_evaluator_config_thresholds_affect_score(cfg, expected_score, expected_grade):
     """
     config の discretize_thresholds_raw により score/grade が変わることを保証する。
     std が約30になる画像を作って判定を安定化する。

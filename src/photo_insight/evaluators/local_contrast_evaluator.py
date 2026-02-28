@@ -110,27 +110,19 @@ class LocalContrastEvaluator:
         ratios = self._compute_block_contrast_ratios(gray_f)
 
         if ratios.size < self.params.min_blocks:
-            return self._fallback_to_global_ratio(
-                gray_f, f"insufficient_blocks:{int(ratios.size)}"
-            )
+            return self._fallback_to_global_ratio(gray_f, f"insufficient_blocks:{int(ratios.size)}")
 
         # robust winsorize
-        ratios_robust = self._winsorize(
-            ratios, self.params.robust_p_low, self.params.robust_p_high
-        )
+        ratios_robust = self._winsorize(ratios, self.params.robust_p_low, self.params.robust_p_high)
 
         local_raw = float(np.median(ratios_robust))
         local_std = float(np.std(ratios_robust))
 
         if (not np.isfinite(local_raw)) or local_raw <= 0.0:
-            return self._fallback_to_global_ratio(
-                gray_f, "nonfinite_or_nonpositive_local_raw"
-            )
+            return self._fallback_to_global_ratio(gray_f, "nonfinite_or_nonpositive_local_raw")
 
         # raw -> [0,1] + gamma
-        norm = self._normalize_01(
-            local_raw, self.params.raw_floor, self.params.raw_ceil
-        )
+        norm = self._normalize_01(local_raw, self.params.raw_floor, self.params.raw_ceil)
         norm = float(norm**self.params.gamma)
 
         score, grade = self._to_discrete_score(norm)
@@ -285,9 +277,7 @@ class LocalContrastEvaluator:
             "local_contrast_n_blocks": 0,
         }
 
-    def _fallback_to_global_ratio(
-        self, gray_f: np.ndarray, reason: str
-    ) -> Dict[str, Any]:
+    def _fallback_to_global_ratio(self, gray_f: np.ndarray, reason: str) -> Dict[str, Any]:
         """
         ブロック計算できない場合のフォールバック：
         グローバル std/mean を raw として扱う（スケール非依存）

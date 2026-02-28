@@ -97,16 +97,10 @@ def test_noise_raw_is_negative_sigma_used_contract(monkeypatch):
     fixed_sigma = 0.0123
 
     # 内部処理を固定化して evaluate の出力契約だけを見る
-    monkeypatch.setattr(
-        ev, "_to_luma01", lambda image: (np.zeros((64, 64), dtype=np.float32), "uint8")
-    )
-    monkeypatch.setattr(
-        ev, "_downsample_long_edge", lambda luma01, le: (luma01, (64, 64))
-    )
+    monkeypatch.setattr(ev, "_to_luma01", lambda image: (np.zeros((64, 64), dtype=np.float32), "uint8"))
+    monkeypatch.setattr(ev, "_downsample_long_edge", lambda luma01, le: (luma01, (64, 64)))
     monkeypatch.setattr(ev, "_residual", lambda luma01, sigma: np.zeros_like(luma01))
-    monkeypatch.setattr(
-        ev, "_build_mask", lambda luma01: np.ones_like(luma01, dtype=bool)
-    )
+    monkeypatch.setattr(ev, "_build_mask", lambda luma01: np.ones_like(luma01, dtype=bool))
     monkeypatch.setattr(ev, "_mad_sigma", lambda x: fixed_sigma)
 
     r = ev.evaluate(img)
