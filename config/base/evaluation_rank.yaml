@@ -1,0 +1,26 @@
+# config/evaluation_rank.yaml
+
+paths:
+  evaluation_data_dir: "./temp"
+  output_data_dir: "./output"
+
+weights:
+  face:
+    sharpness: 0.5
+    contrast: 0.3
+    noise: 0.1
+    local_sharpness: 0.4
+    local_contrast: 0.3
+
+  general:
+    sharpness: 0.4
+    contrast: 0.3
+    noise: 0.2
+    local_sharpness: 0.3
+    local_contrast: 0.2
+
+  extra:
+    composition: 0.1
+    position: 0.05
+    framing: 0.05
+    direction: 0.05

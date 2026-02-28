@@ -1,0 +1,22 @@
+# config/config.test.yaml
+
+output_directory: "temp"
+
+paths:
+  thresholds_file: "./config/thresholds.yaml"
+  evaluation_data_dir: "./temp"
+  output_data_dir: "./output"
+
+append_mode: false
+base_directory: "./"
+target_date: "2025-01-01"
+
+debug:
+  log_summary_detail: false
+  persist_run_results: false   # ★ runs/ を作らせない
+  run_results_dir: "runs"
+
+evaluation_rank:
+  provisional_top_percent:
+    enabled: true
+    percent: 10

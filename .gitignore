@@ -130,8 +130,12 @@ docker/
 # =========================
 # Additional virtualenv names
 # =========================
-env/
-ENV/
+/env/
+/ENV/
+
+# config の env は除外しない
+!config/env/
+!config/env/**
 
 # =========================
 # Image / RAW data (safety)
