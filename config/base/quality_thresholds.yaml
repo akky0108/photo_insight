@@ -1,0 +1,212 @@
+quality_thresholds:
+  # ============================
+  # スコアスケール定義
+  # ============================
+  scales:
+    sharpness_score: "0-1_continuous"
+    blurriness_score: "0-1_continuous"
+    exposure_score: "0-1_discrete_5"
+    noise_score: "0-1_discrete_5"
+    face_sharpness_score: "0-1_continuous"
+    face_exposure_score: "0-1_discrete_5"
+    face_noise_score: "0-1_discrete_5"
+    composition_score: "0-1_continuous"
+
+    # 旧ノイズ 0–100 からのマッピング
+    noise_from_100:
+      0:   0.0
+      30:  0.25
+      60:  0.5
+      70:  0.75
+      80:  1.0
+
+  # ============================
+  # 共通：画質 NG フィルタ
+  # （full body / face 共通で落としたい条件）
+  # ============================
+  common_hard_ng:
+    # ここを 1つでも満たしたら即 NG
+    sharpness:
+      min_sharpness_score: 0.4        # これ未満は全体的にボケ
+    blurriness:
+      min_blurriness_score: 0.35      # 0.35 未満はボケすぎとして NG
+    exposure:
+      min_exposure_score: 0.25        # 0.25 未満は露出破綻として NG
+    noise:
+      min_noise_score: 0.25           # 0.25 未満はノイズ破綻として NG
+
+    face_specific:
+      min_face_sharpness_score: 0.4   # 顔シャープネスがこれ未満は NG
+      min_face_exposure_score: 0.25   # 顔露出が暗すぎ/明るすぎ NG
+      min_face_noise_score: 0.25      # 顔ノイズがひどい NG
+
+  # ============================
+  # 共通：推奨レンジ（ランキングや優先採用の目安）
+  # ============================
+  common_preferred:
+    sharpness:
+      preferred_range: [0.6, 1.0]
+      strong_preferred_min: 0.75
+    blurriness:
+      preferred_min: 0.45    # 0.45 以上なら「十分にシャープ」
+    exposure:
+      preferred_range: [0.4, 0.8]   # 両極端を避けたい場合のレンジ
+      strong_preferred_range: [0.45, 0.7]
+    noise:
+      preferred_min: 0.5     # fair 以上
+      strong_preferred_min: 0.75  # good 以上
+
+    face_specific:
+      face_sharpness:
+        preferred_min: 0.6
+        strong_preferred_min: 0.75
+      face_exposure:
+        preferred_min: 0.5
+      face_noise:
+        preferred_min: 0.5
+        strong_preferred_min: 0.75
+
+  # ============================
+  # Full-body route 用の閾値
+  # ============================
+  full_body_route:
+    required:
+      full_body_detected: true
+      pose_score_min: 1.0          # 良姿勢のみ full-body route に乗せる
+      face_detected_required: false
+
+    framing:
+      max_full_body_cut_risk: 0.6  # これより大きいと手足切れがきつい
+      headroom_ratio_range: [0.1, 0.4]
+      footroom_ratio_min: 0.05
+      side_margin_min_ratio_min: 0.1
+
+    quality_gate:
+      min_sharpness_score: 0.5
+      min_blurriness_score: 0.45
+      min_exposure_score: 0.5
+      min_noise_score: 0.5
+
+    # full-body 写真の方を優先採用したい場合のボーナス条件
+    bonus:
+      pose_score_strong_min: 1.0
+      composition_score_strong_min: 0.7
+
+  # ============================
+  # Face route 用の閾値
+  # ============================
+  face_route:
+    required:
+      face_detected: true
+      min_faces: 1
+      max_faces_for_portrait: 2     # これを超えると集合写真寄りとみなす
+
+    quality_gate:
+      # 顔周りの NG 判定強め
+      min_face_sharpness_score: 0.5
+      min_face_exposure_score: 0.5
+      min_face_noise_score: 0.5
+
+    composition:
+      min_face_composition_score: 0.6
+      min_face_position_score: 0.6
+      min_framing_score: 0.5
+      min_face_direction_score: 0.5
+      min_eye_contact_score: 0.5
+
+    bonus:
+      strong_face_sharpness_min: 0.75
+      strong_face_composition_min: 0.75
+      strong_eye_contact_min: 0.75
+
+  # ============================
+  # 最終 accept 判定用の閾値
+  # ============================
+  accept_decision:
+    # Full-body を優先しつつ、ダメなら Face route で拾う想定
+    full_body:
+      enabled: true
+      min_required_score:
+        # 全体評価の「採用ライン」
+        composition_score: 0.6
+      priority_bonus:
+        # full-body が face-only より少し優先されるような重み
+        base_priority: 1.2
+
+    face:
+      enabled: true
+      min_required_score:
+        composition_score: 0.65
+      priority_bonus:
+        base_priority: 1.0
+
+    # 完全に弾くフラグ系
+    hard_reject:
+      composition_status_ng:
+        - "low_quality"
+        - "unknown"
+      accepted_flag_from_evaluator_required: false  # 将来的に evaluator 側フラグを使う場合に切り替え
+
+  portrait:
+    decision:
+      noise_ok: 0.5
+      noise_good: 0.75
+      face_noise_good: 0.75
+      full_body_pose_min_100: 55.0
+      full_body_cut_risk_max: 0.6
+      blurriness_min_full_body: 0.40
+      exposure_min_common: 0.5
+      composition_score_min: 0.75
+      framing_score_min: 0.5
+      lead_room_score_min: 0.10
+      face_quality_exposure_min: 0.5
+      face_quality_face_sharpness_min: 0.75
+      face_quality_contrast_min: 0.5
+      face_quality_blur_min: 0.50
+      face_quality_delta_face_sharpness_min: -10.0
+      face_quality_yaw_max_abs_deg: 30.0
+      technical_contrast_min: 0.55
+      technical_blur_min: 0.55
+      technical_delta_face_sharpness_min: -15.0
+      technical_exposure_min: 1.0
+      technical_face_blur_min: 0.50
+      technical_face_sharpness_min: 0.50
+      expression_min: 0.6
+    
+      # shot_type: full body / seated / upper_body / face_only 用
+      full_body_body_height_min: 0.30
+      full_body_cut_risk_max_for_shot_type: 0.90
+      full_body_footroom_min_for_shot_type: 0.00
+
+      seated_center_y_min: 0.50
+      seated_center_y_max: 0.75
+      seated_footroom_max: 0.22
+      seated_body_height_min: 0.30
+
+      upper_body_headroom_min: 0.15
+      upper_body_footroom_max: 0.15
+      face_only_body_height_max: 0.35
+      center_side_margin_min: 0.02
+
+    local_sharpness:
+      patch_size: 32
+      stride: 32
+      min_image_side: 128
+      max_patches: 0
+      laplacian_ksize: 3
+
+      texture_filter:
+        enabled: true
+        method: "sobel"
+        edge_threshold: 30.0
+        min_edge_ratio: 0.02
+
+      discretize_thresholds_raw:
+        poor: 8.0
+        fair: 12.0
+        good: 18.0
+        excellent: 26.0
+
+    local_contrast:
+      patch_size: 32
+      stride: 32

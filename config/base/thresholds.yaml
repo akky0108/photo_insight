@@ -1,0 +1,42 @@
+blurriness_score:
+  level_1: 300.0
+  level_2: 1000.0
+  level_3: 1800.0
+  level_4: 2800.0
+  level_5: 4000.0
+contrast_score:
+  level_1: 12.0
+  level_2: 18.0
+  level_3: 22.0
+  level_4: 27.0
+  level_5: 32.0
+face_contrast_score:
+  level_1: 6.0
+  level_2: 12.0
+  level_3: 18.0
+  level_4: 23.0
+  level_5: 28.0
+face_noise_score:
+  level_1: 0.0
+  level_2: 0.5
+  level_3: 1.5
+  level_4: 2.5
+  level_5: 4.0
+face_sharpness_score:
+  level_1: 80.0
+  level_2: 300.0
+  level_3: 700.0
+  level_4: 1200.0
+  level_5: 2000.0
+noise_score:
+  level_1: 0.0
+  level_2: 1.5
+  level_3: 4.0
+  level_4: 7.0
+  level_5: 12.0
+sharpness_score:
+  level_1: 80.0
+  level_2: 200.0
+  level_3: 400.0
+  level_4: 700.0
+  level_5: 1000.0

@@ -1,0 +1,21 @@
+# config/env/prod.yaml
+# ここには「環境差分」だけを書く（baseにあるものは書かないのが理想）
+
+output_directory: "tmp"
+
+paths:
+  thresholds_file: "/work/config/thresholds.yaml"
+  evaluation_data_dir: "/work/tmp"
+  output_data_dir: "/work/output"
+
+base_directory: "/work/input"
+
+debug:
+  run_results_dir: "/work/runs"
+  log_summary_detail: true
+  persist_run_results: true
+
+evaluation_rank:
+  provisional_top_percent:
+    enabled: true
+    percent: 10

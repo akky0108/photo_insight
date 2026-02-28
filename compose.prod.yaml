@@ -1,0 +1,26 @@
+services:
+  photo_insight:
+    image: photo_insight:prod
+    env_file:
+      - /home/mluser/photo_insight_prod/config/.env
+    volumes:
+      - /mnt/l/picture:/work/input:ro
+      - /home/mluser/photo_insight_prod/runs:/work/runs
+      - /home/mluser/photo_insight_prod/logs:/work/logs
+      - /home/mluser/photo_insight_prod/tmp:/work/tmp
+      - /home/mluser/photo_insight_prod/config:/work/config:ro
+    command:
+      [
+        "python",
+        "-m",
+        "photo_insight.cli.run_batch",
+        "--processor",
+        "nef",
+        "--config",
+        "/work/config/config.yaml"
+      ]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
