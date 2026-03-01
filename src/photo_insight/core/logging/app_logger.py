@@ -5,44 +5,43 @@ utils.app_logger
 
 - ロギング設定は YAML ファイルで読み込む
 - Singleton パターンで logger インスタンスを管理
-- メトリクス出力や cleanup 処理など便利機能付き
+- cleanup 処理など便利機能付き
+- 本番運用向けに logging config の探索優先順位を改善
 
-例:
-    logger = AppLogger(project_root=".", logger_name="MyLogger").get_logger()
-    logger.info("Hello!")
+探索優先順位:
+1) 環境変数 PHOTO_INSIGHT_LOG_CONFIG
+2) /work/config/logging_config.yaml
+3) <project_root>/config/logging_config.yaml
+4) <this_file_dir>/config/logging_config.yaml
 """
 
+from __future__ import annotations
+
+import atexit
 import logging
 import logging.config
 import os
-import yaml
 import threading
-import atexit
+from pathlib import Path
 from typing import Optional
+
+import yaml
 
 
 class AppLogger:
     """
     アプリケーション用のロガー管理クラス（Singleton）。
 
-    ログ設定は YAML ファイルから読み込み、指定された logger_name に基づいてロガーを生成。
-    cleanup により、プログラム終了時にハンドラのクローズも行う。
-
     引数:
-        project_root (Optional[str]): プロジェクトルートパス（config/logging_config.yaml を探すのに使用）
+        project_root (Optional[str]): プロジェクトルートパス（互換用）
         config_file (Optional[str]): 明示的にロギング設定ファイルを指定したい場合のパス
-        logger_name (str): 作成するロガーの名前（クラス名などを推奨）
-
-    使い方:
-        logger = AppLogger(project_root=".", logger_name="MyLogger").get_logger()
-        logger.info("起動完了")
+        logger_name (str): 作成するロガーの名前
     """
 
-    _instance = None  # シングルトンインスタンス
-    _lock = threading.Lock()  # スレッドセーフのためのロック
+    _instance = None
+    _lock = threading.Lock()
 
     def __new__(cls, *args, **kwargs):
-        """シングルトンインスタンスを作成、または既存インスタンスを返す"""
         with cls._lock:
             if cls._instance is None:
                 cls._instance = super().__new__(cls)
@@ -54,43 +53,52 @@ class AppLogger:
         config_file: Optional[str] = None,
         logger_name: str = "MyAppLogger",
     ):
+        # Singleton だが、logger_name は呼び出し側で変えたいことがある。
+        # 初期化済みでも logger_name だけは反映する（最小改善）。
         if getattr(self, "_initialized", False):
-            return  # 既に初期化済みの場合は何もしない
+            # 既存ロガー名と違えば差し替え（ハンドラは dictConfig/bas icConfig が持つので触らない）
+            if getattr(self, "_logger_name", None) != logger_name:
+                self.logger = logging.getLogger(logger_name)
+                self._logger_name = logger_name
+            return
 
         if project_root is None:
-            # カレントディレクトリをプロジェクトルートに設定
             project_root = os.getcwd()
 
-        # プロジェクトルートからデフォルトのconfig_fileパスを指定
-        if config_file is None:
-            if project_root:
-                config_file = os.path.join(project_root, "config", "logging_config.yaml")
-            else:
-                config_file = os.path.join(
-                    os.path.dirname(os.path.abspath(__file__)),
-                    "config",
-                    "logging_config.yaml",
-                )
+        self.project_root = str(project_root)
+        self._logger_name = logger_name
 
-        log_dir = os.path.join(project_root, "logs")
-        os.makedirs(log_dir, exist_ok=True)
+        # ログディレクトリ（互換: project_root/logs）
+        try:
+            log_dir = Path(self.project_root) / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            # ディレクトリが作れない環境でも落とさない
+            pass
+
+        # logging config の解決
+        resolved = self._resolve_logging_config_path(project_root=self.project_root, config_file=config_file)
 
         # YAMLファイルからロギング設定を読み込む
-        if os.path.exists(config_file):
+        if resolved is not None and resolved.exists():
             try:
-                with open(config_file, "r") as f:
-                    config = yaml.safe_load(f)
-                    if isinstance(config, dict):
-                        logging.config.dictConfig(config)
-                    else:
-                        raise ValueError("Invalid config format")
-                print(f"Logging configured from {config_file}.")
-            except (yaml.YAMLError, ValueError, FileNotFoundError) as e:
-                print(f"Error loading logging config: {e}. " f"Using default logging settings.")
-                logging.basicConfig(level=logging.DEBUG)
+                with resolved.open("r", encoding="utf-8") as f:
+                    cfg = yaml.safe_load(f)
+                if not isinstance(cfg, dict):
+                    raise ValueError("Invalid config format (expected dict)")
+                logging.config.dictConfig(cfg)
+                print(f"Logging configured from {resolved}.")
+            except (yaml.YAMLError, ValueError, FileNotFoundError, OSError) as e:
+                print(f"Error loading logging config: {e}. Using default logging settings.")
+                logging.basicConfig(level=logging.INFO)
         else:
-            print(f"Config file {config_file} not found. Using default logging settings.")
-            logging.basicConfig(level=logging.DEBUG)
+            # 候補を出す（運用で原因が分かる）
+            searched = self._logging_config_candidates(project_root=self.project_root, config_file=config_file)
+            print("Config file not found. Using default logging settings.")
+            print("Searched candidates:")
+            for p in searched:
+                print(f"  - {p}")
+            logging.basicConfig(level=logging.INFO)
 
         # ロガーを設定
         self.logger = logging.getLogger(logger_name)
@@ -98,59 +106,95 @@ class AppLogger:
         # プログラム終了時にクリーンアップを登録
         atexit.register(self.cleanup)
 
-        # 初期化フラグを立てる
         self._initialized = True
 
+    # -----------------------------
+    # config path resolution
+    # -----------------------------
+    def _logging_config_candidates(self, project_root: str, config_file: Optional[str]) -> list[Path]:
+        candidates: list[Path] = []
+
+        # 0) explicit arg
+        if config_file:
+            candidates.append(Path(config_file))
+
+        # 1) env var
+        env = os.getenv("PHOTO_INSIGHT_LOG_CONFIG")
+        if env:
+            candidates.append(Path(env))
+
+        # 2) production mount (your desired default)
+        candidates.append(Path("/work/config/logging_config.yaml"))
+
+        # 3) project_root/config (legacy)
+        if project_root:
+            candidates.append(Path(project_root) / "config" / "logging_config.yaml")
+
+        # 4) relative to this file (last resort / legacy)
+        try:
+            here = Path(__file__).resolve().parent
+            candidates.append(here / "config" / "logging_config.yaml")
+        except Exception:
+            pass
+
+        # de-dup while keeping order
+        out: list[Path] = []
+        seen: set[str] = set()
+        for p in candidates:
+            key = str(p)
+            if key not in seen:
+                seen.add(key)
+                out.append(p)
+        return out
+
+    def _resolve_logging_config_path(self, project_root: str, config_file: Optional[str]) -> Optional[Path]:
+        for p in self._logging_config_candidates(project_root=project_root, config_file=config_file):
+            try:
+                if p.exists():
+                    return p
+            except Exception:
+                continue
+        return None
+
+    # -----------------------------
+    # logger facade (optional)
+    # -----------------------------
     def _log(self, level: int, message: str):
-        """ログメッセージを出力"""
         if self.isEnabledFor(level):
             self.logger.log(level, message)
 
     def info(self, message: str):
-        """INFOレベルのログメッセージを出力"""
         self._log(logging.INFO, message)
 
     def error(self, message: str):
-        """ERRORレベルのログメッセージを出力"""
         self._log(logging.ERROR, message)
 
     def debug(self, message: str):
-        """DEBUGレベルのログメッセージを出力"""
         self._log(logging.DEBUG, message)
 
     def warning(self, message: str):
-        """WARNINGレベルのログメッセージを出力"""
         self._log(logging.WARNING, message)
 
     def critical(self, message: str):
-        """CRITICALレベルのログメッセージを出力"""
         self._log(logging.CRITICAL, message)
 
     def log_metric(self, metric_name: str, score: float) -> None:
-        """メトリック名とスコアをINFOレベルでログに出力"""
         self.info(f"{metric_name.capitalize()} score: {score}")
 
     def change_logger_name(self, new_name: str):
-        """ロガーネームを変更"""
-        # 現在のロガーを削除
         logging.Logger.manager.loggerDict.pop(self.logger.name, None)
         self.logger = logging.getLogger(new_name)
-
-        # 新しいロガーにハンドラを再設定
-        # 必要なら、ここでハンドラの再設定処理を追加
+        self._logger_name = new_name
 
     def get_logger(self):
-        """現在のロガーを返す"""
         return self.logger
 
     def cleanup(self):
-        """プログラム終了時にハンドラをクリーンアップ"""
         for handler in self.logger.handlers[:]:
             self.logger.removeHandler(handler)
             handler.close()
 
     def isEnabledFor(self, level: int) -> bool:
-        """特定のログレベルが有効かどうかを確認"""
         return self.logger.isEnabledFor(level)
 
 

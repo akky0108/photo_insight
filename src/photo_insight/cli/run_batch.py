@@ -182,6 +182,11 @@ def _extract_runtime_overrides(exec_kwargs: Dict[str, Any]) -> Dict[str, Any]:
     if target_dir is not None:
         injected["target_dir"] = str(target_dir)
 
+    # --- NEF specific (IMPORTANT): do NOT pass to BaseBatchProcessor.process ---
+    for k in list(exec_kwargs.keys()):
+        if k.startswith("nef_"):
+            injected[k] = exec_kwargs.pop(k)
+
     return injected
 
 
@@ -191,11 +196,16 @@ def _apply_runtime_overrides(proc: BaseBatchProcessor, injected: Dict[str, Any])
     """
     if "date" in injected:
         setattr(proc, "date", injected["date"])
+        # ★NEF側が target_date を見る設計に合わせる（最小互換）
+        setattr(proc, "target_date", injected["date"])
 
     if "target_dir" in injected:
-        # strでもPathでも来るので Path 化
         setattr(proc, "target_dir", Path(injected["target_dir"]))
 
+    # ★NEF options: attributes injection
+    for k, v in injected.items():
+        if k.startswith("nef_"):
+            setattr(proc, k, v)
 
 # -------------------------
 # CLI

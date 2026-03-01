@@ -1,13 +1,20 @@
 services:
   photo_insight:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
     image: photo_insight:prod
     env_file:
       - /home/mluser/photo_insight_prod/config/.env
+    environment:
+      PHOTO_INSIGHT_LOG_CONFIG: /work/config/logging_config.yaml
     volumes:
       - /mnt/l/picture:/work/input:ro
       - /home/mluser/photo_insight_prod/runs:/work/runs
       - /home/mluser/photo_insight_prod/logs:/work/logs
       - /home/mluser/photo_insight_prod/tmp:/work/tmp
+      - /home/mluser/photo_insight_prod/output:/work/output
       - /home/mluser/photo_insight_prod/config:/work/config:ro
     command:
       [
