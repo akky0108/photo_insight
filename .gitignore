@@ -162,3 +162,8 @@ docker/
 # Misc tools
 # =========================
 .matplotlib/
+
+# =========================
+# Build artifacts (generated configs)
+# =========================
+.build_config/
