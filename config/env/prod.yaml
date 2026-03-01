@@ -10,12 +10,10 @@ paths:
 
 base_directory: "/work/input"
 
+# base が相対パスで持っているため、prodでは絶対パスに上書きする
+quality_thresholds_path: "/work/config/evaluator_thresholds.yaml"
+
 debug:
   run_results_dir: "/work/runs"
   log_summary_detail: true
   persist_run_results: true
-
-evaluation_rank:
-  provisional_top_percent:
-    enabled: true
-    percent: 10
