@@ -41,3 +41,9 @@ batch:
 
 quality_thresholds_path: config/evaluator_thresholds.yaml
 quality_profile: portrait
+
+evaluation_rank:
+  provisional_top_percent:
+    enabled: true
+    percent: 10
+    
