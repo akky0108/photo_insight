@@ -25,9 +25,7 @@ def test_nef_incremental_skips_done_marker(tmp_path: Path):
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text("done\n", encoding="utf-8")
 
-    batch = [
-        {"path": str(nef_path), "directory": str(nef_path.parent), "filename": nef_path.name, "subdir_name": "S1"}
-    ]
+    batch = [{"path": str(nef_path), "directory": str(nef_path.parent), "filename": nef_path.name, "subdir_name": "S1"}]
 
     proc._process_batch(batch)
 
