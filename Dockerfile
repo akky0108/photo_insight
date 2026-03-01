@@ -75,10 +75,19 @@ FROM dev AS ci
 # -----------------------------
 FROM base AS runtime
 
+# ★ EXIF抽出に必要（ExifFileHandler が exiftool を呼ぶ）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      exiftool \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=builder /wheels /wheels
 COPY requirements.txt ./
 
 RUN /opt/venv/bin/pip install --no-index --find-links=/wheels -r requirements.txt \
     && rm -rf /wheels
 
+# アプリ本体を入れる（srcレイアウト）
+COPY src/ /work/src/
+ENV PYTHONPATH=/work/src
+    
 CMD ["python", "-c", "print('runtime image ready')"]
