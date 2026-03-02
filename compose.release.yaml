@@ -1,0 +1,7 @@
+services:
+  photo_insight:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: "photo_insight:${PHOTO_INSIGHT_IMAGE_TAG:-prod}"
