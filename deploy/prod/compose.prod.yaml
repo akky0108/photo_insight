@@ -1,0 +1,43 @@
+services:
+  photo_insight:
+    user: "${UID:-1000}:${GID:-1000}"
+
+    # 本番はビルドしない（開発と完全分離）
+    image: "photo_insight:${PHOTO_INSIGHT_IMAGE_TAG:-prod}"
+
+    env_file:
+      - ./config/.env
+
+    environment:
+      TZ: Asia/Tokyo
+      PHOTO_INSIGHT_LOG_CONFIG: /work/config/logging_config.yaml
+
+    volumes:
+      # 入力（NASやローカル写真）
+      - ${PHOTO_INSIGHT_INPUT_DIR:-/mnt/l/picture}:/work/input:ro
+
+      # 実行結果・ログ（すべて prod 配下）
+      - ./runs:/work/runs
+      - ./logs:/work/logs
+      - ./tmp:/work/tmp
+      - ./output:/work/output
+
+      # 設定（読み取り専用）
+      - ./config:/work/config:ro
+
+    command:
+      [
+        "python",
+        "-m",
+        "photo_insight.cli.run_batch",
+        "--processor",
+        "nef",
+        "--config",
+        "/work/config/config.yaml"
+      ]
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
