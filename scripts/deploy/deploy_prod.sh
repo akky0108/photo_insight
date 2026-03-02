@@ -7,10 +7,10 @@ PROD="${HOME}/photo_insight_prod"
 RUN_AFTER=false
 NO_CACHE=false
 TAG=""
-KEEP=5                 # prod-* を何個残すか
-CLEAN_IMAGES=true      # 古い image 掃除をするか
-WRITE_RELEASE=true     # RELEASE.txt を書くか
-DRY_RUN=false          # true なら掃除や実行をしない（確認用）
+KEEP=5
+CLEAN_IMAGES=true
+WRITE_RELEASE=true
+DRY_RUN=false
 
 usage() {
   cat <<'EOF'
@@ -61,6 +61,17 @@ if [[ ! -d "${REPO}" ]]; then
   exit 1
 fi
 
+TEMPLATE_COMPOSE="${REPO}/deploy/prod/compose.prod.yaml"
+TEMPLATE_ENV="${REPO}/deploy/prod/env.example"
+if [[ ! -f "${TEMPLATE_COMPOSE}" ]]; then
+  echo "[ERROR] missing template: ${TEMPLATE_COMPOSE}" >&2
+  exit 1
+fi
+if [[ ! -f "${TEMPLATE_ENV}" ]]; then
+  echo "[ERROR] missing template: ${TEMPLATE_ENV}" >&2
+  exit 1
+fi
+
 mkdir -p "${PROD}/"{config,logs,runs,tmp,output}
 
 echo "[INFO] repo : ${REPO}"
@@ -69,9 +80,6 @@ echo "[INFO] tag  : ${TAG}"
 echo "[INFO] keep : ${KEEP}"
 echo "[INFO] flags: run=${RUN_AFTER} no_cache=${NO_CACHE} clean=${CLEAN_IMAGES} release=${WRITE_RELEASE} dry_run=${DRY_RUN}"
 
-# ---------------------------------------------------------------------
-# Helpers (.env update)
-# ---------------------------------------------------------------------
 set_kv() {
   local key="$1"
   local value="$2"
@@ -122,12 +130,10 @@ echo "[INFO] built image: photo_insight:${TAG} (id=${IMAGE_ID:-unknown})"
 # ---------------------------------------------------------------------
 # 2) Deploy compose + env template to PROD
 # ---------------------------------------------------------------------
-install -m 0644 "${REPO}/deploy/prod/compose.prod.yaml" \
-               "${PROD}/compose.prod.yaml"
+install -m 0644 "${TEMPLATE_COMPOSE}" "${PROD}/compose.prod.yaml"
 
 if [[ ! -f "${PROD}/config/.env" ]]; then
-  install -m 0600 "${REPO}/deploy/prod/env.example" \
-                 "${PROD}/config/.env"
+  install -m 0600 "${TEMPLATE_ENV}" "${PROD}/config/.env"
   echo "[INFO] created ${PROD}/config/.env from env.example"
 fi
 
@@ -135,9 +141,6 @@ ENV_FILE="${PROD}/config/.env"
 
 # ---------------------------------------------------------------------
 # 3) Update PROD .env safely
-#   - Always set PHOTO_INSIGHT_IMAGE_TAG to TAG
-#   - Respect existing PHOTO_INSIGHT_INPUT_DIR / UID / GID
-#   - Add missing keys if absent
 # ---------------------------------------------------------------------
 set_kv "PHOTO_INSIGHT_IMAGE_TAG" "${TAG}" "${ENV_FILE}"
 ensure_kv "PHOTO_INSIGHT_INPUT_DIR" "/mnt/l/picture" "${ENV_FILE}"
@@ -169,30 +172,32 @@ fi
 
 # ---------------------------------------------------------------------
 # 5) Cleanup old images (keep latest N prod-*)
+#   - sort by TAG (prod-YYYYMMDD_HHMMSS) desc for stability
 # ---------------------------------------------------------------------
 if [[ "${CLEAN_IMAGES}" == "true" ]]; then
   if [[ "${DRY_RUN}" == "true" ]]; then
     echo "[DRY-RUN] skip image cleanup"
   else
     echo "[INFO] cleaning old images: keep latest ${KEEP} of photo_insight:prod-*"
-    # List tags sorted by created date desc, keep N, remove rest
-    # Format: repo tag createdAt imageId
-    mapfile -t LINES < <(docker images --format '{{.Repository}} {{.Tag}} {{.CreatedAt}} {{.ID}}' photo_insight \
-      | awk '$2 ~ /^prod-/ {print $0}' \
-      | sort -r -k3,4)
+
+    # repo tag id
+    mapfile -t LINES < <(
+      docker images --format '{{.Repository}} {{.Tag}} {{.ID}}' photo_insight \
+        | awk '$2 ~ /^prod-/ {print $0}' \
+        | sort -r -k2,2
+    )
 
     if [[ "${#LINES[@]}" -le "${KEEP}" ]]; then
       echo "[INFO] nothing to clean (found ${#LINES[@]} prod-* images)"
     else
       echo "[INFO] found ${#LINES[@]} prod-* images"
-      # Determine removable image IDs beyond KEEP
       REMOVABLE_IDS=()
       idx=0
       for line in "${LINES[@]}"; do
         idx=$((idx+1))
         repo="$(echo "$line" | awk '{print $1}')"
         tag="$(echo "$line"  | awk '{print $2}')"
-        id="$(echo "$line"   | awk '{print $NF}')"
+        id="$(echo "$line"   | awk '{print $3}')"
         if [[ "${idx}" -le "${KEEP}" ]]; then
           echo "[KEEP] ${repo}:${tag} ${id}"
         else
@@ -201,21 +206,19 @@ if [[ "${CLEAN_IMAGES}" == "true" ]]; then
         fi
       done
 
-      # Remove duplicates (same ID may have multiple tags)
-      if [[ "${#REMOVABLE_IDS[@]}" -gt 0 ]]; then
-        # uniq without needing sort -u on array
-        UNIQUE_IDS=()
-        for id in "${REMOVABLE_IDS[@]}"; do
-          seen=false
-          for u in "${UNIQUE_IDS[@]:-}"; do
-            if [[ "$u" == "$id" ]]; then seen=true; break; fi
-          done
-          if [[ "$seen" == "false" ]]; then UNIQUE_IDS+=("$id"); fi
+      # uniq IDs
+      UNIQUE_IDS=()
+      for id in "${REMOVABLE_IDS[@]}"; do
+        seen=false
+        for u in "${UNIQUE_IDS[@]:-}"; do
+          if [[ "$u" == "$id" ]]; then seen=true; break; fi
         done
+        if [[ "$seen" == "false" ]]; then UNIQUE_IDS+=("$id"); fi
+      done
 
+      if [[ "${#UNIQUE_IDS[@]}" -gt 0 ]]; then
         echo "[INFO] removing ${#UNIQUE_IDS[@]} image IDs..."
         for id in "${UNIQUE_IDS[@]}"; do
-          # Ignore failure if image is in use
           docker rmi "${id}" >/dev/null 2>&1 || echo "[WARN] could not remove image id=${id} (maybe in use)"
         done
         echo "[INFO] cleanup done"
