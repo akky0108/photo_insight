@@ -63,12 +63,19 @@ fi
 
 TEMPLATE_COMPOSE="${REPO}/deploy/prod/compose.prod.yaml"
 TEMPLATE_ENV="${REPO}/deploy/prod/env.example"
+RUNNER_SCRIPT="${REPO}/scripts/ops/run_prod.sh"
+
 if [[ ! -f "${TEMPLATE_COMPOSE}" ]]; then
   echo "[ERROR] missing template: ${TEMPLATE_COMPOSE}" >&2
   exit 1
 fi
 if [[ ! -f "${TEMPLATE_ENV}" ]]; then
   echo "[ERROR] missing template: ${TEMPLATE_ENV}" >&2
+  exit 1
+fi
+if [[ ! -f "${RUNNER_SCRIPT}" ]]; then
+  echo "[ERROR] missing runner script (expected by deploy): ${RUNNER_SCRIPT}" >&2
+  echo "        Create it in repo (scripts/ops/run_prod.sh) and re-run." >&2
   exit 1
 fi
 
@@ -128,7 +135,7 @@ IMAGE_ID="$(docker images -q "photo_insight:${TAG}" | head -n 1 || true)"
 echo "[INFO] built image: photo_insight:${TAG} (id=${IMAGE_ID:-unknown})"
 
 # ---------------------------------------------------------------------
-# 2) Deploy compose + env template to PROD
+# 2) Deploy compose + env template + runner to PROD
 # ---------------------------------------------------------------------
 install -m 0644 "${TEMPLATE_COMPOSE}" "${PROD}/compose.prod.yaml"
 
@@ -137,10 +144,14 @@ if [[ ! -f "${PROD}/config/.env" ]]; then
   echo "[INFO] created ${PROD}/config/.env from env.example"
 fi
 
+# (3) Reflect: install repo-managed runner into PROD for consistent execution
+install -m 0755 "${RUNNER_SCRIPT}" "${PROD}/run_prod.sh"
+echo "[INFO] installed runner: ${PROD}/run_prod.sh"
+
 ENV_FILE="${PROD}/config/.env"
 
 # ---------------------------------------------------------------------
-# 3) Update PROD .env safely
+# 3) Update PROD config/.env safely
 # ---------------------------------------------------------------------
 set_kv "PHOTO_INSIGHT_IMAGE_TAG" "${TAG}" "${ENV_FILE}"
 ensure_kv "PHOTO_INSIGHT_INPUT_DIR" "/mnt/l/picture" "${ENV_FILE}"
@@ -180,7 +191,6 @@ if [[ "${CLEAN_IMAGES}" == "true" ]]; then
   else
     echo "[INFO] cleaning old images: keep latest ${KEEP} of photo_insight:prod-*"
 
-    # repo tag id
     mapfile -t LINES < <(
       docker images --format '{{.Repository}} {{.Tag}} {{.ID}}' photo_insight \
         | awk '$2 ~ /^prod-/ {print $0}' \
@@ -206,7 +216,6 @@ if [[ "${CLEAN_IMAGES}" == "true" ]]; then
         fi
       done
 
-      # uniq IDs
       UNIQUE_IDS=()
       for id in "${REMOVABLE_IDS[@]}"; do
         seen=false
@@ -228,15 +237,14 @@ if [[ "${CLEAN_IMAGES}" == "true" ]]; then
 fi
 
 # ---------------------------------------------------------------------
-# 6) Optional run
+# 6) Optional run (use runner to ensure --env-file is applied)
 # ---------------------------------------------------------------------
 if [[ "${RUN_AFTER}" == "true" ]]; then
   if [[ "${DRY_RUN}" == "true" ]]; then
     echo "[DRY-RUN] skip running prod container"
   else
-    echo "[INFO] running prod..."
-    cd "${PROD}"
-    docker compose -f ./compose.prod.yaml run --rm photo_insight
+    echo "[INFO] running prod via runner..."
+    "${PROD}/run_prod.sh" run --rm photo_insight
   fi
 fi
 
