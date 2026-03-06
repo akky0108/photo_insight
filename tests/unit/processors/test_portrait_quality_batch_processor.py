@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from photo_insight.batch_processor.portrait_quality.portrait_quality_batch_processor import (
+from photo_insight.pipelines.portrait_quality.portrait_quality_batch_processor import (
     PortraitQualityBatchProcessor,
 )
 
@@ -22,11 +22,11 @@ def processor(tmp_path):
 
     # NOTE: パッチはテスト終了まで生かすために "yield" で返す
     with (
-        patch("photo_insight.batch_processor.portrait_quality.portrait_quality_batch_processor.ImageLoader"),
-        patch("photo_insight.batch_processor.portrait_quality.portrait_quality_batch_processor.MemoryMonitor"),
+        patch("photo_insight.pipelines.portrait_quality.portrait_quality_batch_processor.ImageLoader"),
+        patch("photo_insight.pipelines.portrait_quality.portrait_quality_batch_processor.MemoryMonitor"),
         patch(
             # ★NEF exif CSV 解決を固定
-            "photo_insight.batch_processor.portrait_quality.portrait_quality_batch_processor."
+            "photo_insight.pipelines.portrait_quality.portrait_quality_batch_processor."
             "PortraitQualityBatchProcessor._resolve_nef_input_csv",
             return_value=str(nef_csv_path),
         ),
