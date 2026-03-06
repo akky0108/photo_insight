@@ -167,9 +167,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         session = self._resolve_session_name()
         fname = f"{session}_raw_exif_data.csv"
 
-        self.logger.info(
-            f"Resolving NEF CSV: session={session}, project_root={self.project_root}"
-        )
+        self.logger.info(f"Resolving NEF CSV: session={session}, project_root={self.project_root}")
 
         # 1) 同一run内（あれば最優先）
         if getattr(self, "run_ctx", None) is not None:
