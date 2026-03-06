@@ -9,6 +9,7 @@ paths:
   output_data_dir: "/work/output"
 
 base_directory: "/work/input"
+picture_root: "/work/input"
 
 # base が相対パスで持っているため、prodでは絶対パスに上書きする
 quality_thresholds_path: "/work/config/evaluator_thresholds.yaml"
