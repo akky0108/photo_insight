@@ -17,4 +17,5 @@ fi
 # Always run from PROD dir so relative paths in compose work (./config, ./runs, etc.)
 cd "${PROD}"
 
-exec docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" "$@"
+# Ensure project_root points to /work (where runs/, config/, input/ are mounted)
+exec env PROJECT_ROOT=/work docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" "$@"
