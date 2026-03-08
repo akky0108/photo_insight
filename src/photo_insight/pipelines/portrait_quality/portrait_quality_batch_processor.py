@@ -97,6 +97,15 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
     # ============================================================
     # ★ run_batch 互換: Base.process(**kwargs) で渡される max_images を吸収
     # ============================================================
+    def execute(self, *args: Any, max_images: Optional[int] = None, **kwargs: Any) -> None:
+        """
+        setup() より前に run 固有条件を反映する。
+        max_images は load_data() に効かせたいので execute() で受ける。
+        """
+        if max_images is not None:
+            self.max_images = max_images
+        return super().execute(*args, **kwargs)
+
     def process(self, *args: Any, max_images: Optional[int] = None, **kwargs: Any):
         """
         BaseBatchProcessor.process() が受け取らない kwargs（例: max_images）を、
