@@ -93,6 +93,13 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         # self.stop_reason: Optional[str] = None
         self.processed_count_this_run: Optional[int] = None
 
+    def _dbg(self, message: str) -> None:
+        print(f"[PQ-DBG] {message}", flush=True)
+        try:
+            self.logger.info(f"[PQ-DBG] {message}")
+        except Exception:
+            pass
+
     # ============================================================
     # run 条件の事前反映
     # ============================================================
@@ -101,9 +108,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         setup() より前に run 固有条件を反映する。
 
         - max_images は load_data(), after_data_loaded(), cleanup() に影響するため、
-        execute() で受けて先に self.max_images へ反映する。
+          execute() で受けて先に self.max_images へ反映する。
         - max_images 指定時は「途中停止 + resume」の厳密性を優先し、
-        Base 側の batch 並列実行も止めるため、この run に限って max_workers=1 に寄せる。
+          Base 側の batch 並列実行も止めるため、この run に限って max_workers=1 に寄せる。
         """
         if max_images is not None:
             self.max_images = max_images
@@ -113,7 +120,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             if self.max_images is not None:
                 self.max_workers = 1
                 self.logger.info(
-                    f"max_images mode enabled. forcing single-worker execution for strict stop control "
+                    "max_images mode enabled. forcing single-worker execution for strict stop control "
                     f"(max_images={self.max_images})."
                 )
 
@@ -427,6 +434,8 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         with self._processed_lock:
             batch = [img for img in batch if img.get("file_name") not in self.processed_images]
 
+        self._dbg(f"_process_batch start: filtered_batch_size={len(batch)}")
+
         if not batch:
             self.logger.debug("All images in this batch are already processed. Skipping.")
             return []
@@ -439,9 +448,19 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         else:
             results = self._process_batch_parallel(batch)
 
+        self._dbg(f"_process_batch after processing: results_count={len(results)}")
+
         # CSVはフル結果で保存
         if results and self.result_csv_file:
+            self._dbg(
+                f"before save_results: result_csv_file={self.result_csv_file}, "
+                f"results_count={len(results)}"
+            )
             self.save_results(results, self.result_csv_file)
+            self._dbg(
+                f"after save_results: result_csv_file={self.result_csv_file}, "
+                f"results_count={len(results)}"
+            )
 
         # GC + メモリログ（重い処理の後に一回だけ）
         gc.collect()
@@ -476,6 +495,10 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             return None
 
         self.logger.info(f"Processing image: {file_name}")
+        self._dbg(
+            f"process_image start file={file_name}, orientation={orientation}, bit_depth={bit_depth}"
+        )
+
         result: Dict[str, Any] = {
             "file_name": os.path.basename(file_name),
             "sharpness_score": None,
@@ -508,8 +531,33 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             "face_local_contrast_std": None,
         }
 
+        image = None
+        evaluator = None
+
         try:
-            image = self.image_loader.load_image(file_name, orientation, bit_depth)
+            orientation_int: Optional[int]
+            try:
+                orientation_int = int(orientation) if orientation not in (None, "", "None") else None
+            except Exception:
+                orientation_int = None
+                self.logger.warning(f"Invalid orientation value: {orientation} for {file_name}")
+
+            self._dbg(
+                f"before load_image: {file_name}, "
+                f"output_bps=8, apply_exif_rotation=True, orientation={orientation_int}"
+            )
+            image = self.image_loader.load_image(
+                filepath=file_name,
+                output_bps=8,
+                apply_exif_rotation=True,
+                orientation=orientation_int,
+            )
+            self._dbg(
+                f"after load_image: {file_name}, "
+                f"shape={getattr(image, 'shape', None)}, dtype={getattr(image, 'dtype', None)}"
+            )
+
+            self._dbg(f"before evaluator init: {file_name}")
             evaluator = PortraitQualityEvaluator(
                 image_input=image,
                 is_raw=False,
@@ -519,23 +567,42 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                 quality_profile=self.config.get("quality_profile", "portrait"),
                 thresholds_path=self.config.get("evaluator_thresholds_path"),
             )
-            eval_result = evaluator.evaluate()
+            self._dbg(f"after evaluator init: {file_name}")
 
-            # 明示破棄（メモリ圧を下げる）
-            del image
-            del evaluator
+            self._dbg(f"before evaluator.evaluate: {file_name}")
+            eval_result = evaluator.evaluate()
+            self._dbg(
+                f"after evaluator.evaluate: {file_name}, "
+                f"result_type={type(eval_result).__name__}"
+            )
 
             if eval_result:
                 result.update(eval_result)
                 return result
+
             self.logger.warning(f"No evaluation result for image {file_name}")
+
         except FileNotFoundError:
             self.logger.error(f"File not found: {file_name}")
         except Exception as e:
             self.logger.error(f"Error processing image {file_name}: {e}", exc_info=True)
+            self._dbg(f"process_image exception: {file_name}, type={type(e).__name__}, repr={e!r}")
+        finally:
+            try:
+                if evaluator is not None:
+                    del evaluator
+                if image is not None:
+                    del image
+            except Exception as e:
+                self._dbg(f"process_image finally cleanup exception: {file_name}, {e!r}")
+
+            gc.collect()
+
         return None
 
     def _process_single_image(self, img_info: Dict[str, str]) -> Optional[Dict[str, Any]]:
+        file_name = img_info.get("file_name")
+
         if self._stop_event.is_set():
             return None
 
@@ -546,14 +613,20 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             if not self.base_directory:
                 raise RuntimeError("base_directory is not set")
 
+            full_path = os.path.join(self.base_directory, img_info["file_name"])
+
             result = self.process_image(
-                os.path.join(self.base_directory, img_info["file_name"]),
+                full_path,
                 img_info["orientation"],
                 img_info["bit_depth"],
             )
+
             if result:
                 self.logger.info(f"Processed image: {img_info['file_name']}")
+
+                self._dbg(f"before _mark_as_processed: {file_name}")
                 self._mark_as_processed(img_info["file_name"])
+                self._dbg(f"after _mark_as_processed: {file_name}")
 
                 # この run で実際に処理した件数
                 self.processed_count_this_run = int(self.processed_count_this_run or 0) + 1
@@ -566,16 +639,26 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                     )
 
                 return result
+
         except Exception as e:
             self.logger.error(
                 f"Failed to process image {img_info.get('file_name')}: {e}",
                 exc_info=True,
             )
+            self._dbg(
+                f"_process_single_image exception: {file_name}, "
+                f"type={type(e).__name__}, repr={e!r}"
+            )
+
         return None
 
     def _process_batch_serial(self, batch: List[Dict[str, str]]) -> List[Dict[str, Any]]:
         results: List[Dict[str, Any]] = []
-        for img_info in batch:
+
+        for idx, img_info in enumerate(batch, start=1):
+            file_name = img_info.get("file_name")
+            self._dbg(f"_process_batch_serial loop start idx={idx}, file={file_name}")
+
             if self._stop_event.is_set():
                 break
             if self._check_and_maybe_stop("serial_loop"):
@@ -584,8 +667,10 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                 break
 
             result = self._process_single_image(img_info)
+
             if result:
                 results.append(result)
+
         return results
 
     def _process_batch_parallel(self, batch: List[Dict[str, str]]) -> List[Dict[str, Any]]:
@@ -594,20 +679,22 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         with ThreadPoolExecutor(max_workers=self.max_workers or 2) as executor:
             futures = []
 
-            for img_info in batch:
+            for idx, img_info in enumerate(batch, start=1):
+                file_name = img_info.get("file_name")
                 if self._stop_event.is_set():
                     break
                 if self._check_and_maybe_stop("parallel_before_submit"):
                     break
                 if self._should_stop_by_max_images():
                     break
+
+                self._dbg(f"_process_batch_parallel submit idx={idx}, file={file_name}")
                 futures.append(executor.submit(self._process_single_image, img_info))
 
             cancelled_pending = False
-            for future in as_completed(futures):
+            for future_idx, future in enumerate(as_completed(futures), start=1):
                 if self._stop_event.is_set() and not cancelled_pending:
                     cancelled_pending = True
-                    # best-effort cancel: まだ開始してないものだけ止まる
                     for f in futures:
                         f.cancel()
 
@@ -616,9 +703,14 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                     if result:
                         results.append(result)
                 except CancelledError:
+                    self._dbg(f"_process_batch_parallel future cancelled idx={future_idx}")
                     continue
-                except Exception:
+                except Exception as e:
                     self.logger.exception("[Parallel] Failed to process image", exc_info=True)
+                    self._dbg(
+                        f"_process_batch_parallel future exception idx={future_idx}, "
+                        f"type={type(e).__name__}, repr={e!r}"
+                    )
                     continue
 
         return results
@@ -644,6 +736,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
     def save_results(self, results: List[Dict[str, Union[str, float, bool]]], file_path: str) -> None:
         self.logger.info(f"Saving results to {file_path}")
+
         file_exists = os.path.isfile(file_path)
         results_sorted = sorted(results, key=lambda x: str(x.get("file_name", "")))
 
@@ -655,6 +748,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames, extrasaction="ignore")
                 if not file_exists:
                     writer.writeheader()
+
                 for row in results_sorted:
                     writer.writerow({key: row.get(key, None) for key in fieldnames})
 
@@ -673,6 +767,13 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         remaining_count = int(self._total_images_to_process or 0) - processed_this_run
         if remaining_count < 0:
             remaining_count = 0
+
+        self._dbg(
+            f"cleanup counts: processed_this_run={processed_this_run}, "
+            f"remaining_count={remaining_count}, "
+            f"total_images={self._total_images_to_process}, "
+            f"start_processed={self._start_processed_count}"
+        )
 
         # Baseが拾って summary.json に入れる（ドメイン上の“実処理数”はPQが定義）
         self.processed_count_this_run = int(processed_this_run)
