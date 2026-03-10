@@ -452,15 +452,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
         # CSVはフル結果で保存
         if results and self.result_csv_file:
-            self._dbg(
-                f"before save_results: result_csv_file={self.result_csv_file}, "
-                f"results_count={len(results)}"
-            )
+            self._dbg(f"before save_results: result_csv_file={self.result_csv_file}, " f"results_count={len(results)}")
             self.save_results(results, self.result_csv_file)
-            self._dbg(
-                f"after save_results: result_csv_file={self.result_csv_file}, "
-                f"results_count={len(results)}"
-            )
+            self._dbg(f"after save_results: result_csv_file={self.result_csv_file}, " f"results_count={len(results)}")
 
         # GC + メモリログ（重い処理の後に一回だけ）
         gc.collect()
@@ -495,9 +489,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             return None
 
         self.logger.info(f"Processing image: {file_name}")
-        self._dbg(
-            f"process_image start file={file_name}, orientation={orientation}, bit_depth={bit_depth}"
-        )
+        self._dbg(f"process_image start file={file_name}, orientation={orientation}, bit_depth={bit_depth}")
 
         result: Dict[str, Any] = {
             "file_name": os.path.basename(file_name),
@@ -571,10 +563,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
             self._dbg(f"before evaluator.evaluate: {file_name}")
             eval_result = evaluator.evaluate()
-            self._dbg(
-                f"after evaluator.evaluate: {file_name}, "
-                f"result_type={type(eval_result).__name__}"
-            )
+            self._dbg(f"after evaluator.evaluate: {file_name}, " f"result_type={type(eval_result).__name__}")
 
             if eval_result:
                 result.update(eval_result)
@@ -645,10 +634,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                 f"Failed to process image {img_info.get('file_name')}: {e}",
                 exc_info=True,
             )
-            self._dbg(
-                f"_process_single_image exception: {file_name}, "
-                f"type={type(e).__name__}, repr={e!r}"
-            )
+            self._dbg(f"_process_single_image exception: {file_name}, " f"type={type(e).__name__}, repr={e!r}")
 
         return None
 
