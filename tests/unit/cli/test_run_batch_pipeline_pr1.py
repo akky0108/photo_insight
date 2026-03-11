@@ -79,21 +79,6 @@ def test_main_pipeline_dry_run_rejects_unsupported_pipeline() -> None:
         )
 
 
-def test_main_pipeline_execution_is_not_implemented_in_pr1() -> None:
-    with pytest.raises(
-        NotImplementedError,
-        match="Pipeline execution is not implemented in PR1 yet",
-    ):
-        run_batch.main(
-            [
-                "--pipeline",
-                "nef,portrait_quality",
-                "--date",
-                "2026-02-17",
-            ]
-        )
-
-
 def test_main_single_processor_dry_run_still_works(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
