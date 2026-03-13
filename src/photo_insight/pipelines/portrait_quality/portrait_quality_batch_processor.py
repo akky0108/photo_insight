@@ -1,20 +1,20 @@
 from __future__ import annotations
 
-import os
 import csv
 import gc
+import os
+from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from threading import Event
-from typing import Any, List, Dict, Optional, Union
-from concurrent.futures import ThreadPoolExecutor, as_completed, CancelledError
+from typing import Any, Dict, List, Optional, Union
 
 from photo_insight.core.batch_framework.base_batch import BaseBatchProcessor
-from photo_insight.image_loader import ImageLoader
 from photo_insight.evaluators.portrait_quality.portrait_quality_evaluator import (
     PortraitQualityEvaluator,
 )
-from photo_insight.portrait_quality_header import PortraitQualityHeaderGenerator
+from photo_insight.image_loader import ImageLoader
 from photo_insight.monitoring.memory_monitor import MemoryMonitor
+from photo_insight.portrait_quality_header import PortraitQualityHeaderGenerator
 
 
 class PortraitQualityBatchProcessor(BaseBatchProcessor):
@@ -28,6 +28,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         date: Optional[str] = None,
         batch_size: Optional[int] = None,
         max_images: Optional[int] = None,
+        input_csv_path: Optional[str] = None,
         # ===== Config DI (Baseへ委譲) =====
         config_env: Optional[str] = None,
         config_paths: Optional[List[str]] = None,
@@ -43,7 +44,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             config_env=config_env,
             config_paths=config_paths,
             max_workers=max_workers or 1,
-            logger=None,  # Base側で生成（後で差し替え可能）
+            logger=None,
             resolver=resolver,
             loader=loader,
             watch_factory=watch_factory,
@@ -52,7 +53,6 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             auto_load=auto_load,
         )
 
-        # config / logger
         self.config = self.config_manager.get_config()
         if logger is not None:
             self.logger = logger
@@ -61,12 +61,12 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
         self.memory_monitor = MemoryMonitor(self.logger)
         self.date = date
-        self.max_images = max_images  # この run で最大 N 枚だけ処理（途中停止用）
+        self.max_images = max_images
+        self.input_csv_path = input_csv_path
 
         self.processed_images: set[str] = set()
         self.image_loader = ImageLoader(logger=self.logger)
 
-        # processed_images のファイル追記 & set 更新を守るロック（基底と統一）
         self._processed_lock = self.get_lock()
 
         self.image_csv_file: Optional[str] = None
@@ -75,22 +75,17 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         self.output_directory: Optional[str] = None
         self.base_directory: Optional[str] = None
 
-        # 互換フラグ
         self.completed_all_batches = False
         self.memory_threshold_exceeded = False
 
         self.batch_size = batch_size or self.config.get("batch_size", 10)
         self.memory_threshold = self.config_manager.get_memory_threshold(default=90)
 
-        # stop control
         self._stop_event = Event()
 
-        # run bookkeeping
         self._start_processed_count: int = 0
         self._total_images_to_process: int = 0
 
-        # --- Baseが拾う optional ---
-        # self.stop_reason: Optional[str] = None
         self.processed_count_this_run: Optional[int] = None
 
     def _dbg(self, message: str) -> None:
@@ -103,17 +98,30 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
     # ============================================================
     # run 条件の事前反映
     # ============================================================
-    def execute(self, *args: Any, max_images: Optional[int] = None, **kwargs: Any) -> None:
+    def execute(
+        self,
+        *args: Any,
+        max_images: Optional[int] = None,
+        input_csv_path: Optional[str] = None,
+        **kwargs: Any,
+    ) -> None:
         """
         setup() より前に run 固有条件を反映する。
 
-        - max_images は load_data(), after_data_loaded(), cleanup() に影響するため、
-          execute() で受けて先に self.max_images へ反映する。
-        - max_images 指定時は「途中停止 + resume」の厳密性を優先し、
-          Base 側の batch 並列実行も止めるため、この run に限って max_workers=1 に寄せる。
+        Parameters
+        ----------
+        max_images : Optional[int]
+            この run における処理上限。
+
+        input_csv_path : Optional[str]
+            前段 NEF stage が生成した入力 CSV パス。
+            指定された場合はこの CSV を最優先で使用する。
         """
         if max_images is not None:
             self.max_images = max_images
+
+        if input_csv_path is not None:
+            self.input_csv_path = str(input_csv_path)
 
         original_max_workers = self.max_workers
         try:
@@ -128,16 +136,24 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         finally:
             self.max_workers = original_max_workers
 
-    def process(self, *args: Any, max_images: Optional[int] = None, **kwargs: Any):
+    def process(
+        self,
+        *args: Any,
+        max_images: Optional[int] = None,
+        input_csv_path: Optional[str] = None,
+        **kwargs: Any,
+    ):
         """
         互換用:
-        BaseBatchProcessor.process() が受け取らない kwargs（例: max_images）を、
+        BaseBatchProcessor.process() が受け取らない kwargs を、
         Processor 側で吸収して破綻しないようにする。
-
-        通常は execute() で run 条件を受ける。
         """
         if max_images is not None:
             self.max_images = max_images
+
+        if input_csv_path is not None:
+            self.input_csv_path = str(input_csv_path)
+
         return super().process(*args, **kwargs)
 
     def on_config_change(self, new_config: dict) -> None:
@@ -184,7 +200,6 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         """
         max_images による途中停止判定。
         主目的は「途中停止 → 次回 resume」。
-        副用途として安全試験の少量実行にも使える。
         """
         if self.max_images is None:
             return False
@@ -197,7 +212,6 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         if limit < 0:
             raise ValueError(f"max_images must be >= 0. got: {limit}")
 
-        # 0 は「何もしない」
         if limit == 0:
             if not getattr(self, "stop_reason", None):
                 self.stop_reason = "max_images_limit"
@@ -225,18 +239,24 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         return "ALL"
 
     def _resolve_nef_input_csv(self) -> Optional[str]:
+        if self.input_csv_path:
+            explicit = Path(self.input_csv_path)
+            if not explicit.exists():
+                raise FileNotFoundError(f"Explicit input_csv_path not found: {explicit}")
+
+            self.logger.info(f"Using explicit input CSV: {explicit}")
+            return str(explicit)
+
         session = self._resolve_session_name()
         fname = f"{session}_raw_exif_data.csv"
 
         self.logger.info(f"Resolving NEF CSV: session={session}, project_root={self.project_root}")
 
-        # 1) 同一run内（あれば最優先）
         if getattr(self, "run_ctx", None) is not None:
             p1 = Path(self.run_ctx.out_dir) / "artifacts" / "nef" / session / fname
             if p1.exists():
                 return str(p1)
 
-        # 2) runs/latest（運用の正）
         p2 = Path(self.project_root) / "runs" / "latest" / "nef" / session / fname
         if p2.exists():
             return str(p2)
@@ -246,8 +266,6 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
     def _resolve_output_directory(self) -> Path:
         session = self._resolve_session_name()
 
-        # max_images 指定時は、run をまたいで resume できるよう
-        # 固定ディレクトリ runs/latest/portrait_quality/<session> を使う
         if self.max_images is not None:
             out_dir = Path(self.project_root) / "runs" / "latest" / "portrait_quality" / session
         else:
@@ -269,31 +287,24 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
     def setup(self) -> None:
         self.logger.info("Setting up PortraitQualityBatchProcessor...")
 
-        # Stop flags (per-run)
         self._stop_event = Event()
         self.memory_threshold_exceeded = False
         self.completed_all_batches = False
 
-        # per-run optional fields for Base summary
         self.stop_reason = None
         self.processed_count_this_run = 0
 
-        # max_images=0 は setup 後すぐ止められるようここでも許容
         self._should_stop_by_max_images()
 
-        # 1) 出力先を最初に確定（runs/artifacts or temp/...）
         out_dir = self._resolve_output_directory()
         self.output_directory = str(out_dir)
         self.logger.info(f"PortraitQuality output dir: {self.output_directory}")
 
-        # 2) ファイルパス・入力元の確定
         self._set_directories_and_files()
 
-        # 3) 既処理ロード
         self._load_processed_images()
         self._start_processed_count = len(self.processed_images)
 
-        # Base契約:
         super().setup()
 
     def _set_directories_and_files(self) -> None:
@@ -303,7 +314,6 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         out_dir = self.output_directory or self.config.get("output_directory", "temp")
         os.makedirs(out_dir, exist_ok=True)
 
-        # --- base_directory (target_dir > date > config) ---
         target_dir = getattr(self, "target_dir", None)
         if target_dir:
             self.base_directory = str(Path(target_dir))
@@ -313,12 +323,14 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             year = self.date[:4]
             self.base_directory = os.path.join(picture_root, year, self.date)
         else:
-            self.base_directory = self.config.get("base_directory", "/mnt/l/picture/2025/2025-01-01")
+            self.base_directory = self.config.get(
+                "base_directory",
+                "/mnt/l/picture/2025/2025-01-01",
+            )
 
         if not self.base_directory or not os.path.isdir(self.base_directory):
             raise FileNotFoundError(f"Base directory does not exist: {self.base_directory}")
 
-        # --- input exif csv (NEF結果) ---
         nef_csv = self._resolve_nef_input_csv()
         if nef_csv is None:
             raise FileNotFoundError(
@@ -328,7 +340,6 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         self.image_csv_file = nef_csv
         self.logger.info(f"Input NEF CSV: {self.image_csv_file}")
 
-        # --- output files (session-based) ---
         session = self._resolve_session_name()
         self.result_csv_file = os.path.join(out_dir, f"evaluation_results_{session}.csv")
         self.processed_images_file = os.path.join(out_dir, f"processed_images_{session}.txt")
@@ -348,7 +359,6 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
     # data loading
     # ============================================================
     def load_image_data(self) -> List[Dict[str, str]]:
-        # --- resolve input NEF CSV automatically ---
         if (not self.image_csv_file) or (not os.path.exists(self.image_csv_file)):
             nef_csv = self._resolve_nef_input_csv()
             if nef_csv is not None:
@@ -403,23 +413,18 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
     def load_data(self) -> List[Dict[str, str]]:
         raw_data = self.load_image_data()
 
-        # 未処理だけにする
         with self._processed_lock:
             todo = [d for d in raw_data if d.get("file_name") not in self.processed_images]
 
-        # max_images はここでは絞り込まない
-        # 主目的は「途中停止→再開」なので、全未処理を対象として返す
         return todo
 
     # ============================================================
     # batch processing
     # ============================================================
     def _process_batch(self, batch: List[Dict[str, str]]) -> List[Dict[str, Any]]:
-        # stop中は静かに即return（Baseが次バッチを呼んでもログスパムしない）
         if self._stopping():
             return []
 
-        # バッチ開始時点で止める（次バッチを出さない）
         if self._check_and_maybe_stop("batch_start"):
             return []
 
@@ -430,7 +435,6 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             )
             return []
 
-        # 未処理画像のみ残す
         with self._processed_lock:
             batch = [img for img in batch if img.get("file_name") not in self.processed_images]
 
@@ -440,9 +444,6 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             self.logger.debug("All images in this batch are already processed. Skipping.")
             return []
 
-        # 並列／直列処理
-        # max_images 指定時は「途中停止＋resume」の厳密性を優先し、
-        # 先行 submit による超過実行を避けるため直列処理に寄せる。
         if self.max_images is not None or (self.max_workers or 1) == 1:
             results = self._process_batch_serial(batch)
         else:
@@ -450,18 +451,15 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
         self._dbg(f"_process_batch after processing: results_count={len(results)}")
 
-        # CSVはフル結果で保存
         if results and self.result_csv_file:
             self._dbg(f"before save_results: result_csv_file={self.result_csv_file}, " f"results_count={len(results)}")
             self.save_results(results, self.result_csv_file)
             self._dbg(f"after save_results: result_csv_file={self.result_csv_file}, " f"results_count={len(results)}")
 
-        # GC + メモリログ（重い処理の後に一回だけ）
         gc.collect()
         self.memory_monitor.log_usage(prefix="Post batch GC")
         self._check_and_maybe_stop("batch_end")
 
-        # Baseに返すのはJSON安全なmini（results.jsonl事故を防ぐ）
         mini: List[Dict[str, Any]] = []
         for r in results or []:
             score = r.get("overall_score", None)
@@ -481,7 +479,10 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         return mini
 
     def process_image(
-        self, file_name: str, orientation: str, bit_depth: str
+        self,
+        file_name: str,
+        orientation: str,
+        bit_depth: str,
     ) -> Optional[Dict[str, Union[str, float, bool]]]:
         if self._stop_event.is_set():
             return None
@@ -617,10 +618,8 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                 self._mark_as_processed(img_info["file_name"])
                 self._dbg(f"after _mark_as_processed: {file_name}")
 
-                # この run で実際に処理した件数
                 self.processed_count_this_run = int(self.processed_count_this_run or 0) + 1
 
-                # 上限到達なら停止（結果は返して、この1件は有効とする）
                 if self._should_stop_by_max_images():
                     self.logger.info(
                         f"max_images limit reached "
@@ -738,7 +737,6 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                 for row in results_sorted:
                     writer.writerow({key: row.get(key, None) for key in fieldnames})
 
-                # 途中停止でもCSVが壊れにくいように（追記運用の安定化）
                 csvfile.flush()
                 os.fsync(csvfile.fileno())
 
@@ -761,10 +759,8 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             f"start_processed={self._start_processed_count}"
         )
 
-        # Baseが拾って summary.json に入れる（ドメイン上の“実処理数”はPQが定義）
         self.processed_count_this_run = int(processed_this_run)
 
-        # max_images で意図的に止めた場合
         if (
             self.max_images is not None
             and not getattr(self, "memory_threshold_exceeded", False)
@@ -792,7 +788,6 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         elif getattr(self, "completed_all_batches", False):
             self.logger.info(f"All batches processed successfully. Total processed images: {processed_this_run}")
 
-        # 重要: stopした場合は processed_images_file を消さない（再開に必要）
         processed_file = getattr(self, "processed_images_file", None)
         if (
             getattr(self, "completed_all_batches", False)
@@ -813,24 +808,35 @@ if __name__ == "__main__":
         "--config_path",
         type=str,
         default=None,
-        help=("Config file path (optional). If omitted, ConfigManager uses CONFIG_ENV / defaults."),
+        help=("Config file path (optional). " "If omitted, ConfigManager uses CONFIG_ENV / defaults."),
     )
     parser.add_argument(
         "--config_env",
         type=str,
         default=None,
-        help=("Config environment (e.g. prod/test). If omitted, CONFIG_ENV env-var may be used."),
+        help=("Config environment (e.g. prod/test). " "If omitted, CONFIG_ENV env-var may be used."),
     )
     parser.add_argument(
         "--config_paths",
         nargs="*",
         default=None,
-        help=("Optional explicit config file list (applied in order; supports extends)."),
+        help="Optional explicit config file list (applied in order; supports extends).",
     )
     parser.add_argument("--date", type=str, help="Specify the date for directory and file names.")
     parser.add_argument("--max_workers", type=int, help="Number of worker threads")
     parser.add_argument("--batch_size", type=int, help="Override batch size")
-    parser.add_argument("--max_images", type=int, default=None, help="Max images to process in this run")
+    parser.add_argument(
+        "--max_images",
+        type=int,
+        default=None,
+        help="Max images to process in this run",
+    )
+    parser.add_argument(
+        "--input_csv_path",
+        type=str,
+        default=None,
+        help="Explicit input CSV path generated by a previous NEF stage.",
+    )
     args = parser.parse_args()
     print("[DEBUG] args:", args)
 
@@ -842,5 +848,6 @@ if __name__ == "__main__":
         max_workers=args.max_workers,
         batch_size=args.batch_size,
         max_images=args.max_images,
+        input_csv_path=args.input_csv_path,
     )
     processor.execute()

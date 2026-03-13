@@ -1,4 +1,3 @@
-# src/photo_insight/cli/run_batch.py
 from __future__ import annotations
 
 import argparse
@@ -28,7 +27,6 @@ _RESERVED_UNKNOWN_KEYS = {
     "dry_run",
 }
 
-# PR1/PR2: currently supported pipeline definitions
 _SUPPORTED_PIPELINES: set[tuple[str, ...]] = {
     ("nef", "portrait_quality"),
 }
@@ -50,10 +48,6 @@ def _load_processor_by_alias(name: str) -> Type[BaseBatchProcessor]:
     -------
     Type[BaseBatchProcessor]
         解決された Processor クラス。
-
-    Notes
-    -----
-    import は CLI 起動時の依存を軽くするため lazy import で行う。
     """
     key = (name or "").strip().lower()
 
@@ -258,17 +252,6 @@ def _parse_unknown_args(unknown: list[str]) -> Dict[str, Any]:
     -------
     Dict[str, Any]
         processor.execute() に渡される kwargs。
-
-    Examples
-    --------
-    --target-dir /path
-    -> {"target_dir": "/path"}
-
-    --append-mode true
-    -> {"append_mode": True}
-
-    --flag
-    -> {"flag": True}
     """
     kwargs: Dict[str, Any] = {}
     i = 0
@@ -390,6 +373,108 @@ def _apply_runtime_overrides(proc: BaseBatchProcessor, injected: Dict[str, Any])
 
 
 # -------------------------
+# Pipeline artifact helpers
+# -------------------------
+def _resolve_session_name_from_injected(injected: Dict[str, Any]) -> str:
+    """
+    runtime override 情報から session 名を解決する。
+
+    Parameters
+    ----------
+    injected : Dict[str, Any]
+        `_extract_runtime_overrides()` が返す辞書。
+
+    Returns
+    -------
+    str
+        session 名。
+    """
+    target_dir = injected.get("target_dir")
+    if target_dir:
+        return Path(str(target_dir)).name
+
+    date = injected.get("date")
+    if date:
+        return str(date)
+
+    return "ALL"
+
+
+def _infer_nef_output_csv_path(
+    proc: BaseBatchProcessor,
+    injected: Dict[str, Any],
+) -> Optional[str]:
+    """
+    NEF stage 実行後の output CSV パスを推定する。
+
+    Parameters
+    ----------
+    proc : BaseBatchProcessor
+        実行済みの NEF processor インスタンス。
+
+    injected : Dict[str, Any]
+        runtime override 情報。
+
+    Returns
+    -------
+    Optional[str]
+        解決できた CSV パス。見つからない場合は None。
+    """
+    session = _resolve_session_name_from_injected(injected)
+    fname = f"{session}_raw_exif_data.csv"
+
+    run_ctx = getattr(proc, "run_ctx", None)
+    if run_ctx is not None and getattr(run_ctx, "out_dir", None):
+        p1 = Path(run_ctx.out_dir) / "artifacts" / "nef" / session / fname
+        if p1.exists():
+            return str(p1)
+
+    project_root = Path(getattr(proc, "project_root", Path.cwd()))
+    p2 = project_root / "runs" / "latest" / "nef" / session / fname
+    if p2.exists():
+        return str(p2)
+
+    return None
+
+
+def _build_stage_result(
+    processor_spec: str,
+    proc: BaseBatchProcessor,
+    injected: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    stage 実行結果の最小メタ情報を構築する。
+
+    Parameters
+    ----------
+    processor_spec : str
+        実行した processor 指定文字列。
+
+    proc : BaseBatchProcessor
+        実行済み processor インスタンス。
+
+    injected : Dict[str, Any]
+        runtime override 情報。
+
+    Returns
+    -------
+    Dict[str, Any]
+        stage result。
+    """
+    stage_name = _normalize_pipeline_stage_name(processor_spec)
+
+    result: Dict[str, Any] = {
+        "name": stage_name,
+        "status": "success",
+    }
+
+    if stage_name == "nef":
+        result["output_csv_path"] = _infer_nef_output_csv_path(proc, injected)
+
+    return result
+
+
+# -------------------------
 # Processor / Pipeline execution
 # -------------------------
 def run_single_processor(
@@ -397,7 +482,7 @@ def run_single_processor(
     ctor_kwargs: Dict[str, Any],
     exec_kwargs: Dict[str, Any],
     injected: Dict[str, Any],
-) -> int:
+) -> Dict[str, Any]:
     """
     単一 processor を実行する。
 
@@ -418,8 +503,8 @@ def run_single_processor(
 
     Returns
     -------
-    int
-        正常終了時は 0 を返す。
+    Dict[str, Any]
+        stage result。
 
     Notes
     -----
@@ -429,7 +514,7 @@ def run_single_processor(
     proc = Processor(**ctor_kwargs)
     _apply_runtime_overrides(proc, injected)
     proc.execute(**exec_kwargs)
-    return 0
+    return _build_stage_result(processor_spec, proc, injected)
 
 
 def run_pipeline_chain(
@@ -463,19 +548,30 @@ def run_pipeline_chain(
 
     Notes
     -----
-    PR2 では orchestration の枠組みのみ実装する。
-
-    - stage は指定順で実行する
-    - 前段失敗時は後段を実行しない
-    - artifact 接続は PR3 で実装する
+    PR3 では NEF → portrait_quality の artifact 接続を追加する。
     """
+    previous_result: Optional[Dict[str, Any]] = None
+
     for stage_name in stages:
-        run_single_processor(
+        stage_exec_kwargs = dict(exec_kwargs)
+
+        if stage_name == "portrait_quality":
+            if previous_result is None or previous_result.get("name") != "nef":
+                raise RuntimeError("portrait_quality stage requires a previous nef stage result")
+
+            nef_csv = previous_result.get("output_csv_path")
+            if not nef_csv:
+                raise FileNotFoundError("NEF output CSV path could not be resolved after nef stage execution")
+
+            stage_exec_kwargs["input_csv_path"] = nef_csv
+
+        previous_result = run_single_processor(
             processor_spec=stage_name,
             ctor_kwargs=dict(ctor_kwargs),
-            exec_kwargs=dict(exec_kwargs),
+            exec_kwargs=stage_exec_kwargs,
             injected=dict(injected),
         )
+
     return 0
 
 
@@ -664,12 +760,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(f"[dry-run] injected = {injected}")
         return 0
 
-    return run_single_processor(
+    run_single_processor(
         processor_spec=args.processor,
         ctor_kwargs=ctor_kwargs,
         exec_kwargs=exec_kwargs,
         injected=injected,
     )
+    return 0
 
 
 if __name__ == "__main__":
