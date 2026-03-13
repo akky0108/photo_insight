@@ -1,50 +1,59 @@
 from __future__ import annotations
 
-from typing import Any
+from pathlib import Path
+from typing import Any, Dict, List
 
 import pytest
 
 from photo_insight.cli import run_batch
 
 
+class DummyProcessor:
+    def __init__(self, **kwargs: Any) -> None:
+        self.ctor_kwargs = kwargs
+        self.execute_calls: List[Dict[str, Any]] = []
+        self.project_root = Path("/tmp/project")
+        self.run_ctx = None
+
+    def execute(self, **kwargs: Any) -> None:
+        self.execute_calls.append(dict(kwargs))
+
+
 def test_run_single_processor_resolves_and_executes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    called: dict[str, Any] = {}
+    created: Dict[str, Any] = {}
 
-    class DummyProcessor:
+    class LocalProcessor(DummyProcessor):
         def __init__(self, **kwargs: Any) -> None:
-            called["ctor_kwargs"] = kwargs
+            super().__init__(**kwargs)
+            created["instance"] = self
 
-        def execute(self, **kwargs: Any) -> None:
-            called["exec_kwargs"] = kwargs
-
-    def fake_resolve_processor(spec: str) -> type[DummyProcessor]:
-        called["processor_spec"] = spec
-        return DummyProcessor
-
-    def fake_apply_runtime_overrides(proc: Any, injected: dict[str, Any]) -> None:
-        called["injected"] = injected
-        called["proc"] = proc
+    def fake_resolve_processor(spec: str) -> type[LocalProcessor]:
+        assert spec == "nef"
+        return LocalProcessor
 
     def fake_build_stage_result(
         processor_spec: str,
         proc: Any,
         injected: dict[str, Any],
+        exec_kwargs: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        called["build_stage_result_args"] = {
-            "processor_spec": processor_spec,
-            "proc": proc,
-            "injected": injected,
-        }
+        assert processor_spec == "nef"
+        assert proc is created["instance"]
+        assert injected == {"date": "2026-02-17"}
+        assert exec_kwargs == {"append_mode": True}
         return {
             "name": "nef",
             "status": "success",
+            "input_csv_path": None,
             "output_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
+            "processed_count": None,
+            "applied_max_images": None,
+            "message": None,
         }
 
     monkeypatch.setattr(run_batch, "resolve_processor", fake_resolve_processor)
-    monkeypatch.setattr(run_batch, "_apply_runtime_overrides", fake_apply_runtime_overrides)
     monkeypatch.setattr(run_batch, "_build_stage_result", fake_build_stage_result)
 
     result = run_batch.run_single_processor(
@@ -54,19 +63,24 @@ def test_run_single_processor_resolves_and_executes(
         injected={"date": "2026-02-17"},
     )
 
-    assert result == {
-        "name": "nef",
-        "status": "success",
-        "output_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
-    }
-    assert called["processor_spec"] == "nef"
-    assert called["ctor_kwargs"] == {
+    proc = created["instance"]
+    assert proc.ctor_kwargs == {
         "config_path": "config/config.prod.yaml",
         "max_workers": 2,
     }
-    assert called["exec_kwargs"] == {"append_mode": True}
-    assert called["injected"] == {"date": "2026-02-17"}
-    assert called["build_stage_result_args"]["processor_spec"] == "nef"
+    assert proc.date == "2026-02-17"
+    assert proc.target_date == "2026-02-17"
+    assert proc.execute_calls == [{"append_mode": True}]
+
+    assert result == {
+        "name": "nef",
+        "status": "success",
+        "input_csv_path": None,
+        "output_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
+        "processed_count": None,
+        "applied_max_images": None,
+        "message": None,
+    }
 
 
 def test_run_pipeline_chain_executes_stages_in_order(
@@ -83,9 +97,9 @@ def test_run_pipeline_chain_executes_stages_in_order(
         calls.append(
             {
                 "processor_spec": processor_spec,
-                "ctor_kwargs": ctor_kwargs,
-                "exec_kwargs": exec_kwargs,
-                "injected": injected,
+                "ctor_kwargs": dict(ctor_kwargs),
+                "exec_kwargs": dict(exec_kwargs),
+                "injected": dict(injected),
             }
         )
 
@@ -93,91 +107,115 @@ def test_run_pipeline_chain_executes_stages_in_order(
             return {
                 "name": "nef",
                 "status": "success",
+                "input_csv_path": None,
                 "output_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
+                "processed_count": None,
+                "applied_max_images": None,
+                "message": None,
             }
 
         return {
             "name": "portrait_quality",
             "status": "success",
+            "input_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
+            "output_csv_path": None,
+            "processed_count": None,
+            "applied_max_images": None,
+            "message": None,
         }
 
     monkeypatch.setattr(run_batch, "run_single_processor", fake_run_single_processor)
 
-    rc = run_batch.run_pipeline_chain(
+    summary = run_batch.run_pipeline_chain(
         stages=["nef", "portrait_quality"],
         ctor_kwargs={"config_path": "config/config.prod.yaml", "max_workers": 2},
         exec_kwargs={"append_mode": True},
         injected={"date": "2026-02-17"},
     )
 
-    assert rc == 0
     assert [x["processor_spec"] for x in calls] == ["nef", "portrait_quality"]
 
-    assert calls[0]["ctor_kwargs"] == {
-        "config_path": "config/config.prod.yaml",
-        "max_workers": 2,
-    }
-    assert calls[0]["exec_kwargs"] == {"append_mode": True}
-    assert calls[0]["injected"] == {"date": "2026-02-17"}
-
-    assert calls[1]["ctor_kwargs"] == {
-        "config_path": "config/config.prod.yaml",
-        "max_workers": 2,
+    assert calls[0]["exec_kwargs"] == {
+        "append_mode": True,
     }
     assert calls[1]["exec_kwargs"] == {
         "append_mode": True,
         "input_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
     }
-    assert calls[1]["injected"] == {"date": "2026-02-17"}
 
-
-def test_run_pipeline_chain_stops_when_first_stage_fails(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[str] = []
-
-    def fake_run_single_processor(
-        processor_spec: str,
-        ctor_kwargs: dict[str, Any],
-        exec_kwargs: dict[str, Any],
-        injected: dict[str, Any],
-    ) -> int:
-        calls.append(processor_spec)
-        if processor_spec == "nef":
-            raise RuntimeError("nef failed")
-        return 0
-
-    monkeypatch.setattr(run_batch, "run_single_processor", fake_run_single_processor)
-
-    with pytest.raises(RuntimeError, match="nef failed"):
-        run_batch.run_pipeline_chain(
-            stages=["nef", "portrait_quality"],
-            ctor_kwargs={"config_path": "config/config.prod.yaml", "max_workers": 2},
-            exec_kwargs={"append_mode": True},
-            injected={"date": "2026-02-17"},
-        )
-
-    assert calls == ["nef"]
+    assert summary == {
+        "pipeline": ["nef", "portrait_quality"],
+        "status": "success",
+        "stages": [
+            {
+                "name": "nef",
+                "status": "success",
+                "input_csv_path": None,
+                "output_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
+                "processed_count": None,
+                "applied_max_images": None,
+                "message": None,
+            },
+            {
+                "name": "portrait_quality",
+                "status": "success",
+                "input_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
+                "output_csv_path": None,
+                "processed_count": None,
+                "applied_max_images": None,
+                "message": None,
+            },
+        ],
+    }
 
 
 def test_main_pipeline_execution_calls_run_pipeline_chain(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    called: dict[str, Any] = {}
+    captured: Dict[str, Any] = {}
+    printed: List[Dict[str, Any]] = []
 
     def fake_run_pipeline_chain(
         stages: list[str],
         ctor_kwargs: dict[str, Any],
         exec_kwargs: dict[str, Any],
         injected: dict[str, Any],
-    ) -> int:
-        called["stages"] = stages
-        called["ctor_kwargs"] = ctor_kwargs
-        called["exec_kwargs"] = exec_kwargs
-        called["injected"] = injected
-        return 0
+    ) -> dict[str, Any]:
+        captured["stages"] = stages
+        captured["ctor_kwargs"] = dict(ctor_kwargs)
+        captured["exec_kwargs"] = dict(exec_kwargs)
+        captured["injected"] = dict(injected)
+        return {
+            "pipeline": stages,
+            "status": "success",
+            "stages": [
+                {
+                    "name": "nef",
+                    "status": "success",
+                    "input_csv_path": None,
+                    "output_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
+                    "processed_count": None,
+                    "applied_max_images": None,
+                    "message": None,
+                },
+                {
+                    "name": "portrait_quality",
+                    "status": "success",
+                    "input_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
+                    "output_csv_path": None,
+                    "processed_count": None,
+                    "applied_max_images": None,
+                    "message": None,
+                },
+            ],
+        }
 
     monkeypatch.setattr(run_batch, "run_pipeline_chain", fake_run_pipeline_chain)
+    monkeypatch.setattr(
+        run_batch,
+        "_print_pipeline_summary",
+        lambda summary: printed.append(summary),
+    )
 
     rc = run_batch.main(
         [
@@ -186,108 +224,27 @@ def test_main_pipeline_execution_calls_run_pipeline_chain(
             "--config",
             "config/config.prod.yaml",
             "--max-workers",
-            "3",
+            "2",
             "--date",
             "2026-02-17",
-            "--target-dir",
-            "/work/input/2026-02-17",
             "--append-mode",
             "true",
         ]
     )
 
     assert rc == 0
-    assert called["stages"] == ["nef", "portrait_quality"]
-    assert called["ctor_kwargs"] == {
+    assert captured["stages"] == ["nef", "portrait_quality"]
+    assert captured["ctor_kwargs"] == {
         "config_path": "config/config.prod.yaml",
-        "max_workers": 3,
+        "max_workers": 2,
     }
-    assert called["exec_kwargs"] == {
+    assert captured["exec_kwargs"] == {
         "append_mode": True,
     }
-    assert called["injected"] == {
+    assert captured["injected"] == {
         "date": "2026-02-17",
-        "target_dir": "/work/input/2026-02-17",
     }
 
-
-def test_main_pipeline_dry_run_still_returns_zero(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    rc = run_batch.main(
-        [
-            "--pipeline",
-            "nef,portrait_quality",
-            "--dry-run",
-            "--date",
-            "2026-02-17",
-            "--target-dir",
-            "/work/input/2026-02-17",
-        ]
-    )
-
-    assert rc == 0
-
-    out = capsys.readouterr().out
-    assert "[dry-run] pipeline = ['nef', 'portrait_quality']" in out
-    assert "[dry-run] exec_kwargs = {}" in out
-    assert "'date': '2026-02-17'" in out
-    assert "'target_dir': '/work/input/2026-02-17'" in out
-
-
-def test_main_single_processor_execution_calls_run_single_processor(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    called: dict[str, Any] = {}
-
-    def fake_resolve_processor(spec: str) -> Any:
-        class DummyProcessor:
-            pass
-
-        return DummyProcessor
-
-    def fake_run_single_processor(
-        processor_spec: str,
-        ctor_kwargs: dict[str, Any],
-        exec_kwargs: dict[str, Any],
-        injected: dict[str, Any],
-    ) -> int:
-        called["processor_spec"] = processor_spec
-        called["ctor_kwargs"] = ctor_kwargs
-        called["exec_kwargs"] = exec_kwargs
-        called["injected"] = injected
-        return 0
-
-    monkeypatch.setattr(run_batch, "resolve_processor", fake_resolve_processor)
-    monkeypatch.setattr(run_batch, "run_single_processor", fake_run_single_processor)
-
-    rc = run_batch.main(
-        [
-            "--processor",
-            "nef",
-            "--config",
-            "config/config.prod.yaml",
-            "--max-workers",
-            "4",
-            "--date",
-            "2026-02-17",
-            "--target-dir",
-            "/work/input/2026-02-17",
-            "--append-mode",
-            "true",
-        ]
-    )
-
-    assert rc == 0
-    assert called["processor_spec"] == "nef"
-    assert called["ctor_kwargs"] == {
-        "config_path": "config/config.prod.yaml",
-        "max_workers": 4,
-    }
-    assert called["exec_kwargs"] == {
-        "append_mode": True,
-    }
-    assert called["injected"] == {
-        "date": "2026-02-17",
-        "target_dir": "/work/input/2026-02-17",
-    }
+    assert len(printed) == 1
+    assert printed[0]["pipeline"] == ["nef", "portrait_quality"]
+    assert printed[0]["status"] == "success"

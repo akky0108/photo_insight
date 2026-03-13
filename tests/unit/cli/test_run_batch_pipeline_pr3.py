@@ -101,7 +101,11 @@ def test_build_stage_result_for_nef_includes_output_csv_path(
     assert result == {
         "name": "nef",
         "status": "success",
+        "input_csv_path": None,
         "output_csv_path": expected,
+        "processed_count": None,
+        "applied_max_images": None,
+        "message": None,
     }
 
 
@@ -118,6 +122,11 @@ def test_build_stage_result_for_portrait_quality_has_minimum_fields() -> None:
     assert result == {
         "name": "portrait_quality",
         "status": "success",
+        "input_csv_path": None,
+        "output_csv_path": None,
+        "processed_count": None,
+        "applied_max_images": None,
+        "message": None,
     }
 
 
@@ -145,24 +154,34 @@ def test_run_pipeline_chain_passes_nef_csv_to_portrait_quality(
             return {
                 "name": "nef",
                 "status": "success",
+                "input_csv_path": None,
                 "output_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
+                "processed_count": None,
+                "applied_max_images": None,
+                "message": None,
             }
 
         return {
             "name": "portrait_quality",
             "status": "success",
+            "input_csv_path": exec_kwargs.get("input_csv_path"),
+            "output_csv_path": None,
+            "processed_count": None,
+            "applied_max_images": None,
+            "message": None,
         }
 
     monkeypatch.setattr(run_batch, "run_single_processor", fake_run_single_processor)
 
-    rc = run_batch.run_pipeline_chain(
+    summary = run_batch.run_pipeline_chain(
         stages=["nef", "portrait_quality"],
         ctor_kwargs={"config_path": "config/config.prod.yaml", "max_workers": 2},
         exec_kwargs={"append_mode": True},
         injected={"date": "2026-02-17"},
     )
 
-    assert rc == 0
+    assert summary["pipeline"] == ["nef", "portrait_quality"]
+    assert summary["status"] == "success"
     assert [x["processor_spec"] for x in calls] == ["nef", "portrait_quality"]
 
     assert calls[0]["exec_kwargs"] == {
@@ -172,6 +191,27 @@ def test_run_pipeline_chain_passes_nef_csv_to_portrait_quality(
         "append_mode": True,
         "input_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
     }
+
+    assert summary["stages"] == [
+        {
+            "name": "nef",
+            "status": "success",
+            "input_csv_path": None,
+            "output_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
+            "processed_count": None,
+            "applied_max_images": None,
+            "message": None,
+        },
+        {
+            "name": "portrait_quality",
+            "status": "success",
+            "input_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
+            "output_csv_path": None,
+            "processed_count": None,
+            "applied_max_images": None,
+            "message": None,
+        },
+    ]
 
 
 def test_run_pipeline_chain_raises_when_nef_output_csv_missing(
@@ -191,12 +231,21 @@ def test_run_pipeline_chain_raises_when_nef_output_csv_missing(
             return {
                 "name": "nef",
                 "status": "success",
+                "input_csv_path": None,
                 "output_csv_path": None,
+                "processed_count": None,
+                "applied_max_images": None,
+                "message": None,
             }
 
         return {
             "name": "portrait_quality",
             "status": "success",
+            "input_csv_path": exec_kwargs.get("input_csv_path"),
+            "output_csv_path": None,
+            "processed_count": None,
+            "applied_max_images": None,
+            "message": None,
         }
 
     monkeypatch.setattr(run_batch, "run_single_processor", fake_run_single_processor)
