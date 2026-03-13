@@ -250,9 +250,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         session = self._resolve_session_name()
         fname = f"{session}_raw_exif_data.csv"
 
-        self.logger.info(
-            f"Resolving NEF CSV: session={session}, project_root={self.project_root}"
-        )
+        self.logger.info(f"Resolving NEF CSV: session={session}, project_root={self.project_root}")
 
         if getattr(self, "run_ctx", None) is not None:
             p1 = Path(self.run_ctx.out_dir) / "artifacts" / "nef" / session / fname
@@ -272,8 +270,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             out_dir = Path(self.project_root) / "runs" / "latest" / "portrait_quality" / session
         else:
             use_run_dir = (
-                bool(getattr(self, "_persist_run_results", False))
-                and getattr(self, "run_ctx", None) is not None
+                bool(getattr(self, "_persist_run_results", False)) and getattr(self, "run_ctx", None) is not None
             )
             if use_run_dir:
                 out_dir = Path(self.run_ctx.out_dir) / "artifacts" / "portrait_quality" / session
@@ -356,9 +353,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             self.logger.info(f"Loaded {len(self.processed_images)} previously processed images.")
 
         if self.result_csv_file and os.path.exists(self.result_csv_file):
-            self.logger.info(
-                f"Result file exists: {self.result_csv_file} — continuing from previous run."
-            )
+            self.logger.info(f"Result file exists: {self.result_csv_file} — continuing from previous run.")
 
     # ============================================================
     # data loading
@@ -405,9 +400,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         self._total_images_to_process = len(data)
 
         if self.processed_images:
-            self.logger.info(
-                f"Found {len(self.processed_images)} previously processed images. Resuming from there."
-            )
+            self.logger.info(f"Found {len(self.processed_images)} previously processed images. Resuming from there.")
         else:
             self.logger.info("No previously processed images found. Starting fresh.")
 
@@ -459,15 +452,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         self._dbg(f"_process_batch after processing: results_count={len(results)}")
 
         if results and self.result_csv_file:
-            self._dbg(
-                f"before save_results: result_csv_file={self.result_csv_file}, "
-                f"results_count={len(results)}"
-            )
+            self._dbg(f"before save_results: result_csv_file={self.result_csv_file}, " f"results_count={len(results)}")
             self.save_results(results, self.result_csv_file)
-            self._dbg(
-                f"after save_results: result_csv_file={self.result_csv_file}, "
-                f"results_count={len(results)}"
-            )
+            self._dbg(f"after save_results: result_csv_file={self.result_csv_file}, " f"results_count={len(results)}")
 
         gc.collect()
         self.memory_monitor.log_usage(prefix="Post batch GC")
@@ -577,10 +564,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
             self._dbg(f"before evaluator.evaluate: {file_name}")
             eval_result = evaluator.evaluate()
-            self._dbg(
-                f"after evaluator.evaluate: {file_name}, "
-                f"result_type={type(eval_result).__name__}"
-            )
+            self._dbg(f"after evaluator.evaluate: {file_name}, " f"result_type={type(eval_result).__name__}")
 
             if eval_result:
                 result.update(eval_result)
@@ -592,9 +576,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             self.logger.error(f"File not found: {file_name}")
         except Exception as e:
             self.logger.error(f"Error processing image {file_name}: {e}", exc_info=True)
-            self._dbg(
-                f"process_image exception: {file_name}, type={type(e).__name__}, repr={e!r}"
-            )
+            self._dbg(f"process_image exception: {file_name}, type={type(e).__name__}, repr={e!r}")
         finally:
             try:
                 if evaluator is not None:
@@ -651,10 +633,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                 f"Failed to process image {img_info.get('file_name')}: {e}",
                 exc_info=True,
             )
-            self._dbg(
-                f"_process_single_image exception: {file_name}, "
-                f"type={type(e).__name__}, repr={e!r}"
-            )
+            self._dbg(f"_process_single_image exception: {file_name}, " f"type={type(e).__name__}, repr={e!r}")
 
         return None
 
@@ -807,9 +786,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                 "You can re-run to continue remaining images."
             )
         elif getattr(self, "completed_all_batches", False):
-            self.logger.info(
-                f"All batches processed successfully. Total processed images: {processed_this_run}"
-            )
+            self.logger.info(f"All batches processed successfully. Total processed images: {processed_this_run}")
 
         processed_file = getattr(self, "processed_images_file", None)
         if (
@@ -826,26 +803,18 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Process images with PortraitQualityBatchProcessor."
-    )
+    parser = argparse.ArgumentParser(description="Process images with PortraitQualityBatchProcessor.")
     parser.add_argument(
         "--config_path",
         type=str,
         default=None,
-        help=(
-            "Config file path (optional). "
-            "If omitted, ConfigManager uses CONFIG_ENV / defaults."
-        ),
+        help=("Config file path (optional). " "If omitted, ConfigManager uses CONFIG_ENV / defaults."),
     )
     parser.add_argument(
         "--config_env",
         type=str,
         default=None,
-        help=(
-            "Config environment (e.g. prod/test). "
-            "If omitted, CONFIG_ENV env-var may be used."
-        ),
+        help=("Config environment (e.g. prod/test). " "If omitted, CONFIG_ENV env-var may be used."),
     )
     parser.add_argument(
         "--config_paths",

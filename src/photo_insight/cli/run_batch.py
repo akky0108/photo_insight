@@ -197,10 +197,7 @@ def _validate_supported_pipeline(stages: List[str]) -> None:
     key = tuple(stages)
     if key not in _SUPPORTED_PIPELINES:
         supported = ", ".join(",".join(x) for x in sorted(_SUPPORTED_PIPELINES))
-        raise ValueError(
-            f"Unsupported pipeline: {','.join(stages)}. "
-            f"Currently supported pipeline(s): {supported}"
-        )
+        raise ValueError(f"Unsupported pipeline: {','.join(stages)}. " f"Currently supported pipeline(s): {supported}")
 
 
 # -------------------------
@@ -267,10 +264,7 @@ def _parse_unknown_args(unknown: list[str]) -> Dict[str, Any]:
         key = token[2:].replace("-", "_").strip()
 
         if key in _RESERVED_UNKNOWN_KEYS:
-            raise ValueError(
-                f"'{token}' is a reserved runner/CLI option and "
-                "cannot be passed as an unknown arg."
-            )
+            raise ValueError(f"'{token}' is a reserved runner/CLI option and " "cannot be passed as an unknown arg.")
 
         if i + 1 >= len(unknown) or unknown[i + 1].startswith("--"):
             kwargs[key] = True
@@ -563,15 +557,11 @@ def run_pipeline_chain(
 
         if stage_name == "portrait_quality":
             if previous_result is None or previous_result.get("name") != "nef":
-                raise RuntimeError(
-                    "portrait_quality stage requires a previous nef stage result"
-                )
+                raise RuntimeError("portrait_quality stage requires a previous nef stage result")
 
             nef_csv = previous_result.get("output_csv_path")
             if not nef_csv:
-                raise FileNotFoundError(
-                    "NEF output CSV path could not be resolved after nef stage execution"
-                )
+                raise FileNotFoundError("NEF output CSV path could not be resolved after nef stage execution")
 
             stage_exec_kwargs["input_csv_path"] = nef_csv
 
@@ -620,19 +610,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--processor",
         required=False,
-        help=(
-            "Processor alias (nef/evaluation_rank/portrait_quality) "
-            "OR dotted path (pkg.mod:Class)."
-        ),
+        help=("Processor alias (nef/evaluation_rank/portrait_quality) " "OR dotted path (pkg.mod:Class)."),
     )
 
     p.add_argument(
         "--pipeline",
         required=False,
-        help=(
-            "Comma-separated pipeline stages. "
-            "Currently supported: nef,portrait_quality"
-        ),
+        help=("Comma-separated pipeline stages. " "Currently supported: nef,portrait_quality"),
     )
 
     p.add_argument(
@@ -646,10 +630,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--config-paths",
         default=None,
-        help=(
-            "Comma-separated config paths (optional). "
-            "e.g. config.base.yaml,config.prod.yaml"
-        ),
+        help=("Comma-separated config paths (optional). " "e.g. config.base.yaml,config.prod.yaml"),
     )
 
     p.add_argument(

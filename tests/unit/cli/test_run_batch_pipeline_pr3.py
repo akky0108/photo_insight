@@ -36,14 +36,7 @@ def test_infer_nef_output_csv_path_prefers_same_run_artifact(
     tmp_path: Path,
 ) -> None:
     session = "2026-02-17"
-    csv_path = (
-        tmp_path
-        / "run-out"
-        / "artifacts"
-        / "nef"
-        / session
-        / f"{session}_raw_exif_data.csv"
-    )
+    csv_path = tmp_path / "run-out" / "artifacts" / "nef" / session / f"{session}_raw_exif_data.csv"
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     csv_path.write_text("dummy", encoding="utf-8")
 
@@ -66,14 +59,7 @@ def test_infer_nef_output_csv_path_falls_back_to_runs_latest(
     tmp_path: Path,
 ) -> None:
     session = "2026-02-17"
-    csv_path = (
-        tmp_path
-        / "runs"
-        / "latest"
-        / "nef"
-        / session
-        / f"{session}_raw_exif_data.csv"
-    )
+    csv_path = tmp_path / "runs" / "latest" / "nef" / session / f"{session}_raw_exif_data.csv"
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     csv_path.write_text("dummy", encoding="utf-8")
 
