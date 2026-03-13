@@ -437,10 +437,48 @@ def _infer_nef_output_csv_path(
     return None
 
 
+def _infer_processed_count(proc: BaseBatchProcessor) -> Optional[int]:
+    """
+    processor インスタンスから処理件数らしき値を推定する。
+
+    Parameters
+    ----------
+    proc : BaseBatchProcessor
+        実行済み processor インスタンス。
+
+    Returns
+    -------
+    Optional[int]
+        推定できた処理件数。取得できない場合は None。
+    """
+    candidate_names = (
+        "processed_count",
+        "processed_images",
+        "images_processed",
+        "total_processed",
+        "count_processed",
+    )
+
+    for name in candidate_names:
+        value = getattr(proc, name, None)
+        if isinstance(value, int):
+            return value
+
+    run_ctx = getattr(proc, "run_ctx", None)
+    if run_ctx is not None:
+        for name in candidate_names:
+            value = getattr(run_ctx, name, None)
+            if isinstance(value, int):
+                return value
+
+    return None
+
+
 def _build_stage_result(
     processor_spec: str,
     proc: BaseBatchProcessor,
     injected: Dict[str, Any],
+    exec_kwargs: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     stage 実行結果の最小メタ情報を構築する。
@@ -456,6 +494,9 @@ def _build_stage_result(
     injected : Dict[str, Any]
         runtime override 情報。
 
+    exec_kwargs : Optional[Dict[str, Any]]
+        実際に processor.execute() へ渡した kwargs。
+
     Returns
     -------
     Dict[str, Any]
@@ -466,12 +507,85 @@ def _build_stage_result(
     result: Dict[str, Any] = {
         "name": stage_name,
         "status": "success",
+        "input_csv_path": None,
+        "output_csv_path": None,
+        "processed_count": None,
+        "applied_max_images": None,
+        "message": None,
     }
+
+    if exec_kwargs is not None:
+        result["input_csv_path"] = exec_kwargs.get("input_csv_path")
+        result["applied_max_images"] = exec_kwargs.get("max_images")
+
+    result["processed_count"] = _infer_processed_count(proc)
 
     if stage_name == "nef":
         result["output_csv_path"] = _infer_nef_output_csv_path(proc, injected)
+        if result["output_csv_path"] is None:
+            result["message"] = "NEF output CSV path could not be resolved"
 
     return result
+
+
+def _build_pipeline_summary(
+    stages: List[str],
+    stage_results: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    pipeline 実行結果から summary を構築する。
+
+    Parameters
+    ----------
+    stages : List[str]
+        実行対象 pipeline stage の正規化済みリスト。
+
+    stage_results : List[Dict[str, Any]]
+        各 stage の実行結果。
+
+    Returns
+    -------
+    Dict[str, Any]
+        pipeline summary。
+    """
+    return {
+        "pipeline": stages,
+        "status": "success",
+        "stages": stage_results,
+    }
+
+
+def _print_pipeline_summary(summary: Dict[str, Any]) -> None:
+    """
+    pipeline summary を標準出力へ表示する。
+
+    Parameters
+    ----------
+    summary : Dict[str, Any]
+        `_build_pipeline_summary()` が返す summary。
+    """
+    print("[pipeline summary]")
+    print(f"pipeline = {','.join(summary['pipeline'])}")
+    print(f"status = {summary['status']}")
+
+    for stage in summary["stages"]:
+        print(f"[stage] {stage['name']}")
+        print(f"  status = {stage['status']}")
+
+        if stage.get("applied_max_images") is not None:
+            print(f"  applied_max_images = {stage['applied_max_images']}")
+
+        if stage.get("input_csv_path"):
+            print(f"  input_csv_path = {stage['input_csv_path']}")
+
+        if stage.get("output_csv_path"):
+            print(f"  output_csv_path = {stage['output_csv_path']}")
+
+        if stage.get("processed_count") is not None:
+            print(f"  processed_count = {stage['processed_count']}")
+
+        if stage.get("message"):
+            print(f"  message = {stage['message']}")
 
 
 # -------------------------
@@ -514,7 +628,7 @@ def run_single_processor(
     proc = Processor(**ctor_kwargs)
     _apply_runtime_overrides(proc, injected)
     proc.execute(**exec_kwargs)
-    return _build_stage_result(processor_spec, proc, injected)
+    return _build_stage_result(processor_spec, proc, injected, exec_kwargs=exec_kwargs)
 
 
 def run_pipeline_chain(
@@ -522,7 +636,7 @@ def run_pipeline_chain(
     ctor_kwargs: Dict[str, Any],
     exec_kwargs: Dict[str, Any],
     injected: Dict[str, Any],
-) -> int:
+) -> Dict[str, Any]:
     """
     pipeline chain を順次実行する。
 
@@ -543,17 +657,29 @@ def run_pipeline_chain(
 
     Returns
     -------
-    int
-        全 stage が成功した場合は 0 を返す。
+    Dict[str, Any]
+        pipeline summary。
 
     Notes
     -----
-    PR3 では NEF → portrait_quality の artifact 接続を追加する。
+    PR4 では以下を扱う。
+
+    - stage result の収集
+    - pipeline summary の生成
+    - max_images の pipeline 対応
+      - 先頭 stage のみに適用
+      - 後続 stage は upstream artifact に従う
     """
     previous_result: Optional[Dict[str, Any]] = None
+    stage_results: List[Dict[str, Any]] = []
 
-    for stage_name in stages:
+    for idx, stage_name in enumerate(stages):
         stage_exec_kwargs = dict(exec_kwargs)
+
+        # max_images は pipeline 先頭 stage にのみ適用し、
+        # 後続 stage は upstream artifact の件数に従わせる。
+        if idx > 0:
+            stage_exec_kwargs.pop("max_images", None)
 
         if stage_name == "portrait_quality":
             if previous_result is None or previous_result.get("name") != "nef":
@@ -571,8 +697,9 @@ def run_pipeline_chain(
             exec_kwargs=stage_exec_kwargs,
             injected=dict(injected),
         )
+        stage_results.append(previous_result)
 
-    return 0
+    return _build_pipeline_summary(stages=stages, stage_results=stage_results)
 
 
 # -------------------------
@@ -742,12 +869,14 @@ def main(argv: Optional[list[str]] = None) -> int:
             print(f"[dry-run] injected = {injected}")
             return 0
 
-        return run_pipeline_chain(
+        summary = run_pipeline_chain(
             stages=stages,
             ctor_kwargs=ctor_kwargs,
             exec_kwargs=exec_kwargs,
             injected=injected,
         )
+        _print_pipeline_summary(summary)
+        return 0
 
     assert args.processor is not None
 
