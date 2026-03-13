@@ -112,6 +112,7 @@ def test_run_pipeline_chain_executes_stages_in_order(
                 "processed_count": None,
                 "applied_max_images": None,
                 "message": None,
+                "run_output_dir": "/tmp/project/runs/latest",
             }
 
         return {
@@ -122,6 +123,7 @@ def test_run_pipeline_chain_executes_stages_in_order(
             "processed_count": None,
             "applied_max_images": None,
             "message": None,
+            "run_output_dir": "/tmp/project/runs/latest",
         }
 
     monkeypatch.setattr(run_batch, "run_single_processor", fake_run_single_processor)
@@ -143,30 +145,40 @@ def test_run_pipeline_chain_executes_stages_in_order(
         "input_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
     }
 
-    assert summary == {
-        "pipeline": ["nef", "portrait_quality"],
-        "status": "success",
-        "stages": [
-            {
-                "name": "nef",
-                "status": "success",
-                "input_csv_path": None,
-                "output_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
-                "processed_count": None,
-                "applied_max_images": None,
-                "message": None,
-            },
-            {
-                "name": "portrait_quality",
-                "status": "success",
-                "input_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
-                "output_csv_path": None,
-                "processed_count": None,
-                "applied_max_images": None,
-                "message": None,
-            },
-        ],
+    assert summary["summary_version"] == 1
+    assert summary["pipeline"] == ["nef", "portrait_quality"]
+    assert summary["status"] == "success"
+    assert summary["run_context"] == {
+        "date": "2026-02-17",
+        "target_dir": None,
+        "config_path": "config/config.prod.yaml",
+        "max_workers": 2,
+        "max_images": None,
+        "config_env": None,
+        "config_paths": None,
     }
+    assert summary["stages"] == [
+        {
+            "name": "nef",
+            "status": "success",
+            "input_csv_path": None,
+            "output_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
+            "processed_count": None,
+            "applied_max_images": None,
+            "message": None,
+            "run_output_dir": "/tmp/project/runs/latest",
+        },
+        {
+            "name": "portrait_quality",
+            "status": "success",
+            "input_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
+            "output_csv_path": None,
+            "processed_count": None,
+            "applied_max_images": None,
+            "message": None,
+            "run_output_dir": "/tmp/project/runs/latest",
+        },
+    ]
 
 
 def test_main_pipeline_execution_calls_run_pipeline_chain(

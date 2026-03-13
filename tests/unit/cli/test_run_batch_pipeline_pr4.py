@@ -52,7 +52,11 @@ def test_build_stage_result_for_nef_returns_pr4_extended_fields(
         lambda proc, injected: expected_csv,
     )
 
-    proc = DummyNEFProcessor()
+    class DummyNEFProc:
+        processed_count = 5
+        project_root = "/tmp/project"
+
+    proc = DummyNEFProc()
 
     result = run_batch._build_stage_result(
         processor_spec="nef",
@@ -61,20 +65,20 @@ def test_build_stage_result_for_nef_returns_pr4_extended_fields(
         exec_kwargs={"max_images": 5},
     )
 
-    assert result == {
-        "name": "nef",
-        "status": "success",
-        "input_csv_path": None,
-        "output_csv_path": expected_csv,
-        "processed_count": 5,
-        "applied_max_images": 5,
-        "message": None,
-    }
+    assert result["name"] == "nef"
+    assert result["status"] == "success"
+    assert result["input_csv_path"] is None
+    assert result["output_csv_path"] == expected_csv
+    assert result["processed_count"] == 5
+    assert result["applied_max_images"] == 5
+    assert result["message"] is None
+    assert result["run_output_dir"] == "/tmp/project/runs/latest"
 
 
 def test_build_stage_result_for_portrait_quality_returns_pr4_extended_fields() -> None:
     class DummyPortraitProc:
         processed_count = 5
+        project_root = "/tmp/project"
 
     result = run_batch._build_stage_result(
         processor_spec="portrait_quality",
@@ -85,15 +89,14 @@ def test_build_stage_result_for_portrait_quality_returns_pr4_extended_fields() -
         },
     )
 
-    assert result == {
-        "name": "portrait_quality",
-        "status": "success",
-        "input_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
-        "output_csv_path": None,
-        "processed_count": 5,
-        "applied_max_images": None,
-        "message": None,
-    }
+    assert result["name"] == "portrait_quality"
+    assert result["status"] == "success"
+    assert result["input_csv_path"] == "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv"
+    assert result["output_csv_path"] is None
+    assert result["processed_count"] == 5
+    assert result["applied_max_images"] is None
+    assert result["message"] is None
+    assert result["run_output_dir"] == "/tmp/project/runs/latest"
 
 
 def test_run_pipeline_chain_returns_summary_and_applies_max_images_only_to_first_stage(
