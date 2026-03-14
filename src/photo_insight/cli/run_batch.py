@@ -454,7 +454,7 @@ def _infer_processed_count(proc: BaseBatchProcessor) -> Optional[int]:
     """
     candidate_names = (
         "processed_count",
-        "processed_images",
+        "processed_count_this_run",
         "images_processed",
         "total_processed",
         "count_processed",
@@ -465,12 +465,20 @@ def _infer_processed_count(proc: BaseBatchProcessor) -> Optional[int]:
         if isinstance(value, int):
             return value
 
+    processed_images = getattr(proc, "processed_images", None)
+    if isinstance(processed_images, (set, list, tuple)):
+        return len(processed_images)
+
     run_ctx = getattr(proc, "run_ctx", None)
     if run_ctx is not None:
         for name in candidate_names:
             value = getattr(run_ctx, name, None)
             if isinstance(value, int):
                 return value
+
+        processed_images = getattr(run_ctx, "processed_images", None)
+        if isinstance(processed_images, (set, list, tuple)):
+            return len(processed_images)
 
     return None
 
@@ -505,25 +513,6 @@ def _build_stage_result(
 ) -> Dict[str, Any]:
     """
     stage 実行結果の最小メタ情報を構築する。
-
-    Parameters
-    ----------
-    processor_spec : str
-        実行した processor 指定文字列。
-
-    proc : BaseBatchProcessor
-        実行済み processor インスタンス。
-
-    injected : Dict[str, Any]
-        runtime override 情報。
-
-    exec_kwargs : Optional[Dict[str, Any]]
-        実際に processor.execute() へ渡した kwargs。
-
-    Returns
-    -------
-    Dict[str, Any]
-        stage result。
     """
     stage_name = _normalize_pipeline_stage_name(processor_spec)
 
@@ -546,8 +535,11 @@ def _build_stage_result(
 
     if stage_name == "nef":
         result["output_csv_path"] = _infer_nef_output_csv_path(proc, injected)
-        if result["output_csv_path"] is None:
+        if not result["output_csv_path"]:
+            result["status"] = "failed"
             result["message"] = "NEF output CSV path could not be resolved"
+    elif stage_name == "portrait_quality":
+        result["input_csv_path"] = result["input_csv_path"] or getattr(proc, "input_csv_path", None)
 
     return result
 
@@ -823,6 +815,9 @@ def run_pipeline_chain(
             if previous_result is None or previous_result.get("name") != "nef":
                 raise RuntimeError("portrait_quality stage requires a previous nef stage result")
 
+            if previous_result.get("status") != "success":
+                raise RuntimeError("portrait_quality stage requires a successful nef stage result")
+
             nef_csv = previous_result.get("output_csv_path")
             if not nef_csv:
                 raise FileNotFoundError("NEF output CSV path could not be resolved after nef stage execution")
@@ -836,6 +831,9 @@ def run_pipeline_chain(
             injected=dict(injected),
         )
         stage_results.append(previous_result)
+
+        if previous_result.get("status") != "success":
+            break
 
     return _build_pipeline_summary(
         stages=stages,
