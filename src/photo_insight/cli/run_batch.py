@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import ast
 import importlib
+import json
 import re
 import sys
 from pathlib import Path
@@ -474,6 +475,28 @@ def _infer_processed_count(proc: BaseBatchProcessor) -> Optional[int]:
     return None
 
 
+def _infer_run_output_dir(proc: BaseBatchProcessor) -> Optional[str]:
+    """
+    processor インスタンスから run 出力ディレクトリを推定する。
+
+    Parameters
+    ----------
+    proc : BaseBatchProcessor
+        実行済み processor インスタンス。
+
+    Returns
+    -------
+    Optional[str]
+        run 出力ディレクトリ。解決できない場合は None。
+    """
+    run_ctx = getattr(proc, "run_ctx", None)
+    if run_ctx is not None and getattr(run_ctx, "out_dir", None):
+        return str(Path(run_ctx.out_dir))
+
+    project_root = Path(getattr(proc, "project_root", Path.cwd()))
+    return str(project_root / "runs" / "latest")
+
+
 def _build_stage_result(
     processor_spec: str,
     proc: BaseBatchProcessor,
@@ -512,6 +535,7 @@ def _build_stage_result(
         "processed_count": None,
         "applied_max_images": None,
         "message": None,
+        "run_output_dir": _infer_run_output_dir(proc),
     }
 
     if exec_kwargs is not None:
@@ -528,9 +552,51 @@ def _build_stage_result(
     return result
 
 
+def _build_pipeline_run_context(
+    ctor_kwargs: Dict[str, Any],
+    exec_kwargs: Dict[str, Any],
+    injected: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    pipeline summary 用の runtime context を構築する。
+
+    Parameters
+    ----------
+    ctor_kwargs : Dict[str, Any]
+        processor コンストラクタ引数。
+
+    exec_kwargs : Dict[str, Any]
+        pipeline 共通 execute kwargs。
+
+    injected : Dict[str, Any]
+        runtime override 情報。
+
+    Returns
+    -------
+    Dict[str, Any]
+        pipeline runtime context。
+    """
+    config_paths = ctor_kwargs.get("config_paths")
+    if isinstance(config_paths, tuple):
+        config_paths = list(config_paths)
+
+    return {
+        "date": injected.get("date"),
+        "target_dir": injected.get("target_dir"),
+        "config_path": ctor_kwargs.get("config_path"),
+        "max_workers": ctor_kwargs.get("max_workers"),
+        "max_images": exec_kwargs.get("max_images"),
+        "config_env": ctor_kwargs.get("config_env"),
+        "config_paths": config_paths,
+    }
+
+
 def _build_pipeline_summary(
     stages: List[str],
     stage_results: List[Dict[str, Any]],
+    ctor_kwargs: Dict[str, Any],
+    exec_kwargs: Dict[str, Any],
+    injected: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
     pipeline 実行結果から summary を構築する。
@@ -543,16 +609,78 @@ def _build_pipeline_summary(
     stage_results : List[Dict[str, Any]]
         各 stage の実行結果。
 
+    ctor_kwargs : Dict[str, Any]
+        processor コンストラクタ引数。
+
+    exec_kwargs : Dict[str, Any]
+        pipeline 共通 execute kwargs。
+
+    injected : Dict[str, Any]
+        runtime override 情報。
+
     Returns
     -------
     Dict[str, Any]
         pipeline summary。
     """
     return {
+        "summary_version": 1,
         "pipeline": stages,
         "status": "success",
+        "run_context": _build_pipeline_run_context(
+            ctor_kwargs=ctor_kwargs,
+            exec_kwargs=exec_kwargs,
+            injected=injected,
+        ),
         "stages": stage_results,
     }
+
+
+def _resolve_pipeline_summary_output_path(summary: Dict[str, Any]) -> Path:
+    """
+    pipeline summary の出力先パスを解決する。
+
+    Parameters
+    ----------
+    summary : Dict[str, Any]
+        pipeline summary。
+
+    Returns
+    -------
+    Path
+        pipeline_summary.json の出力先パス。
+    """
+    stages = summary.get("stages", [])
+    if stages:
+        first_run_output_dir = stages[0].get("run_output_dir")
+        if first_run_output_dir:
+            return Path(first_run_output_dir) / "pipeline_summary.json"
+
+    cwd_runs_latest = Path.cwd() / "runs" / "latest"
+    return cwd_runs_latest / "pipeline_summary.json"
+
+
+def _write_pipeline_summary_json(summary: Dict[str, Any]) -> Path:
+    """
+    pipeline summary を JSON ファイルとして保存する。
+
+    Parameters
+    ----------
+    summary : Dict[str, Any]
+        保存対象の pipeline summary。
+
+    Returns
+    -------
+    Path
+        保存先パス。
+    """
+    output_path = _resolve_pipeline_summary_output_path(summary)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return output_path
 
 
 def _print_pipeline_summary(summary: Dict[str, Any]) -> None:
@@ -567,6 +695,15 @@ def _print_pipeline_summary(summary: Dict[str, Any]) -> None:
     print("[pipeline summary]")
     print(f"pipeline = {','.join(summary['pipeline'])}")
     print(f"status = {summary['status']}")
+
+    run_context = summary.get("run_context")
+    if run_context:
+        if run_context.get("date") is not None:
+            print(f"date = {run_context['date']}")
+        if run_context.get("target_dir") is not None:
+            print(f"target_dir = {run_context['target_dir']}")
+        if run_context.get("max_images") is not None:
+            print(f"max_images = {run_context['max_images']}")
 
     for stage in summary["stages"]:
         print(f"[stage] {stage['name']}")
@@ -662,13 +799,14 @@ def run_pipeline_chain(
 
     Notes
     -----
-    PR4 では以下を扱う。
+    PR5 では以下を扱う。
 
     - stage result の収集
     - pipeline summary の生成
     - max_images の pipeline 対応
       - 先頭 stage のみに適用
       - 後続 stage は upstream artifact に従う
+    - pipeline summary JSON 永続化のための run_context / run_output_dir 付与
     """
     previous_result: Optional[Dict[str, Any]] = None
     stage_results: List[Dict[str, Any]] = []
@@ -699,7 +837,13 @@ def run_pipeline_chain(
         )
         stage_results.append(previous_result)
 
-    return _build_pipeline_summary(stages=stages, stage_results=stage_results)
+    return _build_pipeline_summary(
+        stages=stages,
+        stage_results=stage_results,
+        ctor_kwargs=ctor_kwargs,
+        exec_kwargs=exec_kwargs,
+        injected=injected,
+    )
 
 
 # -------------------------
@@ -876,6 +1020,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             injected=injected,
         )
         _print_pipeline_summary(summary)
+        summary_path = _write_pipeline_summary_json(summary)
+        print(f"pipeline_summary_json = {summary_path}")
         return 0
 
     assert args.processor is not None

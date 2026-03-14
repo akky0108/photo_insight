@@ -90,7 +90,7 @@ def test_build_stage_result_for_nef_includes_output_csv_path(
     )
 
     class DummyProc:
-        pass
+        project_root = "/tmp/project"
 
     result = run_batch._build_stage_result(
         processor_spec="nef",
@@ -98,20 +98,19 @@ def test_build_stage_result_for_nef_includes_output_csv_path(
         injected={"date": "2026-02-17"},
     )
 
-    assert result == {
-        "name": "nef",
-        "status": "success",
-        "input_csv_path": None,
-        "output_csv_path": expected,
-        "processed_count": None,
-        "applied_max_images": None,
-        "message": None,
-    }
+    assert result["name"] == "nef"
+    assert result["status"] == "success"
+    assert result["input_csv_path"] is None
+    assert result["output_csv_path"] == expected
+    assert result["processed_count"] is None
+    assert result["applied_max_images"] is None
+    assert result["message"] is None
+    assert result["run_output_dir"] == "/tmp/project/runs/latest"
 
 
 def test_build_stage_result_for_portrait_quality_has_minimum_fields() -> None:
     class DummyProc:
-        pass
+        project_root = "/tmp/project"
 
     result = run_batch._build_stage_result(
         processor_spec="portrait_quality",
@@ -119,15 +118,14 @@ def test_build_stage_result_for_portrait_quality_has_minimum_fields() -> None:
         injected={"date": "2026-02-17"},
     )
 
-    assert result == {
-        "name": "portrait_quality",
-        "status": "success",
-        "input_csv_path": None,
-        "output_csv_path": None,
-        "processed_count": None,
-        "applied_max_images": None,
-        "message": None,
-    }
+    assert result["name"] == "portrait_quality"
+    assert result["status"] == "success"
+    assert result["input_csv_path"] is None
+    assert result["output_csv_path"] is None
+    assert result["processed_count"] is None
+    assert result["applied_max_images"] is None
+    assert result["message"] is None
+    assert result["run_output_dir"] == "/tmp/project/runs/latest"
 
 
 def test_run_pipeline_chain_passes_nef_csv_to_portrait_quality(
