@@ -1,5 +1,5 @@
 import csv
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, Mock
 
 import pytest
 
@@ -164,21 +164,39 @@ def test_execute_full_flow(processor):
     processor.cleanup.assert_called_once()
 
 
-def test_process_single_image_marks_and_returns_result(processor):
-    processor.process_image = MagicMock(
-        side_effect=lambda path, orientation, bit_depth: {
-            "file_name": "img1.jpg",
-            "sharpness_score": 0.9,
+def test_process_single_image_marks_and_returns_result(processor, monkeypatch):
+    img_info = {
+        "file_name": "test1.jpg",
+        "orientation": "1",
+        "bit_depth": "8",
+    }
+
+    processor.base_directory = "/tmp"
+
+    mock_process_image = Mock(
+        return_value={
+            "file_name": "test1.jpg",
+            "status": "success",
+            "overall_score": 0.95,
         }
     )
-    processor._mark_as_processed = MagicMock()
-    processor.base_directory = "/dummy/path"
+    mock_mark = Mock()
 
-    img_info = {"file_name": "img1.jpg", "orientation": "1", "bit_depth": "8"}
+    monkeypatch.setattr(processor, "process_image", mock_process_image)
+    monkeypatch.setattr(processor, "_mark_as_processed", mock_mark)
+
     result = processor._process_single_image(img_info)
 
-    assert result == {"file_name": "img1.jpg", "sharpness_score": 0.9}
-    processor._mark_as_processed.assert_called_once_with("img1.jpg")
+    assert result is not None
+    assert result["file_name"] == "test1.jpg"
+    assert result["status"] == "success"
+
+    mock_process_image.assert_called_once_with(
+        "/tmp/test1.jpg",
+        "1",
+        "8",
+    )
+    mock_mark.assert_not_called()
 
 
 def test_process_batch_sets_memory_threshold_flag(processor):
@@ -216,25 +234,62 @@ def test_process_batch_skips_none_result(processor):
     processor.save_results.assert_not_called()
 
 
-def test_process_batch_parallel_invokes_save_results(processor, tmp_path):
-    processor.result_csv_file = str(tmp_path / "output.csv")
-    processor.processed_images = set()
-    processor.memory_monitor.get_memory_usage.return_value = 50
-    processor.logger = MagicMock()
+def test_process_batch_parallel_invokes_save_results(processor, monkeypatch, tmp_path):
+    batch = [
+        {"file_name": "a.jpg", "orientation": "1", "bit_depth": "8"},
+        {"file_name": "b.jpg", "orientation": "1", "bit_depth": "8"},
+    ]
 
     processor.max_workers = 2
-    processor.base_directory = "/tmp/images"
-    processor.process_image = MagicMock(return_value={"file_name": "img1.jpg", "sharpness_score": 0.9})
-    processor._mark_as_processed = MagicMock()
-    processor.save_results = MagicMock()
+    processor.max_images = None
+    processor.result_csv_file = str(tmp_path / "results.csv")
+    processor.processed_images_file = str(tmp_path / "processed.txt")
+    processor.processed_images = set()
+    processor.processed_count_this_run = 0
+    processor.memory_threshold_exceeded = False
 
-    batch = [{"file_name": "img1.jpg", "orientation": "1", "bit_depth": "8"}]
-    processor._process_batch(batch)
+    monkeypatch.setattr(processor, "_stopping", Mock(return_value=False))
+    monkeypatch.setattr(processor, "_check_and_maybe_stop", Mock(return_value=False))
+    monkeypatch.setattr(processor, "_should_stop_by_max_images", Mock(return_value=False))
+    monkeypatch.setattr(processor.memory_monitor, "log_usage", Mock(return_value=None))
 
-    processor.save_results.assert_called_once_with(
-        [{"file_name": "img1.jpg", "sharpness_score": 0.9}],
-        processor.result_csv_file,
+    mock_process_batch_parallel = Mock(
+        return_value=[
+            {"file_name": "a.jpg", "status": "success", "overall_score": 0.9},
+            {"file_name": "b.jpg", "status": "success", "overall_score": 0.8},
+        ]
     )
+    monkeypatch.setattr(processor, "_process_batch_parallel", mock_process_batch_parallel)
+
+    mock_save = Mock()
+    mock_mark_many = Mock()
+    monkeypatch.setattr(processor, "save_results", mock_save)
+    monkeypatch.setattr(processor, "_mark_many_as_processed", mock_mark_many)
+
+    result = processor._process_batch(batch)
+
+    mock_save.assert_called_once_with(
+        [
+            {"file_name": "a.jpg", "status": "success", "overall_score": 0.9},
+            {"file_name": "b.jpg", "status": "success", "overall_score": 0.8},
+        ],
+        str(tmp_path / "results.csv"),
+    )
+    mock_mark_many.assert_called_once_with(["a.jpg", "b.jpg"])
+
+    assert len(result) == 2
+
+    assert result[0]["file_name"] == "a.jpg"
+    assert result[0]["status"] == "success"
+    assert result[0]["score"] == 0.9
+    assert result[0]["error_type"] is None
+
+    assert result[1]["file_name"] == "b.jpg"
+    assert result[1]["status"] == "success"
+    assert result[1]["score"] == 0.8
+    assert result[1]["error_type"] is None
+
+    assert processor.processed_count_this_run == 2
 
 
 def test_load_data_filters_processed_images(tmp_path):

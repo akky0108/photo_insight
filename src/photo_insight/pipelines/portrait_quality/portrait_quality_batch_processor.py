@@ -72,6 +72,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         self.image_csv_file: Optional[str] = None
         self.result_csv_file: Optional[str] = None
         self.processed_images_file: Optional[str] = None
+        self.invalid_rows_csv_file: Optional[str] = None
         self.output_directory: Optional[str] = None
         self.base_directory: Optional[str] = None
 
@@ -343,21 +344,71 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         session = self._resolve_session_name()
         self.result_csv_file = os.path.join(out_dir, f"evaluation_results_{session}.csv")
         self.processed_images_file = os.path.join(out_dir, f"processed_images_{session}.txt")
+        self.invalid_rows_csv_file = os.path.join(out_dir, f"invalid_rows_{session}.csv")
 
         self.logger.info(f"Base directory: {self.base_directory}")
 
     def _load_processed_images(self) -> None:
         if self.processed_images_file and os.path.exists(self.processed_images_file):
             with open(self.processed_images_file, "r", encoding="utf-8") as f:
-                self.processed_images = set(f.read().splitlines())
+                self.processed_images = set(line.strip() for line in f.read().splitlines() if line.strip())
             self.logger.info(f"Loaded {len(self.processed_images)} previously processed images.")
 
         if self.result_csv_file and os.path.exists(self.result_csv_file):
             self.logger.info(f"Result file exists: {self.result_csv_file} — continuing from previous run.")
 
     # ============================================================
-    # data loading
+    # data loading / validation
     # ============================================================
+    def _normalize_csv_row(self, row: Dict[str, str]) -> Dict[str, str]:
+        return {
+            "file_name": (row.get("FileName") or "").strip(),
+            "orientation": (row.get("Orientation") or "").strip(),
+            "bit_depth": (row.get("BitDepth") or "").strip(),
+        }
+
+    def _validate_csv_row(self, row: Dict[str, str]) -> Optional[str]:
+        file_name = row["file_name"]
+
+        if not file_name:
+            return "empty_file_name"
+
+        try:
+            if row["orientation"] not in ("", "None", None):
+                int(row["orientation"])
+        except Exception:
+            return "invalid_orientation"
+
+        try:
+            if row["bit_depth"] not in ("", "None", None):
+                int(row["bit_depth"])
+        except Exception:
+            return "invalid_bit_depth"
+
+        if not self.base_directory:
+            return "missing_base_directory"
+
+        full_path = os.path.join(self.base_directory, file_name)
+        if not os.path.isfile(full_path):
+            return "file_not_found"
+
+        return None
+
+    def _write_invalid_rows(self, invalid_rows: List[Dict[str, Any]]) -> None:
+        if not invalid_rows or not self.invalid_rows_csv_file:
+            return
+
+        fieldnames = ["file_name", "orientation", "bit_depth", "reason"]
+        with open(self.invalid_rows_csv_file, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in invalid_rows:
+                writer.writerow({key: row.get(key) for key in fieldnames})
+
+        self.logger.warning(
+            f"Invalid rows were written to: {self.invalid_rows_csv_file} " f"(count={len(invalid_rows)})"
+        )
+
     def load_image_data(self) -> List[Dict[str, str]]:
         if (not self.image_csv_file) or (not os.path.exists(self.image_csv_file)):
             nef_csv = self._resolve_nef_input_csv()
@@ -372,7 +423,11 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                 return []
 
         self.logger.info(f"Loading image data from {self.image_csv_file}")
-        image_data: List[Dict[str, str]] = []
+
+        valid_rows: List[Dict[str, str]] = []
+        invalid_rows: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+
         try:
             with open(self.image_csv_file, "r", encoding="utf-8") as file:
                 reader = csv.DictReader(file)
@@ -382,19 +437,33 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                     self.logger.error(f"Missing required columns in CSV. Found: {reader.fieldnames}")
                     return []
 
-                for row in reader:
-                    image_data.append(
-                        {
-                            "file_name": row["FileName"],
-                            "orientation": row["Orientation"],
-                            "bit_depth": row["BitDepth"],
-                        }
-                    )
+                for raw_row in reader:
+                    row = self._normalize_csv_row(raw_row)
+                    reason = self._validate_csv_row(row)
+
+                    if not reason and row["file_name"] in seen:
+                        reason = "duplicate_file_name"
+
+                    if reason:
+                        invalid_rows.append({**row, "reason": reason})
+                        continue
+
+                    seen.add(row["file_name"])
+                    valid_rows.append(row)
+
         except FileNotFoundError:
             self.logger.warning(f"File not found: {self.image_csv_file}. Proceeding with empty data.")
+            return []
         except csv.Error as e:
             self.logger.error(f"CSV parsing error in {self.image_csv_file}: {e}")
-        return image_data
+            return []
+
+        if invalid_rows:
+            self.logger.warning(f"Skipped {len(invalid_rows)} invalid rows from {self.image_csv_file}")
+            self._write_invalid_rows(invalid_rows)
+
+        self.logger.info(f"Loaded {len(valid_rows)} valid rows from {self.image_csv_file}")
+        return valid_rows
 
     def after_data_loaded(self, data: List[Dict]) -> None:
         self._total_images_to_process = len(data)
@@ -421,6 +490,91 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
     # ============================================================
     # batch processing
     # ============================================================
+    def _build_result_skeleton(self, file_name: str) -> Dict[str, Any]:
+        return {
+            "file_name": os.path.basename(file_name),
+            "status": "unknown",
+            "error_type": None,
+            "error_message": None,
+            "sharpness_score": None,
+            "blurriness_score": None,
+            "contrast_score": None,
+            "noise_score": None,
+            "local_sharpness_score": None,
+            "local_sharpness_std": None,
+            "local_contrast_score": None,
+            "local_contrast_std": None,
+            "full_body_detected": None,
+            "pose_score": None,
+            "headroom_ratio": None,
+            "footroom_ratio": None,
+            "side_margin_min_ratio": None,
+            "full_body_cut_risk": None,
+            "accepted_flag": None,
+            "accepted_reason": None,
+            "delta_face_sharpness": None,
+            "delta_face_contrast": None,
+            "lead_room_score": None,
+            "face_detected": None,
+            "faces": None,
+            "face_sharpness_score": None,
+            "face_contrast_score": None,
+            "face_noise_score": None,
+            "face_local_sharpness_score": None,
+            "face_local_sharpness_std": None,
+            "face_local_contrast_score": None,
+            "face_local_contrast_std": None,
+        }
+
+    def _parse_orientation(self, orientation: str, file_name: str) -> Optional[int]:
+        try:
+            return int(orientation) if orientation not in (None, "", "None") else None
+        except Exception:
+            self.logger.warning(f"Invalid orientation value: {orientation} for {file_name}")
+            return None
+
+    def _load_image_for_evaluation(self, file_name: str, orientation_int: Optional[int]):
+        self._dbg(
+            f"before load_image: {file_name}, " f"output_bps=8, apply_exif_rotation=True, orientation={orientation_int}"
+        )
+        image = self.image_loader.load_image(
+            filepath=file_name,
+            output_bps=8,
+            apply_exif_rotation=True,
+            orientation=orientation_int,
+        )
+        self._dbg(
+            f"after load_image: {file_name}, "
+            f"shape={getattr(image, 'shape', None)}, dtype={getattr(image, 'dtype', None)}"
+        )
+        return image
+
+    def _evaluate_image(self, image: Any, file_name: str):
+        self._dbg(f"before evaluator init: {file_name}")
+        evaluator = PortraitQualityEvaluator(
+            image_input=image,
+            is_raw=False,
+            logger=self.logger,
+            file_name=file_name,
+            config_manager=self.config_manager,
+            quality_profile=self.config.get("quality_profile", "portrait"),
+            thresholds_path=self.config.get("evaluator_thresholds_path"),
+        )
+        self._dbg(f"after evaluator init: {file_name}")
+
+        self._dbg(f"before evaluator.evaluate: {file_name}")
+        eval_result = evaluator.evaluate()
+        self._dbg(f"after evaluator.evaluate: {file_name}, result_type={type(eval_result).__name__}")
+        return eval_result or {}, evaluator
+
+    def _build_stop_result(self, file_name: str, status: str) -> Dict[str, Any]:
+        return {
+            "file_name": os.path.basename(file_name),
+            "status": status,
+            "error_type": None,
+            "error_message": None,
+        }
+
     def _process_batch(self, batch: List[Dict[str, str]]) -> List[Dict[str, Any]]:
         if self._stopping():
             return []
@@ -456,6 +610,12 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             self.save_results(results, self.result_csv_file)
             self._dbg(f"after save_results: result_csv_file={self.result_csv_file}, " f"results_count={len(results)}")
 
+            successful_files = [
+                str(r.get("file_name")) for r in results if r.get("status") == "success" and r.get("file_name")
+            ]
+            self._mark_many_as_processed(successful_files)
+            self.processed_count_this_run = int(self.processed_count_this_run or 0) + len(successful_files)
+
         gc.collect()
         self.memory_monitor.log_usage(prefix="Post batch GC")
         self._check_and_maybe_stop("batch_end")
@@ -470,9 +630,10 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
             mini.append(
                 {
-                    "status": "success",
+                    "status": r.get("status"),
                     "file_name": r.get("file_name"),
                     "score": score_f,
+                    "error_type": r.get("error_type"),
                 }
             )
 
@@ -483,100 +644,51 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         file_name: str,
         orientation: str,
         bit_depth: str,
-    ) -> Optional[Dict[str, Union[str, float, bool]]]:
+    ) -> Dict[str, Union[str, float, bool, None]]:
         if self._stop_event.is_set():
-            return None
+            return self._build_stop_result(file_name, "stopped")
+
         if self._check_and_maybe_stop("worker_start"):
-            return None
+            return self._build_stop_result(file_name, "memory_threshold")
 
         self.logger.info(f"Processing image: {file_name}")
         self._dbg(f"process_image start file={file_name}, orientation={orientation}, bit_depth={bit_depth}")
 
-        result: Dict[str, Any] = {
-            "file_name": os.path.basename(file_name),
-            "sharpness_score": None,
-            "blurriness_score": None,
-            "contrast_score": None,
-            "noise_score": None,
-            "local_sharpness_score": None,
-            "local_sharpness_std": None,
-            "local_contrast_score": None,
-            "local_contrast_std": None,
-            "full_body_detected": None,
-            "pose_score": None,
-            "headroom_ratio": None,
-            "footroom_ratio": None,
-            "side_margin_min_ratio": None,
-            "full_body_cut_risk": None,
-            "accepted_flag": None,
-            "accepted_reason": None,
-            "delta_face_sharpness": None,
-            "delta_face_contrast": None,
-            "lead_room_score": None,
-            "face_detected": None,
-            "faces": None,
-            "face_sharpness_score": None,
-            "face_contrast_score": None,
-            "face_noise_score": None,
-            "face_local_sharpness_score": None,
-            "face_local_sharpness_std": None,
-            "face_local_contrast_score": None,
-            "face_local_contrast_std": None,
-        }
-
+        result = self._build_result_skeleton(file_name)
         image = None
         evaluator = None
 
         try:
-            orientation_int: Optional[int]
-            try:
-                orientation_int = int(orientation) if orientation not in (None, "", "None") else None
-            except Exception:
-                orientation_int = None
-                self.logger.warning(f"Invalid orientation value: {orientation} for {file_name}")
-
-            self._dbg(
-                f"before load_image: {file_name}, "
-                f"output_bps=8, apply_exif_rotation=True, orientation={orientation_int}"
-            )
-            image = self.image_loader.load_image(
-                filepath=file_name,
-                output_bps=8,
-                apply_exif_rotation=True,
-                orientation=orientation_int,
-            )
-            self._dbg(
-                f"after load_image: {file_name}, "
-                f"shape={getattr(image, 'shape', None)}, dtype={getattr(image, 'dtype', None)}"
-            )
-
-            self._dbg(f"before evaluator init: {file_name}")
-            evaluator = PortraitQualityEvaluator(
-                image_input=image,
-                is_raw=False,
-                logger=self.logger,
-                file_name=file_name,
-                config_manager=self.config_manager,
-                quality_profile=self.config.get("quality_profile", "portrait"),
-                thresholds_path=self.config.get("evaluator_thresholds_path"),
-            )
-            self._dbg(f"after evaluator init: {file_name}")
-
-            self._dbg(f"before evaluator.evaluate: {file_name}")
-            eval_result = evaluator.evaluate()
-            self._dbg(f"after evaluator.evaluate: {file_name}, " f"result_type={type(eval_result).__name__}")
+            orientation_int = self._parse_orientation(orientation, file_name)
+            image = self._load_image_for_evaluation(file_name, orientation_int)
+            eval_result, evaluator = self._evaluate_image(image, file_name)
 
             if eval_result:
                 result.update(eval_result)
-                return result
+                result["status"] = "success"
+            else:
+                result["status"] = "no_result"
+                result["error_type"] = "empty_evaluation"
+                result["error_message"] = "Evaluator returned empty result."
+                self.logger.warning(f"No evaluation result for image {file_name}")
 
-            self.logger.warning(f"No evaluation result for image {file_name}")
+            return result
 
-        except FileNotFoundError:
+        except FileNotFoundError as e:
+            result["status"] = "load_error"
+            result["error_type"] = type(e).__name__
+            result["error_message"] = str(e)
             self.logger.error(f"File not found: {file_name}")
+            return result
+
         except Exception as e:
+            result["status"] = "evaluate_error"
+            result["error_type"] = type(e).__name__
+            result["error_message"] = str(e)
             self.logger.error(f"Error processing image {file_name}: {e}", exc_info=True)
             self._dbg(f"process_image exception: {file_name}, type={type(e).__name__}, repr={e!r}")
+            return result
+
         finally:
             try:
                 if evaluator is not None:
@@ -587,8 +699,6 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                 self._dbg(f"process_image finally cleanup exception: {file_name}, {e!r}")
 
             gc.collect()
-
-        return None
 
     def _process_single_image(self, img_info: Dict[str, str]) -> Optional[Dict[str, Any]]:
         file_name = img_info.get("file_name")
@@ -612,20 +722,11 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             )
 
             if result:
-                self.logger.info(f"Processed image: {img_info['file_name']}")
-
-                self._dbg(f"before _mark_as_processed: {file_name}")
-                self._mark_as_processed(img_info["file_name"])
-                self._dbg(f"after _mark_as_processed: {file_name}")
-
-                self.processed_count_this_run = int(self.processed_count_this_run or 0) + 1
-
-                if self._should_stop_by_max_images():
-                    self.logger.info(
-                        f"max_images limit reached "
-                        f"({self.processed_count_this_run}/{self.max_images}). stopping run."
-                    )
-
+                status = result.get("status")
+                if status == "success":
+                    self.logger.info(f"Processed image: {img_info['file_name']}")
+                else:
+                    self.logger.warning(f"Image processing finished with status={status}: " f"{img_info['file_name']}")
                 return result
 
         except Exception as e:
@@ -633,7 +734,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                 f"Failed to process image {img_info.get('file_name')}: {e}",
                 exc_info=True,
             )
-            self._dbg(f"_process_single_image exception: {file_name}, " f"type={type(e).__name__}, repr={e!r}")
+            self._dbg(f"_process_single_image exception: {file_name}, type={type(e).__name__}, repr={e!r}")
 
         return None
 
@@ -704,22 +805,31 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
     # persistence
     # ============================================================
     def _mark_as_processed(self, file_name: str) -> None:
+        self._mark_many_as_processed([file_name])
+
+    def _mark_many_as_processed(self, file_names: List[str]) -> None:
         if not self.processed_images_file:
             raise RuntimeError("processed_images_file is not set")
 
+        cleaned_names = [f.strip() for f in file_names if f and str(f).strip()]
+        if not cleaned_names:
+            return
+
         with self._processed_lock:
-            if file_name in self.processed_images:
+            new_names = [f for f in cleaned_names if f not in self.processed_images]
+            if not new_names:
                 return
 
             with open(self.processed_images_file, "a", encoding="utf-8") as f:
-                f.write(f"{file_name}\n")
+                for name in new_names:
+                    f.write(f"{name}\n")
                 f.flush()
                 os.fsync(f.fileno())
 
-            self.processed_images.add(file_name)
-            self.logger.debug(f"Marked as processed: {file_name}")
+            self.processed_images.update(new_names)
+            self.logger.debug(f"Marked {len(new_names)} images as processed")
 
-    def save_results(self, results: List[Dict[str, Union[str, float, bool]]], file_path: str) -> None:
+    def save_results(self, results: List[Dict[str, Union[str, float, bool, None]]], file_path: str) -> None:
         self.logger.info(f"Saving results to {file_path}")
 
         file_exists = os.path.isfile(file_path)
@@ -727,6 +837,13 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
         header_generator = PortraitQualityHeaderGenerator()
         fieldnames = header_generator.get_all_headers()
+
+        if "status" not in fieldnames:
+            fieldnames.append("status")
+        if "error_type" not in fieldnames:
+            fieldnames.append("error_type")
+        if "error_message" not in fieldnames:
+            fieldnames.append("error_message")
 
         with self.get_lock():
             with open(file_path, "a", newline="", encoding="utf-8") as csvfile:
