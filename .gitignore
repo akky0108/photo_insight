@@ -117,7 +117,8 @@ pip_freeze*.json
 # =========================
 # local docker assets
 # =========================
-docker/
+# docker ディレクトリは本番 Dockerfile を含むため ignore しない
+# docker/
 
 # =========================
 # Lint / type caches
