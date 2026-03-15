@@ -6,6 +6,7 @@ import importlib
 import json
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Type
 
@@ -32,6 +33,8 @@ _SUPPORTED_PIPELINES: set[tuple[str, ...]] = {
     ("nef", "portrait_quality"),
 }
 
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
 
 # -------------------------
 # Processor registry (lazy)
@@ -39,16 +42,6 @@ _SUPPORTED_PIPELINES: set[tuple[str, ...]] = {
 def _load_processor_by_alias(name: str) -> Type[BaseBatchProcessor]:
     """
     processor のエイリアス名から Processor クラスを解決する。
-
-    Parameters
-    ----------
-    name : str
-        CLI 引数 `--processor` または pipeline stage として指定された文字列。
-
-    Returns
-    -------
-    Type[BaseBatchProcessor]
-        解決された Processor クラス。
     """
     key = (name or "").strip().lower()
 
@@ -74,25 +67,9 @@ def _load_processor_by_dotted_path(dotted: str) -> Type[BaseBatchProcessor]:
     """
     dotted path から Processor クラスを解決する。
 
-    Parameters
-    ----------
-    dotted : str
-        以下どちらかの形式のクラス指定文字列。
-
-        - package.module:ClassName
-        - package.module.ClassName
-
-    Returns
-    -------
-    Type[BaseBatchProcessor]
-        解決された Processor クラス。
-
-    Raises
-    ------
-    ValueError
-        dotted path の形式が不正な場合。
-    TypeError
-        指定されたクラスが BaseBatchProcessor を継承していない場合。
+    形式:
+    - package.module:ClassName
+    - package.module.ClassName
     """
     s = (dotted or "").strip()
     if ":" in s:
@@ -112,29 +89,22 @@ def _load_processor_by_dotted_path(dotted: str) -> Type[BaseBatchProcessor]:
     return obj
 
 
+def resolve_processor(spec: str) -> Type[BaseBatchProcessor]:
+    """
+    processor 指定文字列から Processor クラスを解決する。
+    """
+    s = spec.strip()
+    if ":" in s or s.count(".") >= 2:
+        return _load_processor_by_dotted_path(s)
+    return _load_processor_by_alias(s)
+
+
 # -------------------------
-# Pipeline helpers
+# Stage / pipeline helpers
 # -------------------------
 def _normalize_pipeline_stage_name(name: str) -> str:
     """
     pipeline stage 名を正規化する。
-
-    Parameters
-    ----------
-    name : str
-        `--pipeline` 引数で指定された stage 名。
-
-    Returns
-    -------
-    str
-        正規化された stage 名。
-
-    Notes
-    -----
-    現時点で正式サポートしている stage は以下。
-
-    - "nef"
-    - "portrait_quality"
     """
     key = (name or "").strip().lower()
 
@@ -150,25 +120,22 @@ def _normalize_pipeline_stage_name(name: str) -> str:
     raise ValueError(f"Unknown pipeline stage: {name}")
 
 
+def _safe_stage_name(processor_spec: str, processor_cls: Optional[Type[BaseBatchProcessor]] = None) -> str:
+    """
+    表示・summary用の stage 名を安全に解決する。
+    pipeline 正規名が取れればそれを使い、無理なら class 名ベースへフォールバックする。
+    """
+    try:
+        return _normalize_pipeline_stage_name(processor_spec)
+    except Exception:
+        if processor_cls is not None:
+            return processor_cls.__name__
+        return str(processor_spec)
+
+
 def _parse_pipeline_spec(spec: str) -> List[str]:
     """
     `--pipeline` 引数を解析し、stage 名リストへ変換する。
-
-    Parameters
-    ----------
-    spec : str
-        CLI 引数 `--pipeline` の値。
-
-        例:
-        "nef,portrait_quality"
-
-    Returns
-    -------
-    List[str]
-        正規化された stage 名リスト。
-
-        例:
-        ["nef", "portrait_quality"]
     """
     if spec is None:
         raise ValueError("--pipeline must not be None")
@@ -177,23 +144,12 @@ def _parse_pipeline_spec(spec: str) -> List[str]:
     if not items:
         raise ValueError("--pipeline must not be empty")
 
-    stages = [_normalize_pipeline_stage_name(x) for x in items]
-    return stages
+    return [_normalize_pipeline_stage_name(x) for x in items]
 
 
 def _validate_supported_pipeline(stages: List[str]) -> None:
     """
     pipeline がサポート対象かを検証する。
-
-    Parameters
-    ----------
-    stages : List[str]
-        `_parse_pipeline_spec()` により生成された stage 名リスト。
-
-    Raises
-    ------
-    ValueError
-        サポートされていない pipeline の場合。
     """
     key = tuple(stages)
     if key not in _SUPPORTED_PIPELINES:
@@ -207,25 +163,6 @@ def _validate_supported_pipeline(stages: List[str]) -> None:
 def _coerce_value(v: str) -> Any:
     """
     文字列値を可能な範囲で Python 値へ変換する。
-
-    Parameters
-    ----------
-    v : str
-        CLI から受け取った値文字列。
-
-    Returns
-    -------
-    Any
-        変換後の値。
-
-    Notes
-    -----
-    変換ルールは以下。
-
-    - "true" / "false" -> bool
-    - 数値文字列 -> int / float
-    - Python literal -> ast.literal_eval
-    - それ以外 -> str のまま
     """
     if v is None:
         return True
@@ -243,16 +180,6 @@ def _coerce_value(v: str) -> Any:
 def _parse_unknown_args(unknown: list[str]) -> Dict[str, Any]:
     """
     CLI の未知引数（unknown args）を processor 用 kwargs に変換する。
-
-    Parameters
-    ----------
-    unknown : list[str]
-        argparse が解釈できなかった CLI 引数。
-
-    Returns
-    -------
-    Dict[str, Any]
-        processor.execute() に渡される kwargs。
     """
     kwargs: Dict[str, Any] = {}
     i = 0
@@ -280,37 +207,19 @@ def _parse_unknown_args(unknown: list[str]) -> Dict[str, Any]:
 
 
 # -------------------------
-# Runtime overrides (inject plan / inject to proc)
+# Runtime override normalization
 # -------------------------
-_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-
-
 def _extract_runtime_overrides(exec_kwargs: Dict[str, Any]) -> Dict[str, Any]:
     """
-    runtime override 引数を抽出する。
-
-    Parameters
-    ----------
-    exec_kwargs : Dict[str, Any]
-        `_parse_unknown_args()` により生成された kwargs。
-
-    Returns
-    -------
-    Dict[str, Any]
-        processor インスタンスに注入する属性辞書。
+    unknown args から runtime override 候補を抽出する。
 
     Notes
     -----
-    dry-run 時でも副作用が起きないよう、instance 生成前に抽出する。
-
-    抽出対象例
-
-    - --date
-    - --run-date
-    - --target-dir
-    - nef_*
+    ここで抽出した値は processor 共通の「正規化済み runtime context」。
+    実際に各 processor.execute() へ渡すキー名への変換は
+    `_build_stage_exec_kwargs()` で行う。
     """
-    injected: Dict[str, Any] = {}
+    runtime: Dict[str, Any] = {}
 
     run_date = None
     if "run_date" in exec_kwargs:
@@ -322,7 +231,7 @@ def _extract_runtime_overrides(exec_kwargs: Dict[str, Any]) -> Dict[str, Any]:
         s = str(run_date).strip()
         if not _DATE_RE.match(s):
             raise ValueError(f"Invalid date format: {s} (expected YYYY-MM-DD)")
-        injected["date"] = s
+        runtime["date"] = s
 
     target_dir = None
     if "target_dir" in exec_kwargs:
@@ -331,70 +240,112 @@ def _extract_runtime_overrides(exec_kwargs: Dict[str, Any]) -> Dict[str, Any]:
         target_dir = exec_kwargs.pop("dir")
 
     if target_dir is not None:
-        injected["target_dir"] = str(target_dir)
+        runtime["target_dir"] = str(target_dir)
 
     for k in list(exec_kwargs.keys()):
         if k.startswith("nef_"):
-            injected[k] = exec_kwargs.pop(k)
+            runtime[k] = exec_kwargs.pop(k)
 
-    return injected
+    return runtime
 
 
-def _apply_runtime_overrides(proc: BaseBatchProcessor, injected: Dict[str, Any]) -> None:
+def _get_processor_runtime_param_names(processor_cls: Type[BaseBatchProcessor]) -> set[str]:
     """
-    runtime override を processor インスタンスへ注入する。
-
-    Parameters
-    ----------
-    proc : BaseBatchProcessor
-        実行対象の processor インスタンス。
-
-    injected : Dict[str, Any]
-        `_extract_runtime_overrides()` が返す override 値。
-
-    Notes
-    -----
-    以下の属性が processor に設定される。
-
-    - date
-    - target_date
-    - target_dir
-    - nef_*
+    processor が宣言している runtime parameter 名一覧を取得する。
     """
-    if "date" in injected:
-        setattr(proc, "date", injected["date"])
-        setattr(proc, "target_date", injected["date"])
+    names = getattr(processor_cls, "runtime_param_names", ()) or ()
+    return {str(x) for x in names}
 
-    if "target_dir" in injected:
-        setattr(proc, "target_dir", Path(injected["target_dir"]))
 
-    for k, v in injected.items():
-        if k.startswith("nef_"):
-            setattr(proc, k, v)
+def _build_runtime_candidates_for_stage(
+    stage_name: str,
+    runtime_overrides: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    stage ごとの runtime 候補キーを作る。
+    ここでは stage 名差分の吸収だけを行う。
+    """
+    candidates: Dict[str, Any] = {}
+
+    date_value = runtime_overrides.get("date")
+    target_dir = runtime_overrides.get("target_dir")
+
+    if stage_name == "nef":
+        if date_value is not None:
+            candidates["target_date"] = date_value
+        if target_dir is not None:
+            candidates["target_dir"] = target_dir
+
+        for k, v in runtime_overrides.items():
+            if k.startswith("nef_"):
+                candidates[k] = v
+    else:
+        if date_value is not None:
+            candidates["date"] = date_value
+        if target_dir is not None:
+            candidates["target_dir"] = target_dir
+
+    return candidates
+
+
+def _build_stage_exec_kwargs(
+    processor_spec: str,
+    processor_cls: Type[BaseBatchProcessor],
+    common_exec_kwargs: Dict[str, Any],
+    runtime_overrides: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    stage ごとの execute kwargs を構築する。
+
+    Policy
+    ------
+    - Base FW が apply_runtime_params() で setup 前に適用できる形へ揃える
+    - stage ごとの runtime key 差はここで吸収する
+    - processor が宣言していない runtime param は渡さない
+    - artifact 連携など execute 専用のキーは明示的に残す
+    """
+    stage_name = _safe_stage_name(processor_spec, processor_cls=processor_cls)
+    stage_exec_kwargs = dict(common_exec_kwargs)
+
+    runtime_candidates = _build_runtime_candidates_for_stage(
+        stage_name=stage_name,
+        runtime_overrides=runtime_overrides,
+    )
+    allowed_runtime = _get_processor_runtime_param_names(processor_cls)
+
+    # runtime params: processor が宣言したものだけ渡す
+    for key, value in runtime_candidates.items():
+        if key in allowed_runtime:
+            stage_exec_kwargs[key] = value
+
+    # execute 連携で明示的に許可するもの
+    passthrough_keys = {
+        "input_csv_path",
+        "max_images",
+    }
+
+    filtered_exec_kwargs: Dict[str, Any] = {}
+    for key, value in stage_exec_kwargs.items():
+        if key in passthrough_keys or key in allowed_runtime:
+            filtered_exec_kwargs[key] = value
+
+    return filtered_exec_kwargs
 
 
 # -------------------------
 # Pipeline artifact helpers
 # -------------------------
-def _resolve_session_name_from_injected(injected: Dict[str, Any]) -> str:
+def _resolve_session_name_from_runtime(
+    runtime_overrides: Dict[str, Any],
+) -> str:
     """
     runtime override 情報から session 名を解決する。
-
-    Parameters
-    ----------
-    injected : Dict[str, Any]
-        `_extract_runtime_overrides()` が返す辞書。
-
-    Returns
-    -------
-    str
-        session 名。
     """
-    target_dir = injected.get("target_dir")
+    target_dir = runtime_overrides.get("target_dir")
     if target_dir:
         return Path(str(target_dir)).name
 
-    date = injected.get("date")
+    date = runtime_overrides.get("date")
     if date:
         return str(date)
 
@@ -403,25 +354,12 @@ def _resolve_session_name_from_injected(injected: Dict[str, Any]) -> str:
 
 def _infer_nef_output_csv_path(
     proc: BaseBatchProcessor,
-    injected: Dict[str, Any],
+    runtime_overrides: Dict[str, Any],
 ) -> Optional[str]:
     """
     NEF stage 実行後の output CSV パスを推定する。
-
-    Parameters
-    ----------
-    proc : BaseBatchProcessor
-        実行済みの NEF processor インスタンス。
-
-    injected : Dict[str, Any]
-        runtime override 情報。
-
-    Returns
-    -------
-    Optional[str]
-        解決できた CSV パス。見つからない場合は None。
     """
-    session = _resolve_session_name_from_injected(injected)
+    session = _resolve_session_name_from_runtime(runtime_overrides)
     fname = f"{session}_raw_exif_data.csv"
 
     run_ctx = getattr(proc, "run_ctx", None)
@@ -441,16 +379,6 @@ def _infer_nef_output_csv_path(
 def _infer_processed_count(proc: BaseBatchProcessor) -> Optional[int]:
     """
     processor インスタンスから処理件数らしき値を推定する。
-
-    Parameters
-    ----------
-    proc : BaseBatchProcessor
-        実行済み processor インスタンス。
-
-    Returns
-    -------
-    Optional[int]
-        推定できた処理件数。取得できない場合は None。
     """
     candidate_names = (
         "processed_count",
@@ -458,6 +386,7 @@ def _infer_processed_count(proc: BaseBatchProcessor) -> Optional[int]:
         "images_processed",
         "total_processed",
         "count_processed",
+        "success_count",
     )
 
     for name in candidate_names:
@@ -468,6 +397,10 @@ def _infer_processed_count(proc: BaseBatchProcessor) -> Optional[int]:
     processed_images = getattr(proc, "processed_images", None)
     if isinstance(processed_images, (set, list, tuple)):
         return len(processed_images)
+
+    output_data = getattr(proc, "output_data", None)
+    if isinstance(output_data, list):
+        return len(output_data)
 
     run_ctx = getattr(proc, "run_ctx", None)
     if run_ctx is not None:
@@ -486,16 +419,6 @@ def _infer_processed_count(proc: BaseBatchProcessor) -> Optional[int]:
 def _infer_run_output_dir(proc: BaseBatchProcessor) -> Optional[str]:
     """
     processor インスタンスから run 出力ディレクトリを推定する。
-
-    Parameters
-    ----------
-    proc : BaseBatchProcessor
-        実行済み processor インスタンス。
-
-    Returns
-    -------
-    Optional[str]
-        run 出力ディレクトリ。解決できない場合は None。
     """
     run_ctx = getattr(proc, "run_ctx", None)
     if run_ctx is not None and getattr(run_ctx, "out_dir", None):
@@ -507,14 +430,15 @@ def _infer_run_output_dir(proc: BaseBatchProcessor) -> Optional[str]:
 
 def _build_stage_result(
     processor_spec: str,
+    processor_cls: Type[BaseBatchProcessor],
     proc: BaseBatchProcessor,
-    injected: Dict[str, Any],
+    runtime_overrides: Dict[str, Any],
     exec_kwargs: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     stage 実行結果の最小メタ情報を構築する。
     """
-    stage_name = _normalize_pipeline_stage_name(processor_spec)
+    stage_name = _safe_stage_name(processor_spec, processor_cls=processor_cls)
 
     result: Dict[str, Any] = {
         "name": stage_name,
@@ -534,7 +458,7 @@ def _build_stage_result(
     result["processed_count"] = _infer_processed_count(proc)
 
     if stage_name == "nef":
-        result["output_csv_path"] = _infer_nef_output_csv_path(proc, injected)
+        result["output_csv_path"] = _infer_nef_output_csv_path(proc, runtime_overrides)
         if not result["output_csv_path"]:
             result["status"] = "failed"
             result["message"] = "NEF output CSV path could not be resolved"
@@ -547,34 +471,18 @@ def _build_stage_result(
 def _build_pipeline_run_context(
     ctor_kwargs: Dict[str, Any],
     exec_kwargs: Dict[str, Any],
-    injected: Dict[str, Any],
+    runtime_overrides: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
     pipeline summary 用の runtime context を構築する。
-
-    Parameters
-    ----------
-    ctor_kwargs : Dict[str, Any]
-        processor コンストラクタ引数。
-
-    exec_kwargs : Dict[str, Any]
-        pipeline 共通 execute kwargs。
-
-    injected : Dict[str, Any]
-        runtime override 情報。
-
-    Returns
-    -------
-    Dict[str, Any]
-        pipeline runtime context。
     """
     config_paths = ctor_kwargs.get("config_paths")
     if isinstance(config_paths, tuple):
         config_paths = list(config_paths)
 
     return {
-        "date": injected.get("date"),
-        "target_dir": injected.get("target_dir"),
+        "date": runtime_overrides.get("date"),
+        "target_dir": runtime_overrides.get("target_dir"),
         "config_path": ctor_kwargs.get("config_path"),
         "max_workers": ctor_kwargs.get("max_workers"),
         "max_images": exec_kwargs.get("max_images"),
@@ -583,64 +491,50 @@ def _build_pipeline_run_context(
     }
 
 
+def _derive_pipeline_status(stage_results: List[Dict[str, Any]]) -> str:
+    """
+    stage 実行結果から pipeline 全体の status を集約する。
+    """
+    if not stage_results:
+        return "failed"
+
+    for stage in stage_results:
+        if stage.get("status") != "success":
+            return "failed"
+
+    return "success"
+
+
 def _build_pipeline_summary(
     stages: List[str],
     stage_results: List[Dict[str, Any]],
     ctor_kwargs: Dict[str, Any],
     exec_kwargs: Dict[str, Any],
-    injected: Dict[str, Any],
+    runtime_overrides: Dict[str, Any],
+    duration_sec: Optional[float] = None,
 ) -> Dict[str, Any]:
     """
     pipeline 実行結果から summary を構築する。
-
-    Parameters
-    ----------
-    stages : List[str]
-        実行対象 pipeline stage の正規化済みリスト。
-
-    stage_results : List[Dict[str, Any]]
-        各 stage の実行結果。
-
-    ctor_kwargs : Dict[str, Any]
-        processor コンストラクタ引数。
-
-    exec_kwargs : Dict[str, Any]
-        pipeline 共通 execute kwargs。
-
-    injected : Dict[str, Any]
-        runtime override 情報。
-
-    Returns
-    -------
-    Dict[str, Any]
-        pipeline summary。
     """
-    return {
+    summary = {
         "summary_version": 1,
         "pipeline": stages,
-        "status": "success",
+        "status": _derive_pipeline_status(stage_results),
         "run_context": _build_pipeline_run_context(
             ctor_kwargs=ctor_kwargs,
             exec_kwargs=exec_kwargs,
-            injected=injected,
+            runtime_overrides=runtime_overrides,
         ),
         "stages": stage_results,
     }
+    if duration_sec is not None:
+        summary["duration_sec"] = round(float(duration_sec), 3)
+    return summary
 
 
 def _resolve_pipeline_summary_output_path(summary: Dict[str, Any]) -> Path:
     """
     pipeline summary の出力先パスを解決する。
-
-    Parameters
-    ----------
-    summary : Dict[str, Any]
-        pipeline summary。
-
-    Returns
-    -------
-    Path
-        pipeline_summary.json の出力先パス。
     """
     stages = summary.get("stages", [])
     if stages:
@@ -655,16 +549,6 @@ def _resolve_pipeline_summary_output_path(summary: Dict[str, Any]) -> Path:
 def _write_pipeline_summary_json(summary: Dict[str, Any]) -> Path:
     """
     pipeline summary を JSON ファイルとして保存する。
-
-    Parameters
-    ----------
-    summary : Dict[str, Any]
-        保存対象の pipeline summary。
-
-    Returns
-    -------
-    Path
-        保存先パス。
     """
     output_path = _resolve_pipeline_summary_output_path(summary)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -678,15 +562,13 @@ def _write_pipeline_summary_json(summary: Dict[str, Any]) -> Path:
 def _print_pipeline_summary(summary: Dict[str, Any]) -> None:
     """
     pipeline summary を標準出力へ表示する。
-
-    Parameters
-    ----------
-    summary : Dict[str, Any]
-        `_build_pipeline_summary()` が返す summary。
     """
     print("[pipeline summary]")
     print(f"pipeline = {','.join(summary['pipeline'])}")
     print(f"status = {summary['status']}")
+
+    if summary.get("duration_sec") is not None:
+        print(f"duration_sec = {summary['duration_sec']}")
 
     run_context = summary.get("run_context")
     if run_context:
@@ -724,90 +606,55 @@ def run_single_processor(
     processor_spec: str,
     ctor_kwargs: Dict[str, Any],
     exec_kwargs: Dict[str, Any],
-    injected: Dict[str, Any],
+    runtime_overrides: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
     単一 processor を実行する。
 
-    Parameters
-    ----------
-    processor_spec : str
-        実行対象 processor の指定文字列。
-        例: "nef", "portrait_quality", "pkg.mod:ClassName"
-
-    ctor_kwargs : Dict[str, Any]
-        processor コンストラクタに渡す引数。
-
-    exec_kwargs : Dict[str, Any]
-        processor.execute() に渡す引数。
-
-    injected : Dict[str, Any]
-        processor インスタンスへ属性注入する runtime override。
-
-    Returns
-    -------
-    Dict[str, Any]
-        stage result。
-
     Notes
     -----
-    例外はここでは握りつぶさず、そのまま呼び出し側へ送出する。
+    runtime override は Base FW が execute(**kwargs) 内で吸収する。
     """
-    Processor = resolve_processor(processor_spec)
-    proc = Processor(**ctor_kwargs)
-    _apply_runtime_overrides(proc, injected)
+    processor_cls = resolve_processor(processor_spec)
+    proc = processor_cls(**ctor_kwargs)
     proc.execute(**exec_kwargs)
-    return _build_stage_result(processor_spec, proc, injected, exec_kwargs=exec_kwargs)
+    return _build_stage_result(
+        processor_spec=processor_spec,
+        processor_cls=processor_cls,
+        proc=proc,
+        runtime_overrides=runtime_overrides,
+        exec_kwargs=exec_kwargs,
+    )
 
 
 def run_pipeline_chain(
     stages: List[str],
     ctor_kwargs: Dict[str, Any],
     exec_kwargs: Dict[str, Any],
-    injected: Dict[str, Any],
+    runtime_overrides: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
     pipeline chain を順次実行する。
 
-    Parameters
-    ----------
-    stages : List[str]
-        実行する stage 名の順序付きリスト。
-        例: ["nef", "portrait_quality"]
-
-    ctor_kwargs : Dict[str, Any]
-        各 processor のコンストラクタに渡す共通引数。
-
-    exec_kwargs : Dict[str, Any]
-        各 processor.execute() に渡す共通引数。
-
-    injected : Dict[str, Any]
-        各 processor に注入する共通 runtime override。
-
-    Returns
-    -------
-    Dict[str, Any]
-        pipeline summary。
-
     Notes
     -----
-    PR5 では以下を扱う。
-
-    - stage result の収集
-    - pipeline summary の生成
-    - max_images の pipeline 対応
-      - 先頭 stage のみに適用
-      - 後続 stage は upstream artifact に従う
-    - pipeline summary JSON 永続化のための run_context / run_output_dir 付与
+    - max_images は pipeline 先頭 stage のみに適用
+    - 後続 stage は upstream artifact に従う
     """
     previous_result: Optional[Dict[str, Any]] = None
     stage_results: List[Dict[str, Any]] = []
+    started_at = time.time()
 
     for idx, stage_name in enumerate(stages):
-        stage_exec_kwargs = dict(exec_kwargs)
+        processor_cls = resolve_processor(stage_name)
+        stage_exec_kwargs = _build_stage_exec_kwargs(
+            processor_spec=stage_name,
+            processor_cls=processor_cls,
+            common_exec_kwargs=exec_kwargs,
+            runtime_overrides=runtime_overrides,
+        )
 
-        # max_images は pipeline 先頭 stage にのみ適用し、
-        # 後続 stage は upstream artifact の件数に従わせる。
+        # max_images は pipeline 先頭 stage にのみ適用
         if idx > 0:
             stage_exec_kwargs.pop("max_images", None)
 
@@ -828,19 +675,22 @@ def run_pipeline_chain(
             processor_spec=stage_name,
             ctor_kwargs=dict(ctor_kwargs),
             exec_kwargs=stage_exec_kwargs,
-            injected=dict(injected),
+            runtime_overrides=dict(runtime_overrides),
         )
         stage_results.append(previous_result)
 
         if previous_result.get("status") != "success":
             break
 
+    duration_sec = time.time() - started_at
+
     return _build_pipeline_summary(
         stages=stages,
         stage_results=stage_results,
         ctor_kwargs=ctor_kwargs,
         exec_kwargs=exec_kwargs,
-        injected=injected,
+        runtime_overrides=runtime_overrides,
+        duration_sec=duration_sec,
     )
 
 
@@ -850,25 +700,6 @@ def run_pipeline_chain(
 def build_parser() -> argparse.ArgumentParser:
     """
     CLI 引数パーサを生成する。
-
-    Returns
-    -------
-    argparse.ArgumentParser
-        `run_batch` 用の ArgumentParser。
-
-    対応引数
-    --------
-    --processor
-        単段 processor 実行
-
-    --pipeline
-        pipeline chain 実行
-
-    --config
-    --max-workers
-    --config-env
-    --config-paths
-    --dry-run
     """
     p = argparse.ArgumentParser(
         prog="run_batch",
@@ -895,7 +726,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Config file path",
     )
     p.add_argument("--max-workers", type=int, default=2)
-    p.add_argument("--config-env", default=None, help="ConfigManager env name (optional)")
+    p.add_argument(
+        "--config-env",
+        default=None,
+        help="ConfigManager env name (optional)",
+    )
     p.add_argument(
         "--config-paths",
         default=None,
@@ -910,41 +745,9 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def resolve_processor(spec: str) -> Type[BaseBatchProcessor]:
-    """
-    processor 指定文字列から Processor クラスを解決する。
-
-    Parameters
-    ----------
-    spec : str
-        エイリアスまたは dotted path。
-
-    Returns
-    -------
-    Type[BaseBatchProcessor]
-        解決された Processor クラス。
-    """
-    s = spec.strip()
-    if ":" in s or s.count(".") >= 2:
-        return _load_processor_by_dotted_path(s)
-    return _load_processor_by_alias(s)
-
-
 def _validate_entrypoint_args(args: argparse.Namespace) -> None:
     """
     CLI 引数の整合性を検証する。
-
-    Parameters
-    ----------
-    args : argparse.Namespace
-        argparse が解析した CLI 引数。
-
-    Rules
-    -----
-    --processor と --pipeline は排他。
-
-    - 両方指定 -> エラー
-    - 両方未指定 -> エラー
     """
     has_processor = bool(args.processor and args.processor.strip())
     has_pipeline = bool(args.pipeline and args.pipeline.strip())
@@ -959,24 +762,6 @@ def _validate_entrypoint_args(args: argparse.Namespace) -> None:
 def main(argv: Optional[list[str]] = None) -> int:
     """
     run_batch CLI のエントリポイント。
-
-    Parameters
-    ----------
-    argv : Optional[list[str]]
-        CLI 引数配列。
-        None の場合は sys.argv[1:] を使用する。
-
-    Returns
-    -------
-    int
-        終了コード。
-
-    処理フロー
-    ----------
-    1. CLI 引数解析
-    2. processor / pipeline モード判定
-    3. runtime override 抽出
-    4. 単段実行または pipeline 実行
     """
     argv = argv if argv is not None else sys.argv[1:]
     parser = build_parser()
@@ -998,7 +783,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         ctor_kwargs["config_paths"] = config_paths
 
     exec_kwargs = _parse_unknown_args(unknown)
-    injected = _extract_runtime_overrides(exec_kwargs)
+    runtime_overrides = _extract_runtime_overrides(exec_kwargs)
 
     if args.pipeline:
         stages = _parse_pipeline_spec(args.pipeline)
@@ -1008,14 +793,20 @@ def main(argv: Optional[list[str]] = None) -> int:
             print(f"[dry-run] pipeline = {stages}")
             print(f"[dry-run] ctor_kwargs = {ctor_kwargs}")
             print(f"[dry-run] exec_kwargs = {exec_kwargs}")
-            print(f"[dry-run] injected = {injected}")
+            print(f"[dry-run] runtime_overrides = {runtime_overrides}")
+            for stage in stages:
+                processor_cls = resolve_processor(stage)
+                print(
+                    f"[dry-run] stage_exec_kwargs[{stage}] = "
+                    f"{_build_stage_exec_kwargs(stage, processor_cls, exec_kwargs, runtime_overrides)}"
+                )
             return 0
 
         summary = run_pipeline_chain(
             stages=stages,
             ctor_kwargs=ctor_kwargs,
             exec_kwargs=exec_kwargs,
-            injected=injected,
+            runtime_overrides=runtime_overrides,
         )
         _print_pipeline_summary(summary)
         summary_path = _write_pipeline_summary_json(summary)
@@ -1024,20 +815,31 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     assert args.processor is not None
 
-    Processor = resolve_processor(args.processor)
+    processor_cls = resolve_processor(args.processor)
 
     if args.dry_run:
-        print(f"[dry-run] processor = {Processor.__module__}.{Processor.__name__}")
+        print(f"[dry-run] processor = {processor_cls.__module__}.{processor_cls.__name__}")
         print(f"[dry-run] ctor_kwargs = {ctor_kwargs}")
         print(f"[dry-run] exec_kwargs = {exec_kwargs}")
-        print(f"[dry-run] injected = {injected}")
+        print(f"[dry-run] runtime_overrides = {runtime_overrides}")
+        print(
+            f"[dry-run] stage_exec_kwargs = "
+            f"{_build_stage_exec_kwargs(args.processor, processor_cls, exec_kwargs, runtime_overrides)}"
+        )
         return 0
+
+    stage_exec_kwargs = _build_stage_exec_kwargs(
+        processor_spec=args.processor,
+        processor_cls=processor_cls,
+        common_exec_kwargs=exec_kwargs,
+        runtime_overrides=runtime_overrides,
+    )
 
     run_single_processor(
         processor_spec=args.processor,
         ctor_kwargs=ctor_kwargs,
-        exec_kwargs=exec_kwargs,
-        injected=injected,
+        exec_kwargs=stage_exec_kwargs,
+        runtime_overrides=runtime_overrides,
     )
     return 0
 

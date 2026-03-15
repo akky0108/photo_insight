@@ -10,6 +10,8 @@ from photo_insight.cli import run_batch
 
 
 class DummyProcessor:
+    runtime_param_names = ()
+
     def __init__(self, **kwargs: Any) -> None:
         self.ctor_kwargs = kwargs
         self.execute_calls: List[Dict[str, Any]] = []
@@ -21,6 +23,8 @@ class DummyProcessor:
 
 
 class DummyNEFProcessor(DummyProcessor):
+    runtime_param_names = ("target_date", "target_dir", "nef_incremental", "nef_max_files", "nef_dry_run")
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.processed_count = 5
@@ -28,6 +32,8 @@ class DummyNEFProcessor(DummyProcessor):
 
 
 class DummyPortraitProcessor(DummyProcessor):
+    runtime_param_names = ("date", "target_dir", "max_images", "input_csv_path")
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.processed_count = 5
@@ -44,7 +50,7 @@ def ctor_kwargs() -> Dict[str, Any]:
 
 
 @pytest.fixture
-def injected() -> Dict[str, Any]:
+def runtime_overrides() -> Dict[str, Any]:
     return {
         "date": "2026-02-17",
     }
@@ -71,13 +77,14 @@ def test_build_stage_result_includes_run_output_dir_for_nef(
     monkeypatch.setattr(
         run_batch,
         "_infer_nef_output_csv_path",
-        lambda proc, injected: expected_csv,
+        lambda proc, runtime_overrides: expected_csv,
     )
 
     result = run_batch._build_stage_result(
         processor_spec="nef",
+        processor_cls=DummyNEFProcessor,
         proc=proc,
-        injected={"date": "2026-02-17"},
+        runtime_overrides={"date": "2026-02-17"},
         exec_kwargs={"max_images": 5},
     )
 
@@ -95,12 +102,12 @@ def test_build_stage_result_includes_run_output_dir_for_nef(
 
 def test_build_pipeline_run_context_returns_expected_fields(
     ctor_kwargs: Dict[str, Any],
-    injected: Dict[str, Any],
+    runtime_overrides: Dict[str, Any],
 ) -> None:
     result = run_batch._build_pipeline_run_context(
         ctor_kwargs=ctor_kwargs,
         exec_kwargs={"max_images": 10, "append_mode": True},
-        injected=injected,
+        runtime_overrides=runtime_overrides,
     )
 
     assert result == {
@@ -116,7 +123,7 @@ def test_build_pipeline_run_context_returns_expected_fields(
 
 def test_build_pipeline_summary_includes_summary_version_and_run_context(
     ctor_kwargs: Dict[str, Any],
-    injected: Dict[str, Any],
+    runtime_overrides: Dict[str, Any],
 ) -> None:
     stage_results = [
         {
@@ -146,7 +153,8 @@ def test_build_pipeline_summary_includes_summary_version_and_run_context(
         stage_results=stage_results,
         ctor_kwargs=ctor_kwargs,
         exec_kwargs={"max_images": 5},
-        injected=injected,
+        runtime_overrides=runtime_overrides,
+        duration_sec=0.123,
     )
 
     assert summary == {
@@ -163,6 +171,7 @@ def test_build_pipeline_summary_includes_summary_version_and_run_context(
             "config_paths": None,
         },
         "stages": stage_results,
+        "duration_sec": 0.123,
     }
 
 
@@ -218,6 +227,7 @@ def test_write_pipeline_summary_json_writes_expected_content(
                 "run_output_dir": str(tmp_path / "runs" / "2026-03-13" / "run_001"),
             }
         ],
+        "duration_sec": 0.123,
     }
 
     monkeypatch.setattr(
@@ -238,22 +248,35 @@ def test_write_pipeline_summary_json_writes_expected_content(
 def test_run_pipeline_chain_returns_summary_with_run_context_and_run_output_dir(
     monkeypatch: pytest.MonkeyPatch,
     ctor_kwargs: Dict[str, Any],
-    injected: Dict[str, Any],
+    runtime_overrides: Dict[str, Any],
 ) -> None:
     calls: List[Dict[str, Any]] = []
+
+    class FakeNefProcessor:
+        runtime_param_names = ("target_date", "target_dir", "nef_incremental", "nef_max_files", "nef_dry_run")
+
+    class FakePortraitProcessor:
+        runtime_param_names = ("date", "target_dir", "max_images", "input_csv_path")
+
+    def fake_resolve_processor(spec: str):
+        if spec == "nef":
+            return FakeNefProcessor
+        if spec == "portrait_quality":
+            return FakePortraitProcessor
+        raise AssertionError(f"unexpected processor: {spec}")
 
     def fake_run_single_processor(
         processor_spec: str,
         ctor_kwargs: Dict[str, Any],
         exec_kwargs: Dict[str, Any],
-        injected: Dict[str, Any],
+        runtime_overrides: Dict[str, Any],
     ) -> Dict[str, Any]:
         calls.append(
             {
                 "processor_spec": processor_spec,
                 "ctor_kwargs": dict(ctor_kwargs),
                 "exec_kwargs": dict(exec_kwargs),
-                "injected": dict(injected),
+                "runtime_overrides": dict(runtime_overrides),
             }
         )
 
@@ -283,13 +306,14 @@ def test_run_pipeline_chain_returns_summary_with_run_context_and_run_output_dir(
 
         raise AssertionError(f"unexpected processor: {processor_spec}")
 
+    monkeypatch.setattr(run_batch, "resolve_processor", fake_resolve_processor)
     monkeypatch.setattr(run_batch, "run_single_processor", fake_run_single_processor)
 
     summary = run_batch.run_pipeline_chain(
         stages=["nef", "portrait_quality"],
         ctor_kwargs=ctor_kwargs,
         exec_kwargs={"append_mode": True, "max_images": 5},
-        injected=injected,
+        runtime_overrides=runtime_overrides,
     )
 
     assert summary["summary_version"] == 1
@@ -304,14 +328,17 @@ def test_run_pipeline_chain_returns_summary_with_run_context_and_run_output_dir(
         "config_env": None,
         "config_paths": None,
     }
+    assert "duration_sec" in summary
+    assert isinstance(summary["duration_sec"], float)
+    assert summary["duration_sec"] >= 0.0
 
     assert [x["processor_spec"] for x in calls] == ["nef", "portrait_quality"]
     assert calls[0]["exec_kwargs"] == {
-        "append_mode": True,
+        "target_date": "2026-02-17",
         "max_images": 5,
     }
     assert calls[1]["exec_kwargs"] == {
-        "append_mode": True,
+        "date": "2026-02-17",
         "input_csv_path": "/tmp/project/runs/2026-03-13/run_001/artifacts/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
     }
 
@@ -347,6 +374,7 @@ def test_print_pipeline_summary_includes_run_context_lines(
                 "run_output_dir": "/tmp/project/runs/2026-03-13/run_001",
             }
         ],
+        "duration_sec": 0.123,
     }
 
     run_batch._print_pipeline_summary(summary)
@@ -355,6 +383,7 @@ def test_print_pipeline_summary_includes_run_context_lines(
     assert "[pipeline summary]" in captured.out
     assert "pipeline = nef,portrait_quality" in captured.out
     assert "status = success" in captured.out
+    assert "duration_sec = 0.123" in captured.out
     assert "date = 2026-02-17" in captured.out
     assert "target_dir = /work/input/2026-02-17" in captured.out
     assert "max_images = 5" in captured.out
@@ -370,7 +399,7 @@ def test_main_pipeline_writes_summary_json_and_returns_zero(
     monkeypatch.setattr(
         run_batch,
         "run_pipeline_chain",
-        lambda stages, ctor_kwargs, exec_kwargs, injected: {
+        lambda stages, ctor_kwargs, exec_kwargs, runtime_overrides: {
             "summary_version": 1,
             "pipeline": stages,
             "status": "success",
@@ -405,6 +434,7 @@ def test_main_pipeline_writes_summary_json_and_returns_zero(
                     "run_output_dir": "/tmp/project/runs/2026-03-13/run_001",
                 },
             ],
+            "duration_sec": 0.123,
         },
     )
     monkeypatch.setattr(
@@ -446,7 +476,7 @@ def test_main_pipeline_dry_run_does_not_write_summary_json(
     monkeypatch.setattr(
         run_batch,
         "run_pipeline_chain",
-        lambda stages, ctor_kwargs, exec_kwargs, injected: called.__setitem__(
+        lambda stages, ctor_kwargs, exec_kwargs, runtime_overrides: called.__setitem__(
             "run_pipeline_chain", called["run_pipeline_chain"] + 1
         ),
     )
