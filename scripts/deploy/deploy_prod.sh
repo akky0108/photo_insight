@@ -4,6 +4,10 @@ set -euo pipefail
 REPO="${HOME}/photo_insight"
 PROD="${HOME}/photo_insight_prod"
 
+# 本番用 Dockerfile
+PROD_DOCKERFILE="docker/Dockerfile.prod"
+PROD_DOCKER_TARGET="runtime"
+
 RUN_AFTER=false
 NO_CACHE=false
 TAG=""
@@ -64,28 +68,38 @@ fi
 TEMPLATE_COMPOSE="${REPO}/deploy/prod/compose.prod.yaml"
 TEMPLATE_ENV="${REPO}/deploy/prod/env.example"
 RUNNER_SCRIPT="${REPO}/scripts/ops/run_prod.sh"
+DOCKERFILE_PATH="${REPO}/${PROD_DOCKERFILE}"
 
 if [[ ! -f "${TEMPLATE_COMPOSE}" ]]; then
   echo "[ERROR] missing template: ${TEMPLATE_COMPOSE}" >&2
   exit 1
 fi
+
 if [[ ! -f "${TEMPLATE_ENV}" ]]; then
   echo "[ERROR] missing template: ${TEMPLATE_ENV}" >&2
   exit 1
 fi
+
 if [[ ! -f "${RUNNER_SCRIPT}" ]]; then
   echo "[ERROR] missing runner script (expected by deploy): ${RUNNER_SCRIPT}" >&2
   echo "        Create it in repo (scripts/ops/run_prod.sh) and re-run." >&2
   exit 1
 fi
 
+if [[ ! -f "${DOCKERFILE_PATH}" ]]; then
+  echo "[ERROR] missing prod dockerfile: ${DOCKERFILE_PATH}" >&2
+  exit 1
+fi
+
 mkdir -p "${PROD}/"{config,logs,runs,tmp,output}
 
-echo "[INFO] repo : ${REPO}"
-echo "[INFO] prod : ${PROD}"
-echo "[INFO] tag  : ${TAG}"
-echo "[INFO] keep : ${KEEP}"
-echo "[INFO] flags: run=${RUN_AFTER} no_cache=${NO_CACHE} clean=${CLEAN_IMAGES} release=${WRITE_RELEASE} dry_run=${DRY_RUN}"
+echo "[INFO] repo              : ${REPO}"
+echo "[INFO] prod              : ${PROD}"
+echo "[INFO] prod dockerfile   : ${PROD_DOCKERFILE}"
+echo "[INFO] prod target       : ${PROD_DOCKER_TARGET}"
+echo "[INFO] tag               : ${TAG}"
+echo "[INFO] keep              : ${KEEP}"
+echo "[INFO] flags             : run=${RUN_AFTER} no_cache=${NO_CACHE} clean=${CLEAN_IMAGES} release=${WRITE_RELEASE} dry_run=${DRY_RUN}"
 
 set_kv() {
   local key="$1"
@@ -123,13 +137,24 @@ if command -v git >/dev/null 2>&1; then
   fi
 fi
 
+BUILD_CMD=(
+  docker build
+  -t "photo_insight:${TAG}"
+  -f "${PROD_DOCKERFILE}"
+  --target "${PROD_DOCKER_TARGET}"
+  .
+)
+
 if [[ "${NO_CACHE}" == "true" ]]; then
-  echo "[INFO] docker build --no-cache -t photo_insight:${TAG} ..."
-  docker build --no-cache -t "photo_insight:${TAG}" -f Dockerfile --target runtime .
-else
-  echo "[INFO] docker build -t photo_insight:${TAG} ..."
-  docker build -t "photo_insight:${TAG}" -f Dockerfile --target runtime .
+  BUILD_CMD=(docker build --no-cache -t "photo_insight:${TAG}" -f "${PROD_DOCKERFILE}" --target "${PROD_DOCKER_TARGET}" .)
 fi
+
+echo "[INFO] building production image..."
+printf '[INFO] command:'
+printf ' %q' "${BUILD_CMD[@]}"
+printf '\n'
+
+"${BUILD_CMD[@]}"
 
 IMAGE_ID="$(docker images -q "photo_insight:${TAG}" | head -n 1 || true)"
 echo "[INFO] built image: photo_insight:${TAG} (id=${IMAGE_ID:-unknown})"
@@ -144,7 +169,6 @@ if [[ ! -f "${PROD}/config/.env" ]]; then
   echo "[INFO] created ${PROD}/config/.env from env.example"
 fi
 
-# (3) Reflect: install repo-managed runner into PROD for consistent execution
 install -m 0755 "${RUNNER_SCRIPT}" "${PROD}/run_prod.sh"
 echo "[INFO] installed runner: ${PROD}/run_prod.sh"
 
@@ -177,6 +201,8 @@ if [[ "${WRITE_RELEASE}" == "true" ]]; then
     echo "git_sha=${GIT_SHA}"
     echo "prod_dir=${PROD}"
     echo "input_dir=${INPUT_DIR}"
+    echo "dockerfile=${PROD_DOCKERFILE}"
+    echo "target=${PROD_DOCKER_TARGET}"
   } > "${RELEASE_FILE}"
   echo "[INFO] wrote ${RELEASE_FILE}"
 fi
@@ -220,9 +246,14 @@ if [[ "${CLEAN_IMAGES}" == "true" ]]; then
       for id in "${REMOVABLE_IDS[@]}"; do
         seen=false
         for u in "${UNIQUE_IDS[@]:-}"; do
-          if [[ "$u" == "$id" ]]; then seen=true; break; fi
+          if [[ "$u" == "$id" ]]; then
+            seen=true
+            break
+          fi
         done
-        if [[ "$seen" == "false" ]]; then UNIQUE_IDS+=("$id"); fi
+        if [[ "$seen" == "false" ]]; then
+          UNIQUE_IDS+=("$id")
+        fi
       done
 
       if [[ "${#UNIQUE_IDS[@]}" -gt 0 ]]; then
