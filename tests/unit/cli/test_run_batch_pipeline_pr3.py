@@ -8,8 +8,8 @@ import pytest
 from photo_insight.cli import run_batch
 
 
-def test_resolve_session_name_from_injected_prefers_target_dir() -> None:
-    session = run_batch._resolve_session_name_from_injected(
+def test_resolve_session_name_from_runtime_prefers_target_dir() -> None:
+    session = run_batch._resolve_session_name_from_runtime(
         {
             "date": "2026-02-17",
             "target_dir": "/work/input/2026-02-17",
@@ -18,8 +18,8 @@ def test_resolve_session_name_from_injected_prefers_target_dir() -> None:
     assert session == "2026-02-17"
 
 
-def test_resolve_session_name_from_injected_falls_back_to_date() -> None:
-    session = run_batch._resolve_session_name_from_injected(
+def test_resolve_session_name_from_runtime_falls_back_to_date() -> None:
+    session = run_batch._resolve_session_name_from_runtime(
         {
             "date": "2026-02-17",
         }
@@ -27,8 +27,8 @@ def test_resolve_session_name_from_injected_falls_back_to_date() -> None:
     assert session == "2026-02-17"
 
 
-def test_resolve_session_name_from_injected_defaults_to_all() -> None:
-    session = run_batch._resolve_session_name_from_injected({})
+def test_resolve_session_name_from_runtime_defaults_to_all() -> None:
+    session = run_batch._resolve_session_name_from_runtime({})
     assert session == "ALL"
 
 
@@ -49,7 +49,7 @@ def test_infer_nef_output_csv_path_prefers_same_run_artifact(
 
     result = run_batch._infer_nef_output_csv_path(
         proc=DummyProc(),
-        injected={"date": session},
+        runtime_overrides={"date": session},
     )
 
     assert result == str(csv_path)
@@ -69,7 +69,7 @@ def test_infer_nef_output_csv_path_falls_back_to_runs_latest(
 
     result = run_batch._infer_nef_output_csv_path(
         proc=DummyProc(),
-        injected={"date": session},
+        runtime_overrides={"date": session},
     )
 
     assert result == str(csv_path)
@@ -80,7 +80,8 @@ def test_build_stage_result_for_nef_includes_output_csv_path(
 ) -> None:
     expected = "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv"
 
-    def fake_infer_nef_output_csv_path(proc: Any, injected: dict[str, Any]) -> str:
+    def fake_infer_nef_output_csv_path(proc: Any, runtime_overrides: dict[str, Any]) -> str:
+        assert runtime_overrides == {"date": "2026-02-17"}
         return expected
 
     monkeypatch.setattr(
@@ -92,10 +93,14 @@ def test_build_stage_result_for_nef_includes_output_csv_path(
     class DummyProc:
         project_root = "/tmp/project"
 
+    class DummyProcessorCls:
+        __name__ = "NEFFileBatchProcess"
+
     result = run_batch._build_stage_result(
         processor_spec="nef",
+        processor_cls=DummyProcessorCls,
         proc=DummyProc(),
-        injected={"date": "2026-02-17"},
+        runtime_overrides={"date": "2026-02-17"},
     )
 
     assert result["name"] == "nef"
@@ -112,10 +117,14 @@ def test_build_stage_result_for_portrait_quality_has_minimum_fields() -> None:
     class DummyProc:
         project_root = "/tmp/project"
 
+    class DummyProcessorCls:
+        __name__ = "PortraitQualityBatchProcessor"
+
     result = run_batch._build_stage_result(
         processor_spec="portrait_quality",
+        processor_cls=DummyProcessorCls,
         proc=DummyProc(),
-        injected={"date": "2026-02-17"},
+        runtime_overrides={"date": "2026-02-17"},
     )
 
     assert result["name"] == "portrait_quality"
@@ -133,18 +142,31 @@ def test_run_pipeline_chain_passes_nef_csv_to_portrait_quality(
 ) -> None:
     calls: list[dict[str, Any]] = []
 
+    class FakeNefProcessor:
+        runtime_param_names = ("target_date", "target_dir", "nef_incremental", "nef_max_files", "nef_dry_run")
+
+    class FakePortraitProcessor:
+        runtime_param_names = ("date", "target_dir", "max_images", "input_csv_path")
+
+    def fake_resolve_processor(spec: str):
+        if spec == "nef":
+            return FakeNefProcessor
+        if spec == "portrait_quality":
+            return FakePortraitProcessor
+        raise AssertionError(f"unexpected spec: {spec}")
+
     def fake_run_single_processor(
         processor_spec: str,
         ctor_kwargs: dict[str, Any],
         exec_kwargs: dict[str, Any],
-        injected: dict[str, Any],
+        runtime_overrides: dict[str, Any],
     ) -> dict[str, Any]:
         calls.append(
             {
                 "processor_spec": processor_spec,
                 "ctor_kwargs": ctor_kwargs,
                 "exec_kwargs": exec_kwargs,
-                "injected": injected,
+                "runtime_overrides": runtime_overrides,
             }
         )
 
@@ -157,6 +179,7 @@ def test_run_pipeline_chain_passes_nef_csv_to_portrait_quality(
                 "processed_count": None,
                 "applied_max_images": None,
                 "message": None,
+                "run_output_dir": "/tmp/project/runs/latest",
             }
 
         return {
@@ -167,15 +190,17 @@ def test_run_pipeline_chain_passes_nef_csv_to_portrait_quality(
             "processed_count": None,
             "applied_max_images": None,
             "message": None,
+            "run_output_dir": "/tmp/project/runs/latest",
         }
 
+    monkeypatch.setattr(run_batch, "resolve_processor", fake_resolve_processor)
     monkeypatch.setattr(run_batch, "run_single_processor", fake_run_single_processor)
 
     summary = run_batch.run_pipeline_chain(
         stages=["nef", "portrait_quality"],
         ctor_kwargs={"config_path": "config/config.prod.yaml", "max_workers": 2},
         exec_kwargs={"append_mode": True},
-        injected={"date": "2026-02-17"},
+        runtime_overrides={"date": "2026-02-17"},
     )
 
     assert summary["pipeline"] == ["nef", "portrait_quality"]
@@ -183,12 +208,16 @@ def test_run_pipeline_chain_passes_nef_csv_to_portrait_quality(
     assert [x["processor_spec"] for x in calls] == ["nef", "portrait_quality"]
 
     assert calls[0]["exec_kwargs"] == {
-        "append_mode": True,
+        "target_date": "2026-02-17",
     }
     assert calls[1]["exec_kwargs"] == {
-        "append_mode": True,
+        "date": "2026-02-17",
         "input_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
     }
+
+    assert "duration_sec" in summary
+    assert isinstance(summary["duration_sec"], float)
+    assert summary["duration_sec"] >= 0.0
 
     assert summary["stages"] == [
         {
@@ -199,6 +228,7 @@ def test_run_pipeline_chain_passes_nef_csv_to_portrait_quality(
             "processed_count": None,
             "applied_max_images": None,
             "message": None,
+            "run_output_dir": "/tmp/project/runs/latest",
         },
         {
             "name": "portrait_quality",
@@ -208,6 +238,7 @@ def test_run_pipeline_chain_passes_nef_csv_to_portrait_quality(
             "processed_count": None,
             "applied_max_images": None,
             "message": None,
+            "run_output_dir": "/tmp/project/runs/latest",
         },
     ]
 
@@ -217,11 +248,24 @@ def test_run_pipeline_chain_raises_when_nef_output_csv_missing(
 ) -> None:
     calls: list[str] = []
 
+    class FakeNefProcessor:
+        runtime_param_names = ("target_date",)
+
+    class FakePortraitProcessor:
+        runtime_param_names = ("date", "input_csv_path")
+
+    def fake_resolve_processor(spec: str):
+        if spec == "nef":
+            return FakeNefProcessor
+        if spec == "portrait_quality":
+            return FakePortraitProcessor
+        raise AssertionError(f"unexpected spec: {spec}")
+
     def fake_run_single_processor(
         processor_spec: str,
         ctor_kwargs: dict[str, Any],
         exec_kwargs: dict[str, Any],
-        injected: dict[str, Any],
+        runtime_overrides: dict[str, Any],
     ) -> dict[str, Any]:
         calls.append(processor_spec)
 
@@ -246,6 +290,7 @@ def test_run_pipeline_chain_raises_when_nef_output_csv_missing(
             "message": None,
         }
 
+    monkeypatch.setattr(run_batch, "resolve_processor", fake_resolve_processor)
     monkeypatch.setattr(run_batch, "run_single_processor", fake_run_single_processor)
 
     with pytest.raises(FileNotFoundError, match="NEF output CSV path could not be resolved"):
@@ -253,7 +298,7 @@ def test_run_pipeline_chain_raises_when_nef_output_csv_missing(
             stages=["nef", "portrait_quality"],
             ctor_kwargs={"config_path": "config/config.prod.yaml", "max_workers": 2},
             exec_kwargs={"append_mode": True},
-            injected={"date": "2026-02-17"},
+            runtime_overrides={"date": "2026-02-17"},
         )
 
     assert calls == ["nef"]
@@ -265,5 +310,5 @@ def test_run_pipeline_chain_requires_previous_nef_stage_result() -> None:
             stages=["portrait_quality"],
             ctor_kwargs={"config_path": "config/config.prod.yaml", "max_workers": 2},
             exec_kwargs={"append_mode": True},
-            injected={"date": "2026-02-17"},
+            runtime_overrides={"date": "2026-02-17"},
         )

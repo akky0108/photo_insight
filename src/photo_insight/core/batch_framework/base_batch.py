@@ -1,15 +1,13 @@
-# src/batch_framework/base_batch.py
 from __future__ import annotations
 
+import inspect
+import logging
 import os
 import time
-import logging
-import inspect
 from abc import ABC, abstractmethod
-from typing import Optional, Callable, List, Dict, Any, Tuple
-
-from concurrent.futures import ThreadPoolExecutor, as_completed, Future, CancelledError
+from concurrent.futures import CancelledError, Future, ThreadPoolExecutor, as_completed
 from threading import Lock
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # --- Optional deps (avoid ImportError crash at import time) ---
 try:
@@ -28,8 +26,8 @@ except Exception:  # pragma: no cover
         pass
 
 
-from ._internal.hook_manager import HookManager, HookType
 from ._internal.config_manager import ConfigManager
+from ._internal.hook_manager import HookManager, HookType
 from ._internal.signal_handler import SignalHandler
 from .utils.result_store import ResultStore, RunContext
 
@@ -46,10 +44,9 @@ class ConfigChangeHandler(FileSystemEventHandler):
         """
         self.processor = processor
         self._last_modified_time = 0.0
-
         self._target_config_path = _normpath(self.processor.config_path) if self.processor.config_path else ""
 
-    def on_modified(self, event):
+    def on_modified(self, event) -> None:
         if not self._target_config_path:
             return
 
@@ -71,10 +68,21 @@ class BaseBatchProcessor(ABC):
     """
     Framework responsibility (minimal):
     - phase lifecycle + hook execution
-    - batch submission/collection + summary
+    - batch submission / collection + summary
     - optional run persistence (ResultStore)
     - stop coordination (boolean + reason) as execution metadata
+    - runtime parameter application before setup()
+
+    Runtime parameter policy
+    ------------------------
+    - CLI / runner から execute(**kwargs) で渡された値は、
+      processor 側が runtime_param_names に宣言したものだけを FW が属性反映する
+    - process() には runtime kwargs を渡さない
+    - processor は setup()/load_data()/_process_batch() で反映済み属性を参照する
     """
+
+    #: 実行時に FW が属性へ反映してよい runtime parameter 名の一覧
+    runtime_param_names: Tuple[str, ...] = ()
 
     def __init__(
         self,
@@ -139,7 +147,6 @@ class BaseBatchProcessor(ABC):
         self._stop_reason: Optional[str] = None  # e.g. memory_threshold / exception / signal_interrupt
 
         if signal_handler is None:
-            # NOTE: your SignalHandler expects shutdown_callback: Callable[[], None]
             signal_handler = SignalHandler(self._on_shutdown_signal, logger=self.logger)
         else:
             signal_handler.logger = self.logger
@@ -156,6 +163,7 @@ class BaseBatchProcessor(ABC):
         # data cache (single-load contract)
         self._data_cache: Optional[List[Dict[str, Any]]] = None
         self._data_loaded: bool = False
+        self.data: List[Dict[str, Any]] = []
 
         self._warn_if_get_data_overridden()
 
@@ -176,6 +184,67 @@ class BaseBatchProcessor(ABC):
         self.completed_all_batches = False
         self.final_summary: Dict[str, Any] = {}
         self.all_results: List[Dict[str, Any]] = []
+        self.start_time: float = 0.0
+
+    # ============================================================
+    # runtime params (base API)
+    # ============================================================
+    def get_runtime_param_names(self) -> Tuple[str, ...]:
+        """
+        FW が execute(**kwargs) から属性反映してよいパラメータ名一覧。
+        必要に応じて subclass で runtime_param_names を宣言する。
+        """
+        return tuple(self.runtime_param_names or ())
+
+    def apply_runtime_params(self, params: Dict[str, Any]) -> None:
+        """
+        execute(**kwargs) で渡された runtime parameter を setup() 前に属性へ反映する。
+        宣言されていないキーは無視する。
+        None は「未指定」とみなし反映しない。
+        """
+        allowed = set(self.get_runtime_param_names())
+        if not allowed:
+            if params:
+                ignored = sorted(k for k, v in params.items() if v is not None)
+                if ignored:
+                    self.logger.debug(f"[{self.__class__.__name__}] Ignored runtime params: {ignored}")
+            return
+
+        applied: List[str] = []
+        ignored: List[str] = []
+
+        for name, value in params.items():
+            if value is None:
+                continue
+
+            if name in allowed:
+                setattr(self, name, value)
+                applied.append(name)
+            else:
+                ignored.append(name)
+
+        if applied:
+            self.logger.debug(f"[{self.__class__.__name__}] Applied runtime params: {sorted(applied)}")
+        if ignored:
+            self.logger.debug(f"[{self.__class__.__name__}] Ignored runtime params: {sorted(ignored)}")
+
+    def _reset_execution_state(self) -> None:
+        """
+        execute() ごとの揮発状態を初期化する。
+        runtime parameter の変化に追従できるよう data cache もここで破棄する。
+        """
+        self._stop_requested = False
+        self._stop_reason = None
+
+        self._data_cache = None
+        self._data_loaded = False
+        self.data = []
+
+        self.completed_all_batches = False
+        self.final_summary = {}
+        self.all_results = []
+
+        self.run_ctx = None
 
     # ============================================================
     # stop (base API)
@@ -199,31 +268,45 @@ class BaseBatchProcessor(ABC):
             pass
 
     def get_stop_reason(self) -> Optional[str]:
-        # if subclass set "memory_threshold_exceeded", prefer it
         if getattr(self, "memory_threshold_exceeded", False):
             return "memory_threshold"
         return self._stop_reason
 
     def _on_shutdown_signal(self) -> None:
-        # signal handler calls this
         self.request_stop("signal_interrupt")
 
     # ============================================================
     # lifecycle
     # ============================================================
     def execute(self, *args, **kwargs) -> None:
+        """
+        Execute lifecycle:
+        1. runtime params apply
+        2. setup()
+        3. process()
+        4. cleanup()
+
+        Notes
+        -----
+        - runtime kwargs は process() に渡さない
+        - process() は共通ロジックを保ち、processor は属性を読む
+        """
+        if args:
+            self.logger.debug(f"[{self.__class__.__name__}] execute() positional args are ignored by framework: {args}")
+
         self.start_time = time.time()
 
         # register signals once per process (idempotent)
         try:
             self.signal_handler.register()
         except Exception:
-            # do not fail execution due to signal hook
             self.logger.debug("Signal handler register failed", exc_info=True)
 
-        # reset per-execute stop metadata
-        self._stop_requested = False
-        self._stop_reason = None
+        # reset per-execute state
+        self._reset_execution_state()
+
+        # apply runtime parameters BEFORE setup()
+        self.apply_runtime_params(kwargs)
 
         # ===== ResultStore: start run (LAZY) =====
         try:
@@ -232,7 +315,7 @@ class BaseBatchProcessor(ABC):
                     prefix=self.__class__.__name__.lower(),
                     ensure_dirs=False,
                 )
-                self.logger.info(f"[{self.__class__.__name__}] RunContext prepared:" f"{self.run_ctx.out_dir}")
+                self.logger.info(f"[{self.__class__.__name__}] RunContext prepared:{self.run_ctx.out_dir}")
         except Exception as e:
             self.logger.error(f"RunContext init failed: {e}", exc_info=True)
             self.run_ctx = None
@@ -245,16 +328,15 @@ class BaseBatchProcessor(ABC):
             self._execute_phase(
                 HookType.PRE_PROCESS,
                 HookType.POST_PROCESS,
-                lambda: self.process(*args, **kwargs),
+                self.process,
                 errors,
             )
         finally:
             self._execute_phase(HookType.PRE_CLEANUP, HookType.POST_CLEANUP, self.cleanup, errors)
             duration = time.time() - self.start_time
-            self.logger.info(f"[{self.__class__.__name__}] Batch process completed in" f"{duration:.2f} seconds.")
+            self.logger.info(f"[{self.__class__.__name__}] Batch process completed in {duration:.2f} seconds.")
 
             if errors:
-                # framework-level error -> mark reason if none
                 if not self.get_stop_reason():
                     self.request_stop("exception")
                 msgs = [f"{type(e).__name__}: {e}" for e in errors]
@@ -300,7 +382,7 @@ class BaseBatchProcessor(ABC):
             func()
             duration = time.time() - start_time
             self.logger.info(
-                (f"[{self.__class__.__name__}] {name.capitalize()} " f"phase completed in {duration:.2f} seconds.")
+                f"[{self.__class__.__name__}] {name.capitalize()} phase completed in {duration:.2f} seconds."
             )
         except Exception as e:
             self.logger.error(
@@ -359,6 +441,7 @@ class BaseBatchProcessor(ABC):
                     extra={
                         "processor": self.__class__.__name__,
                         "data_count": len(self.data),
+                        "runtime_param_names": list(self.get_runtime_param_names()),
                     },
                 )
             except Exception as e:
@@ -370,13 +453,13 @@ class BaseBatchProcessor(ABC):
     def process(self, data: Optional[List[Dict[str, Any]]] = None) -> None:
         self.logger.info(f"[{self.__class__.__name__}] Executing common batch processing tasks.")
 
-        # per-execute reset (important if same instance is reused)
+        # per-process reset
         self.completed_all_batches = False
         self.final_summary = {}
         self.all_results = []
 
         if data is None:
-            if hasattr(self, "data") and isinstance(self.data, list):
+            if isinstance(getattr(self, "data", None), list):
                 data = self.data
             else:
                 data = self.get_data()
@@ -394,12 +477,12 @@ class BaseBatchProcessor(ABC):
         submitted_batches = 0
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            # Submit phase: stop => stop submitting new batches
+            # Submit phase
             for i, batch in enumerate(batches):
                 if self._should_stop_processing():
                     stop_requested = True
                     self.logger.warning(
-                        f"[{self.__class__.__name__}] Stopping before batch " f"{i + 1} due to interrupt condition."
+                        f"[{self.__class__.__name__}] Stopping before batch {i + 1} due to interrupt condition."
                     )
                     break
 
@@ -407,9 +490,7 @@ class BaseBatchProcessor(ABC):
                 futures[future] = (i + 1, batch)
                 submitted_batches += 1
 
-            # Collect phase:
-            # - do not break even if stop is raised; collect finished results
-            # - cancel pending tasks best-effort when stop detected
+            # Collect phase
             cancelled_pending = False
             for future in as_completed(futures):
                 batch_idx, batch_data = futures[future]
@@ -440,29 +521,25 @@ class BaseBatchProcessor(ABC):
         summary = self._summarize_results(all_results)
         self.logger.info(f"[{self.__class__.__name__}] Batch Summary: {summary}")
 
-        # Always log actual processed count (framework responsibility)
         self.logger.info(
             f"[{self.__class__.__name__}] Processed(actual) total={summary['total']} "
             f"success={summary['success']} failure={summary['failure']}"
         )
 
-        if self._should_log_summary_detail():
-            if summary["avg_score"] is not None:
-                self.logger.info(f"Average score: {summary['avg_score']}")
+        if self._should_log_summary_detail() and summary["avg_score"] is not None:
+            self.logger.info(f"Average score: {summary['avg_score']}")
 
         self.final_summary = summary
         self.all_results = all_results
 
         interrupted = bool(stop_requested or self._should_stop_processing())
 
-        # completion semantics
         if failed_batches and not self.get_stop_reason():
-            # not necessarily interrupted, but it's still useful metadata
             self.request_stop("exception")
 
         if failed_batches:
             self.logger.warning(
-                f"[{self.__class__.__name__}] Processing completed with failures " f"in batches: {failed_batches}"
+                f"[{self.__class__.__name__}] Processing completed with failures in batches: {failed_batches}"
             )
         elif interrupted:
             self.logger.warning(
@@ -493,6 +570,7 @@ class BaseBatchProcessor(ABC):
                         "data_count": len(data or []),
                         "max_workers": self.max_workers,
                         "config_path": self.config_path,
+                        "runtime_param_names": list(self.get_runtime_param_names()),
                         "failed_batches": failed_batches,
                         "completed_all_batches": bool(self.completed_all_batches),
                         "interrupted": bool(interrupted),
@@ -548,7 +626,9 @@ class BaseBatchProcessor(ABC):
         self.logger.info(f"[{self.__class__.__name__}] Executing common cleanup tasks.")
 
     def _generate_batches(
-        self, data: List[Dict[str, Any]], batch_size: Optional[int] = None
+        self,
+        data: List[Dict[str, Any]],
+        batch_size: Optional[int] = None,
     ) -> List[List[Dict[str, Any]]]:
         if not data:
             return []
@@ -557,9 +637,7 @@ class BaseBatchProcessor(ABC):
         return [data[i : i + batch_size] for i in range(0, len(data), batch_size)]
 
     def _should_stop_processing(self) -> bool:
-        # subclass-driven flags
         if getattr(self, "memory_threshold_exceeded", False):
-            # ensure reason is set (metadata only)
             if not self._stop_reason:
                 self._stop_reason = "memory_threshold"
             return True

@@ -19,11 +19,45 @@ ExifData = Dict[str, str]
 class NEFFileBatchProcess(BaseBatchProcessor):
     """RAW (NEF等) ファイルのバッチ処理クラス"""
 
+    runtime_param_names = (
+        "target_date",
+        "target_dir",
+        "nef_incremental",
+        "nef_max_files",
+        "nef_dry_run",
+    )
+
     _DATE_RE_DASH = re.compile(r"^\d{4}-\d{2}-\d{2}$")
     _DATE_RE_NODASH = re.compile(r"^\d{8}$")
 
-    def __init__(self, config_path: Optional[str] = None, max_workers: int = 4):
-        super().__init__(config_path=config_path, max_workers=max_workers)
+    def __init__(
+        self,
+        config_path: Optional[str] = None,
+        max_workers: int = 4,
+        logger: Optional[object] = None,
+        # ===== Config DI (Baseへ委譲) =====
+        config_env: Optional[str] = None,
+        config_paths: Optional[List[str]] = None,
+        resolver: Any = None,
+        loader: Any = None,
+        watch_factory: Any = None,
+        list_policy: str = "replace",
+        strict_missing: bool = True,
+        auto_load: bool = True,
+    ):
+        super().__init__(
+            config_path=config_path,
+            max_workers=max_workers,
+            logger=logger,
+            config_env=config_env,
+            config_paths=config_paths,
+            resolver=resolver,
+            loader=loader,
+            watch_factory=watch_factory,
+            list_policy=list_policy,
+            strict_missing=strict_missing,
+            auto_load=auto_load,
+        )
 
         self.exif_handler = ExifFileHandler()
 
@@ -50,7 +84,7 @@ class NEFFileBatchProcess(BaseBatchProcessor):
         base_dir = self.config.get("base_directory") or self.config.get("base_directory_root")
         if not base_dir:
             raise ValueError("config key 'base_directory' is required (or legacy 'base_directory_root').")
-        self.base_directory_path = Path(base_dir)
+        self.base_directory_path = Path(str(base_dir))
 
         self._csv_locks: Dict[str, Lock] = defaultdict(Lock)
 
@@ -60,6 +94,16 @@ class NEFFileBatchProcess(BaseBatchProcessor):
 
         self.target_dirs: List[Path] = []
         self._nef_session_name: str = "ALL"
+        self.temp_dir: Path = Path(self.project_root) / self.output_directory / "ALL"
+
+        # ============================================================
+        # runtime params (FW から setup 前に反映される前提)
+        # ============================================================
+        self.target_date: Optional[str] = None
+        self.target_dir: Optional[str] = None
+        self.nef_incremental: bool = False
+        self.nef_max_files: int = 0
+        self.nef_dry_run: bool = False
 
     # ------------------------------------------------------------
     # lifecycle
@@ -71,15 +115,7 @@ class NEFFileBatchProcess(BaseBatchProcessor):
         self.success_count = 0
         self.failure_count = 0
 
-        session_name = "ALL"
-        target_dir = getattr(self, "target_dir", None)
-        if target_dir:
-            session_name = Path(target_dir).name
-        else:
-            td = getattr(self, "target_date", None)
-            if td:
-                session_name = str(td).replace("/", "_")
-
+        session_name = self._resolve_session_name()
         self._nef_session_name = session_name
 
         use_run_dir = bool(getattr(self, "_persist_run_results", False)) and getattr(self, "run_ctx", None) is not None
@@ -95,27 +131,24 @@ class NEFFileBatchProcess(BaseBatchProcessor):
         if not base_dir.exists():
             self.handle_error(f"ディレクトリが見つかりません: {base_dir}", raise_exception=True)
 
-        target_dir = getattr(self, "target_dir", None)
-        if target_dir:
-            td = Path(target_dir)
+        if self.target_dir:
+            td = Path(self.target_dir)
             if not td.exists():
                 self.handle_error(f"target_dir が見つかりません: {td}", raise_exception=True)
             self.target_dirs = [td]
             self.logger.info(f"初期設定完了: target_dir 指定のため単一セッションのみ (session={td.name})")
+        elif self.target_date:
+            self.target_dirs = self._find_date_dirs(base_dir, self.target_date)
+            self.logger.info(f"初期設定完了: date={self.target_date} により sessions={len(self.target_dirs)}")
         else:
-            target_date = getattr(self, "target_date", None)
-            if target_date:
-                self.target_dirs = self._find_date_dirs(base_dir, str(target_date))
-                self.logger.info(f"初期設定完了: date={target_date} により sessions={len(self.target_dirs)}")
-            else:
-                self.target_dirs = [d for d in base_dir.iterdir() if d.is_dir()]
-                self.logger.info(f"初期設定完了: 画像ディレクトリ {base_dir} (sessions={len(self.target_dirs)})")
+            self.target_dirs = [d for d in base_dir.iterdir() if d.is_dir()]
+            self.logger.info(f"初期設定完了: 画像ディレクトリ {base_dir} (sessions={len(self.target_dirs)})")
 
         super().setup()
 
     def cleanup(self) -> None:
-        # ★ 0件でも latest は更新したい（incremental 全スキップに備える）
-        if bool(getattr(self, "nef_incremental", False)):
+        # 0件でも latest は更新したい（incremental 全スキップに備える）
+        if self.nef_incremental:
             self._ensure_latest_for_session(self._nef_session_name)
 
         super().cleanup()
@@ -125,8 +158,8 @@ class NEFFileBatchProcess(BaseBatchProcessor):
     # data collection
     # ------------------------------------------------------------
     def load_data(self) -> List[Dict[str, Any]]:
-        target_dir: Optional[Path] = getattr(self, "target_dir", None)
-        session_name: Optional[str] = Path(target_dir).name if target_dir else None
+        target_dir_path: Optional[Path] = Path(self.target_dir) if self.target_dir else None
+        session_name: Optional[str] = target_dir_path.name if target_dir_path else None
 
         exts = getattr(self.exif_handler, "raw_extensions", [".NEF"])
         exts = [e.lower() for e in exts]
@@ -136,6 +169,7 @@ class NEFFileBatchProcess(BaseBatchProcessor):
             for ext in exts:
                 files.extend(list(dir_path.rglob(f"*{ext}")))
                 files.extend(list(dir_path.rglob(f"*{ext.upper()}")))
+
             uniq: Dict[str, Path] = {}
             for p in files:
                 if p.is_file():
@@ -144,10 +178,10 @@ class NEFFileBatchProcess(BaseBatchProcessor):
 
         raw_files: List[Path] = []
 
-        if target_dir:
-            self.logger.info(f"指定ディレクトリのみ処理: {target_dir}")
-            raw_files = collect_files(Path(target_dir))
-            self.logger.info(f"{target_dir} から {len(raw_files)} 件検出")
+        if target_dir_path:
+            self.logger.info(f"指定ディレクトリのみ処理: {target_dir_path}")
+            raw_files = collect_files(target_dir_path)
+            self.logger.info(f"{target_dir_path} から {len(raw_files)} 件検出")
         else:
             self.logger.info("全ディレクトリを対象に処理")
             for d in self.target_dirs:
@@ -155,12 +189,12 @@ class NEFFileBatchProcess(BaseBatchProcessor):
                 self.logger.info(f"{d} から {len(found)} 件検出")
                 raw_files.extend(found)
 
-        nef_max_files = int(getattr(self, "nef_max_files", 0) or 0)
+        nef_max_files = int(self.nef_max_files or 0)
         if nef_max_files > 0:
             raw_files = raw_files[:nef_max_files]
             self.logger.info(f"nef_max_files applied: {nef_max_files}")
 
-        if bool(getattr(self, "nef_dry_run", False)):
+        if self.nef_dry_run:
             self.logger.info(f"nef dry-run: detected {len(raw_files)} files (showing up to 20)")
             for p in raw_files[:20]:
                 self.logger.info(f"dry-run target: {p}")
@@ -195,7 +229,7 @@ class NEFFileBatchProcess(BaseBatchProcessor):
         grouped = group_by_key(batch, "subdir_name")
         all_exif_data: List[ExifData] = []
 
-        incremental = bool(getattr(self, "nef_incremental", False))
+        incremental = bool(self.nef_incremental)
         if incremental:
             done_dir = self._done_dir()
             done_dir.mkdir(parents=True, exist_ok=True)
@@ -240,14 +274,14 @@ class NEFFileBatchProcess(BaseBatchProcessor):
                 logger=self.logger,
             )
 
-            # ★ stable pointer (runs/latest)
+            # stable pointer (runs/latest)
             self._update_latest_csv(subdir_name, output_file_path)
 
             if incremental:
                 for abs_p in processed_abs_paths:
-                    m = self._done_marker(abs_p)
-                    if not m.exists():
-                        m.write_text("done\n", encoding="utf-8")
+                    marker = self._done_marker(abs_p)
+                    if not marker.exists():
+                        marker.write_text("done\n", encoding="utf-8")
 
             all_exif_data.extend(exif_data_list)
 
@@ -270,6 +304,13 @@ class NEFFileBatchProcess(BaseBatchProcessor):
     def _get_lock_for_file(self, file_path: Path) -> Lock:
         key = str(file_path.resolve())
         return self._csv_locks[key]
+
+    def _resolve_session_name(self) -> str:
+        if self.target_dir:
+            return Path(self.target_dir).name
+        if self.target_date:
+            return str(self.target_date).replace("/", "_")
+        return "ALL"
 
     # ------------------------------------------------------------
     # date filter helpers (minimal)
@@ -324,9 +365,11 @@ class NEFFileBatchProcess(BaseBatchProcessor):
         debug_dir = (self.config.get("debug", {}) or {}).get("run_results_dir")
         if debug_dir:
             return Path(str(debug_dir))
+
         env_dir = os.getenv("PHOTO_INSIGHT_OUTPUT_DIR")
         if env_dir:
             return Path(env_dir)
+
         return Path("/work/runs")
 
     # ------------------------------------------------------------

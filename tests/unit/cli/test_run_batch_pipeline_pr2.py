@@ -25,6 +25,8 @@ def test_run_single_processor_resolves_and_executes(
     created: Dict[str, Any] = {}
 
     class LocalProcessor(DummyProcessor):
+        runtime_param_names = ("target_date",)
+
         def __init__(self, **kwargs: Any) -> None:
             super().__init__(**kwargs)
             created["instance"] = self
@@ -35,13 +37,15 @@ def test_run_single_processor_resolves_and_executes(
 
     def fake_build_stage_result(
         processor_spec: str,
+        processor_cls: type[LocalProcessor],
         proc: Any,
-        injected: dict[str, Any],
+        runtime_overrides: dict[str, Any],
         exec_kwargs: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         assert processor_spec == "nef"
+        assert processor_cls is LocalProcessor
         assert proc is created["instance"]
-        assert injected == {"date": "2026-02-17"}
+        assert runtime_overrides == {"date": "2026-02-17"}
         assert exec_kwargs == {"append_mode": True}
         return {
             "name": "nef",
@@ -60,7 +64,7 @@ def test_run_single_processor_resolves_and_executes(
         processor_spec="nef",
         ctor_kwargs={"config_path": "config/config.prod.yaml", "max_workers": 2},
         exec_kwargs={"append_mode": True},
-        injected={"date": "2026-02-17"},
+        runtime_overrides={"date": "2026-02-17"},
     )
 
     proc = created["instance"]
@@ -68,8 +72,6 @@ def test_run_single_processor_resolves_and_executes(
         "config_path": "config/config.prod.yaml",
         "max_workers": 2,
     }
-    assert proc.date == "2026-02-17"
-    assert proc.target_date == "2026-02-17"
     assert proc.execute_calls == [{"append_mode": True}]
 
     assert result == {
@@ -88,18 +90,31 @@ def test_run_pipeline_chain_executes_stages_in_order(
 ) -> None:
     calls: list[dict[str, Any]] = []
 
+    class FakeNefProcessor(DummyProcessor):
+        runtime_param_names = ("target_date", "target_dir", "nef_incremental", "nef_max_files", "nef_dry_run")
+
+    class FakePortraitProcessor(DummyProcessor):
+        runtime_param_names = ("date", "target_dir", "max_images", "input_csv_path")
+
+    def fake_resolve_processor(spec: str) -> type[DummyProcessor]:
+        if spec == "nef":
+            return FakeNefProcessor
+        if spec == "portrait_quality":
+            return FakePortraitProcessor
+        raise AssertionError(f"unexpected spec: {spec}")
+
     def fake_run_single_processor(
         processor_spec: str,
         ctor_kwargs: dict[str, Any],
         exec_kwargs: dict[str, Any],
-        injected: dict[str, Any],
+        runtime_overrides: dict[str, Any],
     ) -> dict[str, Any]:
         calls.append(
             {
                 "processor_spec": processor_spec,
                 "ctor_kwargs": dict(ctor_kwargs),
                 "exec_kwargs": dict(exec_kwargs),
-                "injected": dict(injected),
+                "runtime_overrides": dict(runtime_overrides),
             }
         )
 
@@ -126,22 +141,23 @@ def test_run_pipeline_chain_executes_stages_in_order(
             "run_output_dir": "/tmp/project/runs/latest",
         }
 
+    monkeypatch.setattr(run_batch, "resolve_processor", fake_resolve_processor)
     monkeypatch.setattr(run_batch, "run_single_processor", fake_run_single_processor)
 
     summary = run_batch.run_pipeline_chain(
         stages=["nef", "portrait_quality"],
         ctor_kwargs={"config_path": "config/config.prod.yaml", "max_workers": 2},
         exec_kwargs={"append_mode": True},
-        injected={"date": "2026-02-17"},
+        runtime_overrides={"date": "2026-02-17"},
     )
 
     assert [x["processor_spec"] for x in calls] == ["nef", "portrait_quality"]
 
     assert calls[0]["exec_kwargs"] == {
-        "append_mode": True,
+        "target_date": "2026-02-17",
     }
     assert calls[1]["exec_kwargs"] == {
-        "append_mode": True,
+        "date": "2026-02-17",
         "input_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
     }
 
@@ -157,6 +173,10 @@ def test_run_pipeline_chain_executes_stages_in_order(
         "config_env": None,
         "config_paths": None,
     }
+    assert "duration_sec" in summary
+    assert isinstance(summary["duration_sec"], float)
+    assert summary["duration_sec"] >= 0.0
+
     assert summary["stages"] == [
         {
             "name": "nef",
@@ -191,15 +211,26 @@ def test_main_pipeline_execution_calls_run_pipeline_chain(
         stages: list[str],
         ctor_kwargs: dict[str, Any],
         exec_kwargs: dict[str, Any],
-        injected: dict[str, Any],
+        runtime_overrides: dict[str, Any],
     ) -> dict[str, Any]:
         captured["stages"] = stages
         captured["ctor_kwargs"] = dict(ctor_kwargs)
         captured["exec_kwargs"] = dict(exec_kwargs)
-        captured["injected"] = dict(injected)
+        captured["runtime_overrides"] = dict(runtime_overrides)
         return {
+            "summary_version": 1,
             "pipeline": stages,
             "status": "success",
+            "duration_sec": 0.123,
+            "run_context": {
+                "date": "2026-02-17",
+                "target_dir": None,
+                "config_path": "config/config.prod.yaml",
+                "max_workers": 2,
+                "max_images": None,
+                "config_env": None,
+                "config_paths": None,
+            },
             "stages": [
                 {
                     "name": "nef",
@@ -228,6 +259,11 @@ def test_main_pipeline_execution_calls_run_pipeline_chain(
         "_print_pipeline_summary",
         lambda summary: printed.append(summary),
     )
+    monkeypatch.setattr(
+        run_batch,
+        "_write_pipeline_summary_json",
+        lambda summary: Path("/tmp/project/runs/latest/pipeline_summary.json"),
+    )
 
     rc = run_batch.main(
         [
@@ -253,7 +289,7 @@ def test_main_pipeline_execution_calls_run_pipeline_chain(
     assert captured["exec_kwargs"] == {
         "append_mode": True,
     }
-    assert captured["injected"] == {
+    assert captured["runtime_overrides"] == {
         "date": "2026-02-17",
     }
 

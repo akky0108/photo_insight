@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import gc
 import os
+import re
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from threading import Event
@@ -19,6 +20,13 @@ from photo_insight.portrait_quality_header import PortraitQualityHeaderGenerator
 
 class PortraitQualityBatchProcessor(BaseBatchProcessor):
     """ポートレート写真の品質評価を行うバッチ処理クラス"""
+
+    runtime_param_names = (
+        "date",
+        "target_dir",
+        "max_images",
+        "input_csv_path",
+    )
 
     def __init__(
         self,
@@ -60,13 +68,17 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             self.logger = self.config_manager.get_logger("PortraitQualityBatchProcessor")
 
         self.memory_monitor = MemoryMonitor(self.logger)
-        self.date = date
-        self.max_images = max_images
-        self.input_csv_path = input_csv_path
-
-        self.processed_images: set[str] = set()
         self.image_loader = ImageLoader(logger=self.logger)
 
+        # ============================================================
+        # runtime params (FW から setup 前に反映される前提)
+        # ============================================================
+        self.date: Optional[str] = date
+        self.target_dir: Optional[str] = None
+        self.max_images: Optional[int] = max_images
+        self.input_csv_path: Optional[str] = input_csv_path
+
+        self.processed_images: set[str] = set()
         self._processed_lock = self.get_lock()
 
         self.image_csv_file: Optional[str] = None
@@ -86,8 +98,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
         self._start_processed_count: int = 0
         self._total_images_to_process: int = 0
-
         self.processed_count_this_run: Optional[int] = None
+
+        self._original_max_workers: int = self.max_workers
 
     def _dbg(self, message: str) -> None:
         print(f"[PQ-DBG] {message}", flush=True)
@@ -95,67 +108,6 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             self.logger.info(f"[PQ-DBG] {message}")
         except Exception:
             pass
-
-    # ============================================================
-    # run 条件の事前反映
-    # ============================================================
-    def execute(
-        self,
-        *args: Any,
-        max_images: Optional[int] = None,
-        input_csv_path: Optional[str] = None,
-        **kwargs: Any,
-    ) -> None:
-        """
-        setup() より前に run 固有条件を反映する。
-
-        Parameters
-        ----------
-        max_images : Optional[int]
-            この run における処理上限。
-
-        input_csv_path : Optional[str]
-            前段 NEF stage が生成した入力 CSV パス。
-            指定された場合はこの CSV を最優先で使用する。
-        """
-        if max_images is not None:
-            self.max_images = max_images
-
-        if input_csv_path is not None:
-            self.input_csv_path = str(input_csv_path)
-
-        original_max_workers = self.max_workers
-        try:
-            if self.max_images is not None:
-                self.max_workers = 1
-                self.logger.info(
-                    "max_images mode enabled. forcing single-worker execution for strict stop control "
-                    f"(max_images={self.max_images})."
-                )
-
-            return super().execute(*args, **kwargs)
-        finally:
-            self.max_workers = original_max_workers
-
-    def process(
-        self,
-        *args: Any,
-        max_images: Optional[int] = None,
-        input_csv_path: Optional[str] = None,
-        **kwargs: Any,
-    ):
-        """
-        互換用:
-        BaseBatchProcessor.process() が受け取らない kwargs を、
-        Processor 側で吸収して破綻しないようにする。
-        """
-        if max_images is not None:
-            self.max_images = max_images
-
-        if input_csv_path is not None:
-            self.input_csv_path = str(input_csv_path)
-
-        return super().process(*args, **kwargs)
 
     def on_config_change(self, new_config: dict) -> None:
         self.logger.info("Config updated. Applying new settings...")
@@ -179,23 +131,21 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             return False
 
         if mem_usage > float(self.memory_threshold):
-            if not getattr(self, "memory_threshold_exceeded", False):
+            if not self.memory_threshold_exceeded:
                 self.logger.warning(
                     f"Memory usage {mem_usage:.1f}% exceeded threshold "
                     f"({self.memory_threshold}%) at {where}. Stopping."
                 )
+
             self.memory_threshold_exceeded = True
-
-            if not getattr(self, "stop_reason", None):
-                self.stop_reason = "memory_threshold"
-
-            self._stop_event.set()
+            self.request_stop("memory_threshold")
             return True
+
         return False
 
     def _stopping(self) -> bool:
         """stop状態（静かに即returnするための統一判定）"""
-        return bool(self._stop_event.is_set() or getattr(self, "memory_threshold_exceeded", False))
+        return bool(self._stop_event.is_set() or self.memory_threshold_exceeded)
 
     def _should_stop_by_max_images(self) -> bool:
         """
@@ -214,16 +164,12 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             raise ValueError(f"max_images must be >= 0. got: {limit}")
 
         if limit == 0:
-            if not getattr(self, "stop_reason", None):
-                self.stop_reason = "max_images_limit"
-            self._stop_event.set()
+            self.request_stop("max_images_limit")
             return True
 
         current = int(self.processed_count_this_run or 0)
         if current >= limit:
-            if not getattr(self, "stop_reason", None):
-                self.stop_reason = "max_images_limit"
-            self._stop_event.set()
+            self.request_stop("max_images_limit")
             return True
 
         return False
@@ -232,10 +178,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
     # paths
     # ============================================================
     def _resolve_session_name(self) -> str:
-        td = getattr(self, "target_dir", None)
-        if td:
-            return Path(td).name
-        if getattr(self, "date", None):
+        if self.target_dir:
+            return Path(self.target_dir).name
+        if self.date:
             return str(self.date)
         return "ALL"
 
@@ -253,7 +198,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
         self.logger.info(f"Resolving NEF CSV: session={session}, project_root={self.project_root}")
 
-        if getattr(self, "run_ctx", None) is not None:
+        if self.run_ctx is not None:
             p1 = Path(self.run_ctx.out_dir) / "artifacts" / "nef" / session / fname
             if p1.exists():
                 return str(p1)
@@ -270,9 +215,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         if self.max_images is not None:
             out_dir = Path(self.project_root) / "runs" / "latest" / "portrait_quality" / session
         else:
-            use_run_dir = (
-                bool(getattr(self, "_persist_run_results", False)) and getattr(self, "run_ctx", None) is not None
-            )
+            use_run_dir = bool(getattr(self, "_persist_run_results", False)) and self.run_ctx is not None
             if use_run_dir:
                 out_dir = Path(self.run_ctx.out_dir) / "artifacts" / "portrait_quality" / session
             else:
@@ -291,9 +234,17 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         self._stop_event = Event()
         self.memory_threshold_exceeded = False
         self.completed_all_batches = False
-
-        self.stop_reason = None
         self.processed_count_this_run = 0
+        self.processed_images = set()
+
+        # max_images 実行時は strict stop 制御のため single-worker 強制
+        self._original_max_workers = self.max_workers
+        if self.max_images is not None:
+            self.max_workers = 1
+            self.logger.info(
+                "max_images mode enabled. forcing single-worker execution for strict stop control "
+                f"(max_images={self.max_images})."
+            )
 
         self._should_stop_by_max_images()
 
@@ -309,15 +260,12 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         super().setup()
 
     def _set_directories_and_files(self) -> None:
-        import re
-
         picture_root = self.config.get("picture_root", "/mnt/l/picture")
         out_dir = self.output_directory or self.config.get("output_directory", "temp")
         os.makedirs(out_dir, exist_ok=True)
 
-        target_dir = getattr(self, "target_dir", None)
-        if target_dir:
-            self.base_directory = str(Path(target_dir))
+        if self.target_dir:
+            self.base_directory = str(Path(self.target_dir))
         elif self.date:
             if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", self.date):
                 raise ValueError(f"Invalid date format: {self.date} (expected YYYY-MM-DD)")
@@ -465,7 +413,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         self.logger.info(f"Loaded {len(valid_rows)} valid rows from {self.image_csv_file}")
         return valid_rows
 
-    def after_data_loaded(self, data: List[Dict]) -> None:
+    def after_data_loaded(self, data: List[Dict[str, Any]]) -> None:
         self._total_images_to_process = len(data)
 
         if self.processed_images:
@@ -726,7 +674,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                 if status == "success":
                     self.logger.info(f"Processed image: {img_info['file_name']}")
                 else:
-                    self.logger.warning(f"Image processing finished with status={status}: " f"{img_info['file_name']}")
+                    self.logger.warning(f"Image processing finished with status={status}: {img_info['file_name']}")
                 return result
 
         except Exception as e:
@@ -880,41 +828,44 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
         if (
             self.max_images is not None
-            and not getattr(self, "memory_threshold_exceeded", False)
+            and not self.memory_threshold_exceeded
             and int(self.processed_count_this_run or 0) > 0
             and int(self.processed_count_this_run or 0) < int(self._total_images_to_process or 0)
         ):
-            if not getattr(self, "stop_reason", None):
-                self.stop_reason = "max_images_limit"
+            if not self.get_stop_reason():
+                self.request_stop("max_images_limit")
 
-        if getattr(self, "memory_threshold_exceeded", False):
-            if not getattr(self, "stop_reason", None):
-                self.stop_reason = "memory_threshold"
+        if self.memory_threshold_exceeded:
+            if not self.get_stop_reason():
+                self.request_stop("memory_threshold")
 
             self.logger.warning(
                 f"Batch processing stopped due to memory threshold. "
                 f"Processed {processed_this_run} images, {remaining_count} remaining. "
                 "You can re-run to continue remaining images."
             )
-        elif getattr(self, "stop_reason", None) == "max_images_limit":
+        elif self.get_stop_reason() == "max_images_limit":
             self.logger.info(
                 f"Batch processing stopped by max_images. "
                 f"Processed {processed_this_run} images, {remaining_count} remaining. "
                 "You can re-run to continue remaining images."
             )
-        elif getattr(self, "completed_all_batches", False):
+        elif self.completed_all_batches:
             self.logger.info(f"All batches processed successfully. Total processed images: {processed_this_run}")
 
-        processed_file = getattr(self, "processed_images_file", None)
+        processed_file = self.processed_images_file
         if (
-            getattr(self, "completed_all_batches", False)
-            and not getattr(self, "memory_threshold_exceeded", False)
-            and getattr(self, "stop_reason", None) is None
+            self.completed_all_batches
+            and not self.memory_threshold_exceeded
+            and self.get_stop_reason() is None
             and processed_file
             and os.path.exists(processed_file)
         ):
             self.logger.info(f"Removing processed images file: {processed_file}")
             os.remove(processed_file)
+
+        # setup() で max_images 用に変更した worker 数を戻す
+        self.max_workers = self._original_max_workers
 
 
 if __name__ == "__main__":
