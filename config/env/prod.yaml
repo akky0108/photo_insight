@@ -12,8 +12,8 @@ paths:
 base_directory: "/work/input"
 picture_root: "/work/input"
 
-# base が相対パスで持っているため、prod では絶対パスに上書きする
-quality_thresholds_path: "/work/config/evaluator_thresholds.yaml"
+quality_thresholds_path: "/work/config/quality_thresholds.yaml"
+evaluator_thresholds_path: "/work/config/evaluator_thresholds.yaml"
 
 debug:
   run_results_dir: "/work/runs"
@@ -22,6 +22,7 @@ debug:
 
 portrait_quality:
   insightface:
+    strict: true
     model_root: "/work/models/insightface"
     providers:
       - "CPUExecutionProvider"
