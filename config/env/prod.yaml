@@ -1,5 +1,6 @@
 # config/env/prod.yaml
-# ここには「環境差分」だけを書く（baseにあるものは書かないのが理想）
+# ここには「環境差分」だけを書く
+# base.yaml にある共通設定はなるべく重複して書かない
 
 output_directory: "tmp"
 
@@ -11,10 +12,19 @@ paths:
 base_directory: "/work/input"
 picture_root: "/work/input"
 
-# base が相対パスで持っているため、prodでは絶対パスに上書きする
+# base が相対パスで持っているため、prod では絶対パスに上書きする
 quality_thresholds_path: "/work/config/evaluator_thresholds.yaml"
 
 debug:
   run_results_dir: "/work/runs"
   log_summary_detail: true
   persist_run_results: true
+
+portrait_quality:
+  insightface:
+    model_root: "/work/models/insightface"
+    providers:
+      - "CPUExecutionProvider"
+    det_size:
+      - 640
+      - 640
