@@ -167,4 +167,4 @@ pip_freeze*.json
 # =========================
 # Build artifacts (generated configs)
 # =========================
-.build_config/
+.build_config/models/
