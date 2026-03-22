@@ -7,11 +7,12 @@ services:
     working_dir: /work
     volumes:
       - ./:/work:cached
-      - pip-cache:/root/.cache/pip
+      - pip-cache:/tmp/pip-cache
     environment:
       PYTHONUNBUFFERED: "1"
       PYTHONPATH: /work/src
       RUFF_CACHE_DIR: /tmp/.ruff_cache
+      PYTEST_CACHE_DIR: /tmp/.pytest_cache
     command: make ci-light
     tty: false
 

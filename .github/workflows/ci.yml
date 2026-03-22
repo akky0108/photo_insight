@@ -11,13 +11,40 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Build (compose)
+      - name: Export UID/GID
         run: |
-          docker compose build app-ci
+          echo "UID=$(id -u)" >> "$GITHUB_ENV"
+          echo "GID=$(id -g)" >> "$GITHUB_ENV"
 
-      - name: CI Light (compose)
+      - name: Show workspace info
         run: |
-          docker compose run --rm app-ci make ci-light
+          id
+          echo "GITHUB_WORKSPACE=${GITHUB_WORKSPACE}"
+          ls -ld "${GITHUB_WORKSPACE}"
+
+      - name: Build app-ci
+        env:
+          UID: ${{ env.UID }}
+          GID: ${{ env.GID }}
+          GITHUB_WORKSPACE: ${{ github.workspace }}
+        run: |
+          docker compose \
+            -f compose.yaml \
+            -f compose.ci.yaml \
+            build app-ci
+
+      - name: Run ci-light
+        env:
+          UID: ${{ env.UID }}
+          GID: ${{ env.GID }}
+          GITHUB_WORKSPACE: ${{ github.workspace }}
+        run: |
+          docker compose \
+            -f compose.yaml \
+            -f compose.ci.yaml \
+            run --rm app-ci make ci-light
