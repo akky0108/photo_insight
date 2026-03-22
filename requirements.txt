@@ -1,13 +1,18 @@
+# --- core ---
 requests==2.31.0
 python-dotenv>=1,<2
 PyYAML>=6,<7
+psutil>=5.9,<6
 
-# image stack
+# --- image stack ---
 opencv-python-headless>=4.9,<5
 numpy>=1.23,<2
 
-# RAW (NEF) support
-rawpy>=0.18,<0.22
+# --- portrait_quality ---
+mediapipe==0.10.13
+insightface==0.7.3
+onnxruntime>=1.17,<1.19
 
+# --- RAW (NEF) support ---
+rawpy>=0.18,<0.22
 imageio>=2.34,<3
-psutil>=5.9,<6

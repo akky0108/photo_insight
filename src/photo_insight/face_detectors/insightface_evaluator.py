@@ -1,95 +1,129 @@
-# src/photo_insight/face_detectors/insightface_evaluator.py
 from __future__ import annotations
 
-from typing import Dict, Any, List, Tuple, Optional
+import logging
+from typing import Any, Dict, List, Optional, Tuple
 
-import cv2
 import numpy as np
 
 from .base_face_evaluator import BaseFaceDetector
+
+logger = logging.getLogger(__name__)
 
 
 class InsightFaceDetector(BaseFaceDetector):
     """
     InsightFace を使用した顔検出クラス。
-
-    ✅ 方針（CI耐性）:
-    - insightface が無い環境でも「import しただけ」で落ちない
-    - insightface が無い場合:
-        - strict=False(デフォルト): detect() は空結果を返す（CI向け）
-        - strict=True: __init__ で RuntimeError（運用向け）
-
-    - バウンディングボックス、ランドマーク、姿勢情報（yaw, pitch, roll）を取得可能。
-    - OCPを意識し、処理ロジックをメソッド単位で分離。
     """
 
     def __init__(
         self,
         confidence_threshold: float = 0.5,
-        gpu: bool = True,
+        gpu: bool = False,
         *,
         strict: bool = False,
         model_name: str = "buffalo_l",
+        model_root: str = "/work/models/insightface",
+        providers: Optional[List[str]] = None,
+        det_size: Tuple[int, int] = (640, 640),
+        enable_eye_closed_estimation: bool = True,
     ):
-        """
-        :param confidence_threshold: 顔検出の信頼度しきい値
-        :param gpu: True: GPU使用, False: CPU使用
-        :param strict: True の場合、insightface が無ければ初期化で例外
-        :param model_name: FaceAnalysis のモデル名
-        """
         super().__init__(confidence_threshold)
+
         self._strict = bool(strict)
         self._model_name = str(model_name)
+        self._model_root = str(model_root)
         self._gpu = bool(gpu)
+        self._enable_eye_closed_estimation = bool(enable_eye_closed_estimation)
+
+        if len(det_size) != 2:
+            raise ValueError("det_size must be a tuple of (width, height).")
+        self._det_size = (int(det_size[0]), int(det_size[1]))
+
+        if providers:
+            self._providers = list(providers)
+        else:
+            self._providers = (
+                ["CUDAExecutionProvider", "CPUExecutionProvider"] if self._gpu else ["CPUExecutionProvider"]
+            )
+
+        self._ctx_id = 0 if self._gpu else -1
 
         self.app = None
         self._init_error: Optional[str] = None
 
         try:
-            FaceAnalysis = self._lazy_import_faceanalysis()
-            self.app = FaceAnalysis(name=self._model_name)
-            self.app.prepare(ctx_id=0 if self._gpu else -1)
+            self.setup()
         except Exception as e:
             self._init_error = str(e)
             self.app = None
             if self._strict:
-                raise RuntimeError(
-                    "InsightFaceDetector init failed. "
-                    "insightface が未導入、またはモデル初期化に失敗しました。"
-                    f" detail={e}"
-                )
+                raise RuntimeError("InsightFaceDetector init failed. " f"detail={e}") from e
+
+            logger.warning(
+                "InsightFaceDetector initialization failed; fallback to empty detection. detail=%s",
+                e,
+                exc_info=True,
+            )
+
+    def available(self) -> bool:
+        return self.app is not None
+
+    def setup(self) -> None:
+        if self.app is not None:
+            return
+        self.app = self._initialize_app()
 
     def _lazy_import_faceanalysis(self):
-        """
-        insightface を遅延 import。
-        """
+        try:
+            import onnxruntime  # noqa: F401
+        except Exception as e:
+            raise ModuleNotFoundError("onnxruntime is not installed") from e
+
         try:
             from insightface.app import FaceAnalysis  # type: ignore
         except Exception as e:
-            raise ModuleNotFoundError("insightface is not installed (required for InsightFaceDetector).") from e
+            raise ModuleNotFoundError("insightface is not installed") from e
+
         return FaceAnalysis
 
-    def available(self) -> bool:
-        """
-        実行環境で insightface detector が利用可能かどうか。
-        """
-        return self.app is not None
+    def _lazy_import_cv2(self):
+        try:
+            import cv2  # type: ignore
+
+            return cv2
+        except Exception:
+            return None
+
+    def _initialize_app(self):
+        FaceAnalysis = self._lazy_import_faceanalysis()
+
+        app = FaceAnalysis(
+            name=self._model_name,
+            root=self._model_root,
+            providers=self._providers,
+        )
+        app.prepare(
+            ctx_id=self._ctx_id,
+            det_size=self._det_size,
+        )
+        return app
 
     def detect(self, image: np.ndarray) -> Dict[str, Any]:
-        """
-        顔検出を行い、検出された顔ごとに情報を抽出する。
-
-        :param image: BGR形式のNumPy配列画像
-        :return: 顔検出結果 dict
-        """
         if self.app is None:
-            # CI / lightweight env: return empty safely
             return {"faces": [], "face_detected": False, "num_faces": 0}
+
+        gray_image: Optional[np.ndarray] = None
+        if self._enable_eye_closed_estimation:
+            gray_image = self._to_gray(image)
 
         try:
             faces_raw = self.app.get(image)
         except Exception as e:
-            # ここで print はテストログ汚しやすいので dict に寄せる
+            logger.warning(
+                "InsightFace detect failed. detail=%s",
+                e,
+                exc_info=True,
+            )
             return {
                 "faces": [],
                 "face_detected": False,
@@ -109,11 +143,15 @@ class InsightFaceDetector(BaseFaceDetector):
                 yaw, pitch, roll = self._extract_pose(face)
                 gaze_vector = self._estimate_gaze_vector(yaw, pitch)
 
-                eye_lap_var, eye_closed_prob, eye_patch_size = self._estimate_eye_closed(
-                    image=image,
-                    box=box,
-                    landmarks=landmarks,
-                )
+                if self._enable_eye_closed_estimation:
+                    eye_lap_var, eye_closed_prob, eye_patch_size = self._estimate_eye_closed(
+                        image=image,
+                        gray_image=gray_image,
+                        box=box,
+                        landmarks=landmarks,
+                    )
+                else:
+                    eye_lap_var, eye_closed_prob, eye_patch_size = 0.0, 0.0, 0
 
                 results.append(
                     {
@@ -130,7 +168,6 @@ class InsightFaceDetector(BaseFaceDetector):
                     }
                 )
             except Exception:
-                # 1 face の失敗で全体を落とさない（頑健性）
                 continue
 
         return {
@@ -167,66 +204,74 @@ class InsightFaceDetector(BaseFaceDetector):
         yaw_rad = np.radians(float(yaw))
         pitch_rad = np.radians(float(pitch))
 
-        x = float(np.sin(yaw_rad))
-        y = float(np.sin(pitch_rad))
-        z = float(np.cos(yaw_rad) * np.cos(pitch_rad))
+        return {
+            "x": float(np.sin(yaw_rad)),
+            "y": float(np.sin(pitch_rad)),
+            "z": float(np.cos(yaw_rad) * np.cos(pitch_rad)),
+        }
 
-        return {"x": x, "y": y, "z": z}
+    def _to_gray(self, image: np.ndarray) -> Optional[np.ndarray]:
+        cv2 = self._lazy_import_cv2()
+        if cv2 is None:
+            return None
+
+        try:
+            return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        except Exception:
+            return None
 
     def _estimate_eye_closed(
         self,
         *,
         image: np.ndarray,
+        gray_image: Optional[np.ndarray],
         box: List[int],
         landmarks: Dict[str, Tuple[int, int]],
         patch_scale: float = 0.18,
         t_closed: float = 60.0,
         t_open: float = 200.0,
     ) -> Tuple[float, float, int]:
-        """
-        5点ランドマーク(left_eye/right_eye)付近のパッチから
-        ラプラシアン分散で「目が開いている度合い」を雑に推定。
-        """
         try:
+            cv2 = self._lazy_import_cv2()
+            if cv2 is None:
+                return 0.0, 0.0, 0
+
             lx, ly = landmarks.get("left_eye", (None, None))
             rx, ry = landmarks.get("right_eye", (None, None))
             if lx is None or rx is None:
                 return 0.0, 0.0, 0
 
-            x1, y1, x2, y2 = box
+            x1, _, x2, _ = box
             bw = max(1, int(x2 - x1))
             ps = max(12, int(bw * float(patch_scale)))
 
-            def _crop(cx: int, cy: int) -> np.ndarray:
+            def _crop(src: np.ndarray, cx: int, cy: int) -> np.ndarray:
                 xx1 = max(0, cx - ps)
                 yy1 = max(0, cy - ps)
-                xx2 = min(int(image.shape[1]), cx + ps)
-                yy2 = min(int(image.shape[0]), cy + ps)
-                return image[yy1:yy2, xx1:xx2]
+                xx2 = min(int(src.shape[1]), cx + ps)
+                yy2 = min(int(src.shape[0]), cy + ps)
+                return src[yy1:yy2, xx1:xx2]
 
-            patch_l = _crop(int(lx), int(ly))
-            patch_r = _crop(int(rx), int(ry))
+            src = gray_image if gray_image is not None else self._to_gray(image)
+            if src is None:
+                return 0.0, 0.0, 0
 
-            def _lap_var(p: np.ndarray) -> float:
-                if p.size == 0:
+            patch_l = _crop(src, int(lx), int(ly))
+            patch_r = _crop(src, int(rx), int(ry))
+
+            def _lap_var(patch: np.ndarray) -> float:
+                if patch.size == 0:
                     return 0.0
-                gray = cv2.cvtColor(p, cv2.COLOR_BGR2GRAY)
-                lap = cv2.Laplacian(gray, cv2.CV_64F)
-                return float(lap.var())
+                return float(cv2.Laplacian(patch, cv2.CV_64F).var())
 
-            v_l = _lap_var(patch_l)
-            v_r = _lap_var(patch_r)
+            v = (_lap_var(patch_l) + _lap_var(patch_r)) / 2.0
 
-            v = (v_l + v_r) / 2.0
+            if t_open <= t_closed:
+                t_open = t_closed + 1.0
 
-            if float(t_open) <= float(t_closed):
-                t_open = float(t_closed) + 1.0
-
-            open_prob = (v - float(t_closed)) / (float(t_open) - float(t_closed))
+            open_prob = (v - t_closed) / (t_open - t_closed)
             open_prob = float(np.clip(open_prob, 0.0, 1.0))
-            closed_prob = 1.0 - open_prob
+            return float(v), float(1.0 - open_prob), int(ps)
 
-            return float(v), float(closed_prob), int(ps)
         except Exception:
-            # 推定失敗時は「減点しない」寄り
             return 0.0, 0.0, 0

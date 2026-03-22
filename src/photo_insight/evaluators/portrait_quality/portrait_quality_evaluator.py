@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import traceback
 from typing import Optional, Tuple, Dict, Any, TYPE_CHECKING
@@ -12,7 +13,6 @@ import numpy as np
 import yaml
 
 from photo_insight.core.logging import Logger
-
 from photo_insight.image_utils.image_preprocessor import ImagePreprocessor
 
 from photo_insight.evaluators.quality_thresholds import QualityThresholds
@@ -28,7 +28,7 @@ from photo_insight.evaluators.common.grade_contract import (
 
 # NOTE:
 # - heavy deps を含む可能性がある内部モジュールは「ここで import しない」。
-# - __init__ 内で遅延 import する（CI の import 時点で落とさない）。
+# - __init__ 内または専用メソッドで遅延 import する（CI の import 時点で落とさない）。
 if TYPE_CHECKING:  # pragma: no cover
     from photo_insight.face_detectors.face_processor import FaceProcessor
 
@@ -60,11 +60,11 @@ class PortraitQualityEvaluator:
     """
     ポートレート画像の品質を多角的に評価するためのクラス。
 
-    ✅ CI/テストで heavy deps（insightface 等）が無い場合でも
-    - 「import しただけ」で落ちない設計
-    - 実運用では従来通り（必要な deps が入っていれば通常動作）
-
-    重要:
+    方針
+    ----
+    - CI/テストで heavy deps（insightface 等）が無い場合でも
+      「import しただけ」で落ちない設計
+    - 実運用では必要な依存が入っていれば通常動作
     - skip_face_processing=True の場合は顔関連の import/初期化を一切行わない
     """
 
@@ -90,29 +90,21 @@ class PortraitQualityEvaluator:
         self.image_path = image_input if isinstance(image_input, str) else None
         self.skip_face_processing = bool(skip_face_processing)
 
+        # 現状は未使用だが、既存インターフェース互換のため保持
+        self.local_region_size = int(local_region_size)
+        self.preprocessor_resize_size = tuple(preprocessor_resize_size)
+
         # --- evaluator 用の閾値/設定（discretize_thresholds_raw 等）をロード ---
         self.eval_config = self._load_evaluator_config()
 
         # -------------------------
-        # helpers: face_* -> base metric config injection
-        # -------------------------
-        def _subcfg(metric_key: str) -> Dict[str, Any]:
-            """
-            metric_key: "face_blurriness" 等
-            戻り値: evaluator が期待する base key に寄せた dict
-              例: {"blurriness": cfg["face_blurriness"]}
-            """
-            cfg = self.eval_config if isinstance(self.eval_config, dict) else {}
-            spec = cfg.get(metric_key)
-            if not isinstance(spec, dict):
-                return {}
-            base = metric_key.replace("face_", "")
-            return {base: spec}
-
-        # -------------------------
         # Preprocess (image IO / resize)
         # -------------------------
-        self.preprocessor = ImagePreprocessor(logger=self.logger, is_raw=self.is_raw, gamma=1.2)
+        self.preprocessor = ImagePreprocessor(
+            logger=self.logger,
+            is_raw=self.is_raw,
+            gamma=1.2,
+        )
 
         images = self.preprocessor.load_and_resize(image_input)
 
@@ -126,15 +118,13 @@ class PortraitQualityEvaluator:
         self.resized_image_2048_bgr = images["resized_2048_bgr"]
         self.resized_image_1024_bgr = images["resized_1024_bgr"]
 
-        # ★ 評価用 uint8（恒久対策）
+        # 評価用 uint8（恒久対策）
         self.rgb_u8 = images["original_u8"]
         self.resized_2048_bgr_u8 = images["resized_2048_bgr_u8"]
         self.bgr_u8 = images["original_bgr_u8"]
 
         img = self.resized_2048_bgr_u8
-        self.logger.info(
-            f"[debug] eval_img dtype={img.dtype}, " f"min={img.min()}, max={img.max()}, mean={img.mean():.2f}"
-        )
+        self.logger.info(f"[debug] eval_img dtype={img.dtype}, min={img.min()}, max={img.max()}, mean={img.mean():.2f}")
 
         # -------------------------
         # Face (optional / lazy)
@@ -143,14 +133,9 @@ class PortraitQualityEvaluator:
         self.face_processor: Optional["FaceProcessor"] = None
 
         if not self.skip_face_processing:
-            # heavy deps chain をここで初めて import
-            FaceEvaluator, FaceProcessor = self._lazy_import_face_stack()
-
-            # 前処理器で画像を一括取得
-            self.face_evaluator = FaceEvaluator(backend="insightface")
-
-            # DI: 引数で face_processor が渡されていればそれを優先
-            self.face_processor = face_processor or FaceProcessor(self.face_evaluator, logger=self.logger)
+            self.face_evaluator, self.face_processor = self._build_face_stack(
+                face_processor=face_processor,
+            )
 
         # -------------------------
         # Evaluators (global / face)
@@ -167,39 +152,59 @@ class PortraitQualityEvaluator:
             CompositeCompositionEvaluator,
         ) = self._lazy_import_evaluators_stack()
 
-        # global: use full config as-is
         self.evaluators_global = {
             "face": self.face_evaluator,
-            "sharpness": SharpnessEvaluator(logger=self.logger, config=self.eval_config),
-            "blurriness": BlurrinessEvaluator(logger=self.logger, config=self.eval_config),
-            "contrast": ContrastEvaluator(logger=self.logger, config=self.eval_config, metric_key="contrast"),
-            "noise": NoiseEvaluator(
-                max_noise_value=max_noise_value,
+            "sharpness": SharpnessEvaluator(
                 logger=self.logger,
                 config=self.eval_config,
             ),
-            "local_sharpness": LocalSharpnessEvaluator(logger=self.logger, config=self.eval_config),
-            "local_contrast": LocalContrastEvaluator(),
-            "exposure": ExposureEvaluator(),
-            "color_balance": ColorBalanceEvaluator(),
-        }
-
-        # face: inject face_* thresholds into base metric key expected by evaluator
-        self.evaluators_face = {
-            "face": self.face_evaluator,
-            "sharpness": SharpnessEvaluator(logger=self.logger, config=_subcfg("face_sharpness")),
-            "blurriness": BlurrinessEvaluator(logger=self.logger, config=_subcfg("face_blurriness")),
+            "blurriness": BlurrinessEvaluator(
+                logger=self.logger,
+                config=self.eval_config,
+            ),
             "contrast": ContrastEvaluator(
                 logger=self.logger,
-                config=_subcfg("face_contrast"),
+                config=self.eval_config,
                 metric_key="contrast",
             ),
             "noise": NoiseEvaluator(
                 max_noise_value=max_noise_value,
                 logger=self.logger,
-                config=_subcfg("face_noise"),
+                config=self.eval_config,
             ),
-            "local_sharpness": LocalSharpnessEvaluator(logger=self.logger, config=_subcfg("face_local_sharpness")),
+            "local_sharpness": LocalSharpnessEvaluator(
+                logger=self.logger,
+                config=self.eval_config,
+            ),
+            "local_contrast": LocalContrastEvaluator(),
+            "exposure": ExposureEvaluator(),
+            "color_balance": ColorBalanceEvaluator(),
+        }
+
+        self.evaluators_face = {
+            "face": self.face_evaluator,
+            "sharpness": SharpnessEvaluator(
+                logger=self.logger,
+                config=self._subcfg("face_sharpness"),
+            ),
+            "blurriness": BlurrinessEvaluator(
+                logger=self.logger,
+                config=self._subcfg("face_blurriness"),
+            ),
+            "contrast": ContrastEvaluator(
+                logger=self.logger,
+                config=self._subcfg("face_contrast"),
+                metric_key="contrast",
+            ),
+            "noise": NoiseEvaluator(
+                max_noise_value=max_noise_value,
+                logger=self.logger,
+                config=self._subcfg("face_noise"),
+            ),
+            "local_sharpness": LocalSharpnessEvaluator(
+                logger=self.logger,
+                config=self._subcfg("face_local_sharpness"),
+            ),
             "local_contrast": LocalContrastEvaluator(),
             "exposure": ExposureEvaluator(),
             "color_balance": ColorBalanceEvaluator(),
@@ -220,142 +225,19 @@ class PortraitQualityEvaluator:
 
         self.logger.info(f"画像ファイル {self.file_name} をロードしました")
 
-        # 閾値系の初期化（1行）
-        self._init_thresholds(quality_profile=quality_profile, thresholds_path=thresholds_path)
-
-    # ============================================================
-    # Lazy imports
-    # ============================================================
-    def _lazy_import_face_stack(self):
-        """
-        FaceEvaluator / FaceProcessor は insightface 等に依存し得るので遅延 import。
-        """
-        try:
-            from photo_insight.evaluators.face_evaluator import FaceEvaluator  # noqa
-            from photo_insight.face_detectors.face_processor import FaceProcessor  # noqa
-        except Exception as e:
-            raise RuntimeError(
-                "Face stack (FaceEvaluator/FaceProcessor) import failed. "
-                "insightface 等の依存が未導入の可能性があります。"
-                "テスト/CIでは skip_face_processing=True を使用するか、依存を導入してください。"
-                f" (detail: {e})"
-            )
-        return FaceEvaluator, FaceProcessor
-
-    def _lazy_import_evaluators_stack(self):
-        """
-        評価器群は内部で追加依存を持つ可能性があるため遅延 import。
-        """
-        from photo_insight.evaluators.sharpness_evaluator import SharpnessEvaluator
-        from photo_insight.evaluators.blurriness_evaluator import BlurrinessEvaluator
-        from photo_insight.evaluators.contrast_evaluator import ContrastEvaluator
-        from photo_insight.evaluators.noise_evaluator import NoiseEvaluator
-        from photo_insight.evaluators.exposure_evaluator import ExposureEvaluator
-        from photo_insight.evaluators.local_sharpness_evaluator import (
-            LocalSharpnessEvaluator,
-        )
-        from photo_insight.evaluators.local_contrast_evaluator import (
-            LocalContrastEvaluator,
-        )
-        from photo_insight.evaluators.color_balance_evaluator import (
-            ColorBalanceEvaluator,
-        )
-        from photo_insight.evaluators.composite_composition_evaluator import (
-            CompositeCompositionEvaluator,
+        # 閾値系の初期化
+        self._init_thresholds(
+            quality_profile=quality_profile,
+            thresholds_path=thresholds_path,
         )
 
-        return (
-            SharpnessEvaluator,
-            BlurrinessEvaluator,
-            ContrastEvaluator,
-            NoiseEvaluator,
-            ExposureEvaluator,
-            LocalSharpnessEvaluator,
-            LocalContrastEvaluator,
-            ColorBalanceEvaluator,
-            CompositeCompositionEvaluator,
-        )
+    @staticmethod
+    def decide_accept_static(
+        results: Dict[str, Any],
+        thresholds: Optional[Dict[str, float]] = None,
+    ) -> Tuple[bool, str]:
+        return decide_accept(results, thresholds=thresholds)
 
-    def _try_make_body_detector(self):
-        """
-        FullBodyDetector は mediapipe 等に依存し得るため optional。
-        無ければ evaluate() で安全な fallback を返す。
-        """
-        try:
-            from photo_insight.detectors.body_detection import FullBodyDetector  # noqa
-
-            return FullBodyDetector()
-        except Exception as e:
-            self.logger.warning(f"FullBodyDetector import/init failed (fallback to no-body). detail={e}")
-            return None
-
-    # ============================================================
-    # Threshold init
-    # ============================================================
-    def _init_thresholds(self, quality_profile: str, thresholds_path: Optional[str]) -> None:
-        if thresholds_path is None:
-            if self.config_manager is not None:
-                thresholds_path = self.config_manager.get(
-                    "quality_thresholds_path",
-                    default="config/quality_thresholds.yaml",
-                )
-            else:
-                thresholds_path = "config/quality_thresholds.yaml"
-
-        self.quality_thresholds = QualityThresholds(path=thresholds_path)
-
-        try:
-            self.threshold_profile = self.quality_thresholds.profile(quality_profile)
-        except Exception as e:
-            self.logger.warning(f"Quality thresholds load failed: {e}")
-            self.threshold_profile = {}
-
-        decision = self.threshold_profile.get("decision", {})
-
-        self.decision_thresholds: Dict[str, float] = {
-            "noise_ok": float(decision.get("noise_ok", 0.5)),
-            "noise_good": float(decision.get("noise_good", 0.75)),
-            "face_noise_good": float(decision.get("face_noise_good", 0.75)),
-            "full_body_body_height_min": float(decision.get("full_body_body_height_min", 0.30)),
-            "full_body_cut_risk_max_for_shot_type": float(decision.get("full_body_cut_risk_max_for_shot_type", 0.90)),
-            "full_body_footroom_min_for_shot_type": float(decision.get("full_body_footroom_min_for_shot_type", 0.00)),
-            "seated_center_y_min": float(decision.get("seated_center_y_min", 0.50)),
-            "seated_center_y_max": float(decision.get("seated_center_y_max", 0.75)),
-            "seated_footroom_max": float(decision.get("seated_footroom_max", 0.22)),
-            "seated_body_height_min": float(decision.get("seated_body_height_min", 0.30)),
-            "upper_body_headroom_min": float(decision.get("upper_body_headroom_min", 0.15)),
-            "upper_body_footroom_max": float(decision.get("upper_body_footroom_max", 0.15)),
-            "face_only_body_height_max": float(decision.get("face_only_body_height_max", 0.35)),
-            "center_side_margin_min": float(decision.get("center_side_margin_min", 0.02)),
-            "full_body_face_noise_min": float(decision.get("full_body_face_noise_min", 0.5)),
-            "full_body_pose_min_100": float(decision.get("full_body_pose_min_100", 55.0)),
-            "full_body_cut_risk_max": float(decision.get("full_body_cut_risk_max", 0.6)),
-            "blurriness_min_full_body": float(decision.get("blurriness_min_full_body", 0.45)),
-            "exposure_min_common": float(decision.get("exposure_min_common", 0.5)),
-            "full_body_footroom_min": float(decision.get("full_body_footroom_min", 0.0)),
-            "full_body_contrast_min": float(decision.get("full_body_contrast_min", 0.40)),
-            "full_body_face_contrast_min": float(decision.get("full_body_face_contrast_min", 0.50)),
-            "composition_score_min": float(decision.get("composition_score_min", 0.75)),
-            "framing_score_min": float(decision.get("framing_score_min", 0.5)),
-            "lead_room_score_min": float(decision.get("lead_room_score_min", 0.10)),
-            "face_quality_exposure_min": float(decision.get("face_quality_exposure_min", 0.5)),
-            "face_quality_face_sharpness_min": float(decision.get("face_quality_face_sharpness_min", 0.75)),
-            "face_quality_contrast_min": float(decision.get("face_quality_contrast_min", 0.55)),
-            "face_quality_blur_min": float(decision.get("face_quality_blur_min", 0.55)),
-            "face_quality_delta_face_sharpness_min": float(
-                decision.get("face_quality_delta_face_sharpness_min", -10.0)
-            ),
-            "face_quality_yaw_max_abs_deg": float(decision.get("face_quality_yaw_max_abs_deg", 30.0)),
-            "expression_min": float(decision.get("expression_min", 0.5)),
-            "technical_contrast_min": float(decision.get("technical_contrast_min", 0.60)),
-            "technical_blur_min": float(decision.get("technical_blur_min", 0.60)),
-            "technical_delta_face_sharpness_min": float(decision.get("technical_delta_face_sharpness_min", -15.0)),
-            "technical_exposure_min": float(decision.get("technical_exposure_min", 1.0)),
-        }
-
-    # ============================================================
-    # Main
-    # ============================================================
     def evaluate(self) -> Dict[str, Any]:
         self.logger.info(f"評価開始: 画像ファイル {self.file_name}")
         results: Dict[str, Any] = {}
@@ -371,12 +253,11 @@ class PortraitQualityEvaluator:
             face_result = {"faces": []}
             if self.skip_face_processing:
                 self.logger.info("顔処理をスキップします。")
+            elif self.face_processor is None or self.face_evaluator is None:
+                self.logger.warning("顔処理スタックが未初期化のため、顔処理をスキップします。")
+            elif hasattr(self.face_evaluator, "available") and not self.face_evaluator.available():
+                self.logger.warning("face_evaluator が利用不可のため、顔処理をスキップします。")
             else:
-                if self.face_processor is None:
-                    # ここは「実行時」に気づけるよう明確に落とす
-                    raise RuntimeError(
-                        "face_processor is not initialized. " "insightface 等の依存が無い可能性があります。"
-                    )
                 face_result = self.face_processor.detect_faces(self.rgb_u8) or {"faces": []}
 
             faces = face_result.get("faces", []) or []
@@ -427,7 +308,12 @@ class PortraitQualityEvaluator:
             # face attributes + face region metrics
             # -------------------------
             best_face = None
-            if (not self.skip_face_processing) and self.face_processor is not None:
+            if (
+                (not self.skip_face_processing)
+                and self.face_processor is not None
+                and self.face_evaluator is not None
+                and (not hasattr(self.face_evaluator, "available") or self.face_evaluator.available())
+            ):
                 best_face = self.face_processor.get_best_face(faces)
 
             if best_face and self.face_processor is not None:
@@ -454,7 +340,9 @@ class PortraitQualityEvaluator:
                         results["face_box_height_ratio"] = 0.0
 
                     results["lead_room_score"] = self._calc_lead_room_score(
-                        self.rgb_u8, best_face, float(results.get("yaw", 0.0))
+                        self.rgb_u8,
+                        best_face,
+                        float(results.get("yaw", 0.0)),
                     )
 
                     results.update(
@@ -488,7 +376,10 @@ class PortraitQualityEvaluator:
             self._add_expression_score(results)
             self._add_face_global_deltas(results)
 
-            accepted, reason = self.decide_accept_static(results, thresholds=self.decision_thresholds)
+            accepted, reason = self.decide_accept_static(
+                results,
+                thresholds=self.decision_thresholds,
+            )
             results["accepted_flag"] = accepted
             results["accepted_reason"] = reason
 
@@ -504,6 +395,214 @@ class PortraitQualityEvaluator:
             self.logger.error(f"評価中のエラー: {str(e)}")
             self.logger.error(traceback.format_exc())
             return {}
+
+    # ============================================================
+    # build / runtime config
+    # ============================================================
+    def _build_face_stack(
+        self,
+        *,
+        face_processor: Optional["FaceProcessor"] = None,
+    ):
+        """
+        FaceEvaluator / FaceProcessor を遅延 import し、初期化して返す。
+
+        Notes
+        -----
+        - insightface 実行設定は config_manager から取得する
+        - FaceEvaluator 側へ runtime config をそのまま渡す
+        - face_processor が DI 済みならそれを優先使用する
+        - strict=True の場合は fail-fast、False の場合は安全にフォールバックする
+
+        Parameters
+        ----------
+        face_processor : Optional["FaceProcessor"]
+            既存の FaceProcessor を外部から注入する場合に使用する
+
+        Returns
+        -------
+        tuple[Any, Optional["FaceProcessor"]]
+            (face_evaluator, face_processor)
+        """
+        runtime_cfg = self._get_insightface_runtime_config()
+
+        model_name = str(runtime_cfg.get("model_name", "buffalo_l"))
+        model_root = str(runtime_cfg.get("model_root", "/work/models/insightface"))
+
+        providers = runtime_cfg.get("providers", ["CPUExecutionProvider"])
+        if not providers:
+            providers = ["CPUExecutionProvider"]
+        providers = list(providers)
+
+        det_size_raw = runtime_cfg.get("det_size", [640, 640])
+        if not isinstance(det_size_raw, (list, tuple)) or len(det_size_raw) != 2:
+            det_size = (640, 640)
+        else:
+            det_size = (int(det_size_raw[0]), int(det_size_raw[1]))
+
+        strict = bool(runtime_cfg.get("strict", True))
+
+        # テストや軽量実行環境で config_manager が無い場合は、
+        # heavy dependency 未導入でも portrait_quality 全体は継続できるようにする。
+        if self.config_manager is None:
+            strict = False
+
+        self.logger.info(
+            "InsightFace runtime config: "
+            f"model_name={model_name}, "
+            f"model_root={model_root}, "
+            f"providers={providers}, "
+            f"det_size={det_size}, "
+            f"strict={strict}"
+        )
+
+        try:
+            FaceEvaluator, FaceProcessor = self._lazy_import_face_stack()
+
+            evaluator = FaceEvaluator(
+                backend="insightface",
+                confidence_threshold=0.5,
+                gpu=False,
+                strict=strict,
+                model_name=model_name,
+                model_root=model_root,
+                providers=providers,
+                det_size=det_size,
+            )
+
+            if hasattr(evaluator, "available") and not evaluator.available():
+                msg = "FaceEvaluator is initialized but unavailable. " "顔処理をフォールバックします。"
+                if strict:
+                    raise RuntimeError(msg)
+                self.logger.warning(msg)
+                return evaluator, None
+
+            processor = face_processor or FaceProcessor(evaluator, logger=self.logger)
+            return evaluator, processor
+
+        except Exception as e:
+            if strict:
+                raise
+            self.logger.warning(f"Face stack build failed (fallback to no-face processing). detail={e}")
+            return None, None
+
+    def _get_insightface_runtime_config(self) -> Dict[str, Any]:
+        """
+        insightface 実行設定を config_manager から取得する。
+        """
+        default_cfg: Dict[str, Any] = {
+            "model_name": "buffalo_l",
+            "model_root": "/work/models/insightface",
+            "providers": ["CPUExecutionProvider"],
+            "det_size": [640, 640],
+            "strict": True,
+        }
+
+        if self.config_manager is None:
+            return default_cfg
+
+        try:
+            raw = self.config_manager.get("portrait_quality.insightface", default=None)
+            if isinstance(raw, dict):
+                cfg = dict(default_cfg)
+                cfg.update(raw)
+
+                providers = cfg.get("providers")
+                if not providers:
+                    cfg["providers"] = ["CPUExecutionProvider"]
+
+                det_size = cfg.get("det_size", [640, 640])
+                if not isinstance(det_size, (list, tuple)) or len(det_size) != 2:
+                    cfg["det_size"] = [640, 640]
+
+                return cfg
+        except Exception as e:
+            self.logger.warning(f"insightface runtime config load failed: {e}")
+
+        return default_cfg
+
+    def _subcfg(self, metric_key: str) -> Dict[str, Any]:
+        """
+        face_* 系の設定を、各 evaluator が期待する base key に寄せて返す。
+
+        例
+        ----
+        metric_key="face_blurriness" -> {"blurriness": ...}
+        """
+        cfg = self.eval_config if isinstance(self.eval_config, dict) else {}
+        spec = cfg.get(metric_key)
+        if not isinstance(spec, dict):
+            return {}
+
+        base = metric_key.replace("face_", "")
+        return {base: spec}
+
+    # ============================================================
+    # lazy imports
+    # ============================================================
+    def _lazy_import_face_stack(self):
+        """
+        FaceEvaluator / FaceProcessor は insightface 等に依存し得るので遅延 import。
+        """
+        try:
+            from photo_insight.evaluators.face_evaluator import FaceEvaluator
+            from photo_insight.face_detectors.face_processor import FaceProcessor
+        except Exception as e:
+            raise RuntimeError(
+                "Face stack (FaceEvaluator/FaceProcessor) import failed. "
+                "insightface 等の依存が未導入の可能性があります。"
+                "テスト/CIでは skip_face_processing=True を使用するか、依存を導入してください。"
+                f" (detail: {e})"
+            ) from e
+
+        return FaceEvaluator, FaceProcessor
+
+    def _lazy_import_evaluators_stack(self):
+        """
+        評価器群は内部で追加依存を持つ可能性があるため遅延 import。
+        """
+        from photo_insight.evaluators.sharpness_evaluator import SharpnessEvaluator
+        from photo_insight.evaluators.blurriness_evaluator import BlurrinessEvaluator
+        from photo_insight.evaluators.contrast_evaluator import ContrastEvaluator
+        from photo_insight.evaluators.noise_evaluator import NoiseEvaluator
+        from photo_insight.evaluators.exposure_evaluator import ExposureEvaluator
+        from photo_insight.evaluators.local_sharpness_evaluator import (
+            LocalSharpnessEvaluator,
+        )
+        from photo_insight.evaluators.local_contrast_evaluator import (
+            LocalContrastEvaluator,
+        )
+        from photo_insight.evaluators.color_balance_evaluator import (
+            ColorBalanceEvaluator,
+        )
+        from photo_insight.evaluators.composite_composition_evaluator import (
+            CompositeCompositionEvaluator,
+        )
+
+        return (
+            SharpnessEvaluator,
+            BlurrinessEvaluator,
+            ContrastEvaluator,
+            NoiseEvaluator,
+            ExposureEvaluator,
+            LocalSharpnessEvaluator,
+            LocalContrastEvaluator,
+            ColorBalanceEvaluator,
+            CompositeCompositionEvaluator,
+        )
+
+    def _try_make_body_detector(self):
+        """
+        FullBodyDetector は mediapipe 等に依存し得るため optional。
+        無ければ evaluate() で安全な fallback を返す。
+        """
+        try:
+            from photo_insight.detectors.body_detection import FullBodyDetector
+
+            return FullBodyDetector()
+        except Exception as e:
+            self.logger.warning(f"FullBodyDetector import/init failed (fallback to no-body). detail={e}")
+            return None
 
     # ============================================================
     # composition
@@ -595,14 +694,21 @@ class PortraitQualityEvaluator:
     # ============================================================
     # metric eval helpers
     # ============================================================
-    def _eval_metrics(self, image: np.ndarray, metrics, prefix: str, tag: str, evaluators_dict) -> Dict[str, Any]:
+    def _eval_metrics(
+        self,
+        image: np.ndarray,
+        metrics,
+        prefix: str,
+        tag: str,
+        evaluators_dict,
+    ) -> Dict[str, Any]:
         out: Dict[str, Any] = {}
         for name in metrics:
             evaluator = evaluators_dict.get(name)
             if evaluator is None:
                 continue
-            r = self._try_eval(evaluator, image, name=f"{tag}:{name}")
-            out.update(self.mapper.map(name, r, prefix=prefix))
+            result = self._try_eval(evaluator, image, name=f"{tag}:{name}")
+            out.update(self.mapper.map(name, result, prefix=prefix))
         return out
 
     def _try_eval(self, evaluator, image: np.ndarray, name: str) -> Dict[str, Any]:
@@ -665,10 +771,13 @@ class PortraitQualityEvaluator:
             status = STATUS_NOT_COMPUTED
             reason = "no_face"
 
-            for m in face_metrics:
-                results.setdefault(f"face_{m}_score", default_score.get(m, 0.0))
-                results[f"face_{m}_eval_status"] = status
-                results.setdefault(f"face_{m}_fallback_reason", reason)
+            for metric_name in face_metrics:
+                results.setdefault(
+                    f"face_{metric_name}_score",
+                    default_score.get(metric_name, 0.0),
+                )
+                results[f"face_{metric_name}_eval_status"] = status
+                results.setdefault(f"face_{metric_name}_fallback_reason", reason)
 
             results.setdefault("face_blurriness_grade", None)
             results.setdefault("face_contrast_grade", None)
@@ -686,23 +795,23 @@ class PortraitQualityEvaluator:
             results.setdefault("face_noise_raw", None)
 
         else:
-            for m in face_metrics:
-                results.setdefault(f"face_{m}_score", default_score.get(m, 0.0))
-                results.setdefault(f"face_{m}_eval_status", STATUS_OK)
+            for metric_name in face_metrics:
+                results.setdefault(
+                    f"face_{metric_name}_score",
+                    default_score.get(metric_name, 0.0),
+                )
+                results.setdefault(f"face_{metric_name}_eval_status", STATUS_OK)
 
     def _normalize_for_csv(self, results: Dict[str, Any]) -> None:
-        import json
-
-        def _to_json_str(v) -> str:
+        def _to_json_str(value: Any) -> str:
             try:
-                return json.dumps(v, ensure_ascii=False)
+                return json.dumps(value, ensure_ascii=False)
             except Exception:
-                return str(v)
+                return str(value)
 
         faces = results.get("faces", [])
 
-        # results["faces"] は構造体のまま（unitテスト/呼び出し側の契約）
-        # 文字列化が必要な場合に備えて別キーに置く
+        # results["faces"] は構造体のまま維持（unitテスト/呼び出し側の契約）
         if isinstance(faces, (list, dict)):
             results["faces_json"] = _to_json_str(faces)
         else:
@@ -715,8 +824,13 @@ class PortraitQualityEvaluator:
     # ============================================================
     # derived
     # ============================================================
-    def _calc_lead_room_score(self, image: np.ndarray, best_face: Dict[str, Any], yaw: float) -> float:
-        h, W = image.shape[:2]
+    def _calc_lead_room_score(
+        self,
+        image: np.ndarray,
+        best_face: Dict[str, Any],
+        yaw: float,
+    ) -> float:
+        _h, width = image.shape[:2]
         box = best_face.get("box") or best_face.get("bbox")
         if not box or len(box) != 4:
             return 0.0
@@ -725,19 +839,19 @@ class PortraitQualityEvaluator:
         cx = (x1 + x2) / 2.0
 
         left_space = cx
-        right_space = W - cx
+        right_space = width - cx
 
         if yaw > 5:
-            raw = (right_space - left_space) / W
+            raw = (right_space - left_space) / width
         elif yaw < -5:
-            raw = (left_space - right_space) / W
+            raw = (left_space - right_space) / width
         else:
             raw = 0.0
 
         return float(max(-1.0, min(1.0, raw)))
 
     def _add_face_global_deltas(self, results: Dict[str, Any]) -> None:
-        def d(a, b):
+        def _diff(a: Any, b: Any):
             if a is None or b is None:
                 return None
             try:
@@ -745,14 +859,20 @@ class PortraitQualityEvaluator:
             except (TypeError, ValueError):
                 return None
 
-        results["delta_face_sharpness"] = d(results.get("face_sharpness_score"), results.get("sharpness_score"))
-        results["delta_face_contrast"] = d(results.get("face_contrast_score"), results.get("contrast_score"))
+        results["delta_face_sharpness"] = _diff(
+            results.get("face_sharpness_score"),
+            results.get("sharpness_score"),
+        )
+        results["delta_face_contrast"] = _diff(
+            results.get("face_contrast_score"),
+            results.get("contrast_score"),
+        )
 
     def _add_expression_score(self, results: Dict[str, Any]) -> None:
         def _f(key: str, default: float = 0.0) -> float:
-            v = results.get(key, default)
+            value = results.get(key, default)
             try:
-                return float(v)
+                return float(value)
             except (TypeError, ValueError):
                 return float(default)
 
@@ -784,10 +904,75 @@ class PortraitQualityEvaluator:
         results["expression_grade"] = grade
 
     # ============================================================
-    # evaluator config load
+    # threshold / config
     # ============================================================
+    def _init_thresholds(
+        self,
+        quality_profile: str,
+        thresholds_path: Optional[str],
+    ) -> None:
+        if thresholds_path is None:
+            if self.config_manager is not None:
+                thresholds_path = self.config_manager.get(
+                    "quality_thresholds_path",
+                    default="config/quality_thresholds.yaml",
+                )
+            else:
+                thresholds_path = "config/quality_thresholds.yaml"
+
+        self.quality_thresholds = QualityThresholds(path=thresholds_path)
+
+        try:
+            self.threshold_profile = self.quality_thresholds.profile(quality_profile)
+        except Exception as e:
+            self.logger.warning(f"Quality thresholds load failed: {e}")
+            self.threshold_profile = {}
+
+        decision = self.threshold_profile.get("decision", {})
+
+        self.decision_thresholds: Dict[str, float] = {
+            "noise_ok": float(decision.get("noise_ok", 0.5)),
+            "noise_good": float(decision.get("noise_good", 0.75)),
+            "face_noise_good": float(decision.get("face_noise_good", 0.75)),
+            "full_body_body_height_min": float(decision.get("full_body_body_height_min", 0.30)),
+            "full_body_cut_risk_max_for_shot_type": float(decision.get("full_body_cut_risk_max_for_shot_type", 0.90)),
+            "full_body_footroom_min_for_shot_type": float(decision.get("full_body_footroom_min_for_shot_type", 0.00)),
+            "seated_center_y_min": float(decision.get("seated_center_y_min", 0.50)),
+            "seated_center_y_max": float(decision.get("seated_center_y_max", 0.75)),
+            "seated_footroom_max": float(decision.get("seated_footroom_max", 0.22)),
+            "seated_body_height_min": float(decision.get("seated_body_height_min", 0.30)),
+            "upper_body_headroom_min": float(decision.get("upper_body_headroom_min", 0.15)),
+            "upper_body_footroom_max": float(decision.get("upper_body_footroom_max", 0.15)),
+            "face_only_body_height_max": float(decision.get("face_only_body_height_max", 0.35)),
+            "center_side_margin_min": float(decision.get("center_side_margin_min", 0.02)),
+            "full_body_face_noise_min": float(decision.get("full_body_face_noise_min", 0.5)),
+            "full_body_pose_min_100": float(decision.get("full_body_pose_min_100", 55.0)),
+            "full_body_cut_risk_max": float(decision.get("full_body_cut_risk_max", 0.6)),
+            "blurriness_min_full_body": float(decision.get("blurriness_min_full_body", 0.45)),
+            "exposure_min_common": float(decision.get("exposure_min_common", 0.5)),
+            "full_body_footroom_min": float(decision.get("full_body_footroom_min", 0.0)),
+            "full_body_contrast_min": float(decision.get("full_body_contrast_min", 0.40)),
+            "full_body_face_contrast_min": float(decision.get("full_body_face_contrast_min", 0.50)),
+            "composition_score_min": float(decision.get("composition_score_min", 0.75)),
+            "framing_score_min": float(decision.get("framing_score_min", 0.5)),
+            "lead_room_score_min": float(decision.get("lead_room_score_min", 0.10)),
+            "face_quality_exposure_min": float(decision.get("face_quality_exposure_min", 0.5)),
+            "face_quality_face_sharpness_min": float(decision.get("face_quality_face_sharpness_min", 0.75)),
+            "face_quality_contrast_min": float(decision.get("face_quality_contrast_min", 0.55)),
+            "face_quality_blur_min": float(decision.get("face_quality_blur_min", 0.55)),
+            "face_quality_delta_face_sharpness_min": float(
+                decision.get("face_quality_delta_face_sharpness_min", -10.0)
+            ),
+            "face_quality_yaw_max_abs_deg": float(decision.get("face_quality_yaw_max_abs_deg", 30.0)),
+            "expression_min": float(decision.get("expression_min", 0.5)),
+            "technical_contrast_min": float(decision.get("technical_contrast_min", 0.60)),
+            "technical_blur_min": float(decision.get("technical_blur_min", 0.60)),
+            "technical_delta_face_sharpness_min": float(decision.get("technical_delta_face_sharpness_min", -15.0)),
+            "technical_exposure_min": float(decision.get("technical_exposure_min", 1.0)),
+        }
+
     def _load_evaluator_config(self) -> Dict[str, Any]:
-        path = None
+        path: Optional[str]
         if self.config_manager is not None:
             try:
                 path = self.config_manager.get(
@@ -802,12 +987,13 @@ class PortraitQualityEvaluator:
         try:
             if not path or not isinstance(path, str):
                 return {}
+
             if not os.path.exists(path):
                 self.logger.warning(f"Evaluator config not found: {path} (use defaults)")
                 return {}
 
-            with open(path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
+            with open(path, "r", encoding="utf-8") as file:
+                data = yaml.safe_load(file) or {}
 
             if not isinstance(data, dict):
                 self.logger.warning(f"Evaluator config is not a dict: {path} (use defaults)")
@@ -819,10 +1005,3 @@ class PortraitQualityEvaluator:
         except Exception as e:
             self.logger.warning(f"Evaluator config load failed: {e} (use defaults)")
             return {}
-
-    @staticmethod
-    def decide_accept_static(
-        results: Dict[str, Any],
-        thresholds: Optional[Dict[str, float]] = None,
-    ) -> Tuple[bool, str]:
-        return decide_accept(results, thresholds=thresholds)

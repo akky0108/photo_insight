@@ -499,14 +499,19 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
     def _evaluate_image(self, image: Any, file_name: str):
         self._dbg(f"before evaluator init: {file_name}")
+
+        skip_face_processing = bool(self.config.get("skip_face_processing", False))
+        quality_thresholds_path = self.config.get("quality_thresholds_path")
+
         evaluator = PortraitQualityEvaluator(
             image_input=image,
             is_raw=False,
             logger=self.logger,
             file_name=file_name,
+            skip_face_processing=skip_face_processing,
             config_manager=self.config_manager,
             quality_profile=self.config.get("quality_profile", "portrait"),
-            thresholds_path=self.config.get("evaluator_thresholds_path"),
+            thresholds_path=quality_thresholds_path,
         )
         self._dbg(f"after evaluator init: {file_name}")
 
