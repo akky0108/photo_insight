@@ -1,23 +1,51 @@
 {
-  "name": "photo_insight",
-  "dockerComposeFile": ["../docker-compose.yml"],
-  "service": "app",
+  "name": "photo_insight-dev",
+  "dockerComposeFile": [
+    "compose.devcontainer.yaml"
+  ],
+  "service": "app-dev",
   "workspaceFolder": "/work",
   "shutdownAction": "stopCompose",
+  "remoteUser": "vscode",
   "customizations": {
     "vscode": {
       "settings": {
         "python.defaultInterpreterPath": "/opt/venv/bin/python",
+        "python.analysis.extraPaths": [
+          "/work/src"
+        ],
         "python.testing.pytestEnabled": true,
-        "python.testing.pytestArgs": ["-q", "tests"],
-        "editor.formatOnSave": true
+        "python.testing.pytestArgs": [
+          "-q",
+          "tests"
+        ],
+        "editor.formatOnSave": true,
+        "search.exclude": {
+          "**/logs": true,
+          "**/output": true,
+          "**/runs": true,
+          "**/temp": true,
+          "**/tmp": true,
+          "**/backup": true
+        },
+        "files.watcherExclude": {
+          "**/logs/**": true,
+          "**/output/**": true,
+          "**/runs/**": true,
+          "**/temp/**": true,
+          "**/tmp/**": true,
+          "**/backup/**": true
+        }
       },
       "extensions": [
         "ms-python.python",
         "ms-python.vscode-pylance",
-        "charliermarsh.ruff"
+        "charliermarsh.ruff",
+        "ms-azuretools.vscode-docker",
+        "redhat.vscode-yaml",
+        "github.vscode-github-actions"
       ]
     }
   },
-  "postCreateCommand": "python -V && pip -V && ruff --version && pytest --version"
+  "postCreateCommand": "python -V && pip -V && git --version && ssh -V && python -c 'import sys; print(sys.executable)' && ruff --version && pytest --version"
 }

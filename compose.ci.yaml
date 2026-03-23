@@ -1,0 +1,10 @@
+services:
+  app-ci:
+    user: "${UID}:${GID}"
+    working_dir: /work
+    volumes:
+      - ${GITHUB_WORKSPACE}:/work
+    environment:
+      PYTEST_CACHE_DIR: /tmp/.pytest_cache
+      RUFF_CACHE_DIR: /tmp/.ruff_cache
+      PIP_CACHE_DIR: /tmp/pip-cache

@@ -1,0 +1,33 @@
+name: photo-insight-dev
+
+services:
+  app-dev:
+    build:
+      context: ..
+      dockerfile: Dockerfile.test
+      target: dev
+      args:
+        USERNAME: vscode
+        USER_UID: "1000"
+        USER_GID: "1000"
+
+    working_dir: /work
+
+    volumes:
+      - ..:/work:cached
+      - photo_insight_dev_pip_cache:/home/vscode/.cache/pip
+      - ${HOME}/.ssh:/home/vscode/.ssh:ro
+      - ${HOME}/.gitconfig:/home/vscode/.gitconfig:ro
+
+    environment:
+      PYTHONUNBUFFERED: "1"
+      PYTHONPATH: /work/src
+      PROJECT_ROOT: /work
+      TZ: Asia/Tokyo
+
+    command: /bin/sh -c "while sleep 1000; do :; done"
+    tty: true
+    stdin_open: true
+
+volumes:
+  photo_insight_dev_pip_cache:

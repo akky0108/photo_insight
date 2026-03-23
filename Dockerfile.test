@@ -54,15 +54,33 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # -----------------------------
 FROM base AS dev
 
+ARG USERNAME=vscode
+ARG USER_UID=1000
+ARG USER_GID=1000
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     make \
+    git \
+    openssh-client \
     && rm -rf /var/lib/apt/lists/*
+
+# 開発用ユーザー作成
+RUN groupadd --gid ${USER_GID} ${USERNAME} \
+    && useradd --uid ${USER_UID} --gid ${USER_GID} -m -s /bin/bash ${USERNAME}
 
 COPY --from=builder /wheels /wheels
 COPY requirements.txt requirements-dev.txt ./
 
 RUN /opt/venv/bin/pip install --no-index --find-links=/wheels -r requirements-dev.txt \
     && rm -rf /wheels
+
+# non-root ユーザーでも使いやすいように権限を整える
+RUN mkdir -p /work /home/${USERNAME}/.cache/pip \
+    && chown -R ${USER_UID}:${USER_GID} /work /home/${USERNAME} /opt/venv
+
+ENV PIP_CACHE_DIR=/home/${USERNAME}/.cache/pip
+
+USER ${USERNAME}
 
 CMD ["bash"]
 
