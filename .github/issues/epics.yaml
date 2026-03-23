@@ -454,3 +454,132 @@ issues:
       - runtime
       - stability
       - operations
+
+  - id: epic_github_issue_sync_improvement
+    title: "[2026-0014] GitHub issue sync 基盤の改善"
+    body: |
+      sync_issues.py による GitHub Issue 同期基盤は初期実装として完成しており、
+      YAML を SSOT とした issue 管理が可能になっている。
+
+      一方で、長期運用・CI統合・仕様安定化の観点では、
+      スキーマ検証、テスト、出力形式、構造整理などの改善余地がある。
+
+      本EPICでは、GitHub issue sync 基盤を「壊れにくく・使いやすく・拡張しやすい」状態へ整理する。
+
+      主な論点:
+      - YAML 解決仕様の整理
+      - YAML スキーマ検証の強化
+      - 単体テスト基盤の整備
+      - 親子同期ロジックの整理
+      - dry-run 出力の構造化
+
+      方針:
+      - 既存挙動を壊さない段階的改善
+      - pure function → 構造 → 出力 → CI の順で強化
+      - 運用とCI双方に適した設計へ寄せる
+    labels:
+      - epic
+      - github
+      - tooling
+      - enhancement
+    children:
+      - sync_issues_yaml_resolution_contract
+      - sync_issues_yaml_schema_validation
+      - sync_issues_unit_test_foundation
+      - sync_issues_parent_child_refactor
+      - sync_issues_dry_run_structured_output
+
+  - id: sync_issues_yaml_resolution_contract
+    title: "[2026-0015] sync_issues の YAML 解決仕様を運用実態に合わせる"
+    body: |
+      現在の default YAML パスと実運用の .github/issues/epics.yaml が乖離している。
+      script 単体実行時の挙動を運用実態に合わせる。
+
+      対応:
+      - default_issues_yml_path の見直し
+      - epics.yaml / issues.yml の探索順整理
+      - Makefile との責務境界整理
+
+      完了条件:
+      - script 単体でも運用通りの YAML が解決される
+    labels:
+      - enhancement
+      - github
+      - tooling
+
+  - id: sync_issues_yaml_schema_validation
+    title: "[2026-0016] issues YAML のスキーマ検証と参照整合性チェックを追加する"
+    body: |
+      YAML の構造不備や参照不整合を事前検出できるようにする。
+
+      対応:
+      - children の unknown / duplicate / cycle 検出
+      - labels の検証
+      - id 命名ルール確認
+      - validate-only モード検討
+
+      完了条件:
+      - 実行前に構造エラーを検出可能
+    labels:
+      - enhancement
+      - github
+      - validation
+
+  - id: sync_issues_unit_test_foundation
+    title: "[2026-0017] sync_issues の単体テスト基盤を整備する"
+    body: |
+      sync_issues.py の主要ロジックをテスト可能にする。
+
+      対象:
+      - normalize_labels
+      - extract_external_id
+      - split_sections
+      - compose_full_body
+      - load_issues_yml
+
+      対応:
+      - pure function テスト追加
+      - GitHub API を mock 化
+      - dry-run 動作検証
+
+      完了条件:
+      - 主要ロジックにテストが存在する
+    labels:
+      - enhancement
+      - github
+      - test
+
+  - id: sync_issues_parent_child_refactor
+    title: "[2026-0018] 親子 issue 同期処理の責務分離と構造整理"
+    body: |
+      現在の 2-pass 構造の責務を明確化する。
+
+      対応:
+      - pass1 / pass2 の責務整理
+      - parent / child 更新処理分離
+      - linking 処理の独立化
+
+      完了条件:
+      - 親子処理の意図がコードから明確に読み取れる
+    labels:
+      - enhancement
+      - github
+      - refactor
+
+  - id: sync_issues_dry_run_structured_output
+    title: "[2026-0019] sync_issues dry-run の出力を構造化する"
+    body: |
+      dry-run を CI で利用しやすい形式にする。
+
+      対応:
+      - JSON 出力対応
+      - create/update 件数集計
+      - summary-only モード
+
+      完了条件:
+      - CI で結果を機械的に扱える
+    labels:
+      - enhancement
+      - github
+      - ci
+      - observability
