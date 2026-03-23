@@ -1,0 +1,39 @@
+epic_template:
+  id: epic_<name>
+  title: "[YYYY-NNNN] <EPICタイトル>"
+  body: |
+    概要:
+    <背景と目的>
+
+    現状:
+    -
+
+    主な論点:
+    -
+
+    方針:
+    -
+
+  labels:
+    - epic
+    - enhancement
+  children: []
+
+issue_template:
+  id: <issue_id>
+  title: "[YYYY-NNNN] <タイトル>"
+  body: |
+    ## 概要
+    <何を解決するか>
+
+    ## 問題
+    -
+
+    ## 対応内容
+    -
+
+    ## 完了条件
+    -
+
+  labels:
+    - enhancement
