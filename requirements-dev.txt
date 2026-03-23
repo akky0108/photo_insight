@@ -14,3 +14,6 @@ pandas>=2.0,<3
 
 # ===== Runtime-ish deps used in unit tests =====
 psutil>=5.9,<6
+
+# ===== GitHub tools =====
+PyGithub>=2,<3
