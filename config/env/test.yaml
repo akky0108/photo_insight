@@ -11,9 +11,25 @@ append_mode: false
 base_directory: "./"
 target_date: "2025-01-01"
 
+skip_face_processing: true
+
+quality_thresholds_path: "./config/quality_thresholds.yaml"
+evaluator_thresholds_path: "./config/evaluator_thresholds.yaml"
+quality_profile: portrait
+
+portrait_quality:
+  insightface:
+    strict: false
+    model_root: "./models/insightface"
+    providers:
+      - "CPUExecutionProvider"
+    det_size:
+      - 640
+      - 640
+
 debug:
   log_summary_detail: false
-  persist_run_results: false   # ★ runs/ を作らせない
+  persist_run_results: false
   run_results_dir: "runs"
 
 evaluation_rank:

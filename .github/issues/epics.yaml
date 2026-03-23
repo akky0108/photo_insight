@@ -1,0 +1,456 @@
+issues:
+  - id: epic_pipeline_chain_finish
+    title: "[2026-0001] pipeline chain（nef → portrait_quality）仕上げ管理"
+    body: |
+      run_batch.py および各 processor における pipeline chain 実装は骨格完成状態にある。
+      本EPICでは、運用性・保守性・可観測性の観点から残タスクを整理し、
+      nef → portrait_quality の chain 実行を安定運用できる状態へ仕上げる。
+
+      現状:
+      - --pipeline nef,portrait_quality による chain 実行は可能
+      - runtime override / CSV受け渡し / summary 出力は実装済み
+      - portrait_quality 側も後段実行に対応済み
+
+      主な残課題:
+      - stage 成功判定の厳密化
+      - status / stop reason の整理
+      - pipeline summary の情報拡充
+      - processor 戻り値仕様の整理
+
+      方針:
+      - 既存実装を壊さず段階的に改善する
+      - run_batch 側の責務を明確化する
+      - processor 側は最小限の拡張に留める
+    labels:
+      - epic
+      - enhancement
+      - pipeline
+      - cli
+      - batch
+    children:
+      - pipeline_stage_success_contract
+      - pipeline_status_reason_contract
+      - pipeline_summary_enhancement
+      - pipeline_execute_result_contract
+
+  - id: pipeline_stage_success_contract
+    title: "[2026-0002] stage 成功判定を厳密化する"
+    body: |
+      ## 概要
+      run_batch.py における stage 成功判定が現在は比較的緩く、
+      主に出力 CSV の存在に依存している。
+      誤判定を防ぐため、成功条件を明確化する。
+
+      ## 問題
+      - CSV が存在するだけで success 扱いになりうる
+      - 有効行 0 件でも success の可能性がある
+      - invalid row のみでも success 扱いされる可能性がある
+
+      ## 対応内容
+      - stage 成功条件の明文化
+      - nef の成功判定ロジック修正
+      - 有効行数チェック追加
+      - invalid row の扱い定義
+      - summary に判定根拠を追加
+
+      ## 成功条件案
+      - 例外終了していない
+      - 出力 CSV が存在する
+      - 有効行数 >= 1
+
+      ## 完了条件
+      - success / failed の判定が一貫している
+      - 後段実行条件が明確になる
+      - 境界ケース（0件・invalidのみ）の挙動が固定される
+    labels:
+      - enhancement
+      - pipeline
+      - cli
+
+  - id: pipeline_status_reason_contract
+    title: "[2026-0003] status / stop reason 表現を整理する"
+    body: |
+      ## 概要
+      現在の status 表現は success / failed に偏っており、
+      途中停止や部分成功を十分に表現できていない。
+      実運用に即した status と reason を定義する。
+
+      ## 問題
+      - max_images 停止が success 扱いになる可能性がある
+      - memory threshold 停止が区別できない
+      - 後段未実行理由が不明確
+      - partial success の概念がない
+
+      ## 対応内容
+      - stage status の定義追加
+      - pipeline 全体 status の定義追加
+      - stop reason の体系化
+
+      ## status 案
+      - success
+      - failed
+      - stopped
+      - skipped
+      - partial_success
+
+      ## reason 案
+      - max_images_limit
+      - memory_threshold
+      - previous_stage_failed
+      - missing_nef_output_csv
+      - no_valid_rows
+
+      ## 完了条件
+      - すべての終了パターンが status + reason で説明できる
+      - summary だけで停止理由が分かる
+      - partial ケースが正しく表現される
+    labels:
+      - enhancement
+      - pipeline
+      - operations
+
+  - id: pipeline_summary_enhancement
+    title: "[2026-0004] pipeline summary の出力情報を拡充する"
+    body: |
+      ## 概要
+      現在の pipeline summary は基本構造はあるが、
+      運用・デバッグに必要な情報が不足している。
+      各 stage の結果を summary だけで把握できるようにする。
+
+      ## 問題
+      - portrait_quality の output が十分に取得されていない
+      - 処理件数が見えない
+      - invalid 件数が分からない
+      - 入出力関係が追いにくい
+
+      ## 対応内容
+      - stage ごとの output_csv_path 追加
+      - processed_count 追加
+      - invalid_count 追加
+      - input_csv_path の整理
+      - pipeline_summary.json の構造固定
+
+      ## 完了条件
+      - summary のみで処理状況が把握できる
+      - ログを掘らなくても状況が分かる
+      - 後段の成果物が明示される
+    labels:
+      - enhancement
+      - pipeline
+      - observability
+
+  - id: pipeline_execute_result_contract
+    title: "[2026-0005] processor 実行結果の戻り値仕様を整理する"
+    body: |
+      ## 概要
+      現在 run_batch は processor の成果物を推測している部分がある。
+      processor 側から明示的に結果を返すことで、pipeline 連携を安定化させる。
+
+      ## 問題
+      - output path を推測している
+      - processor ごとに情報取得方法が異なる
+      - run_batch 側のロジックが複雑化しやすい
+
+      ## 対応内容
+      - execute() の戻り値仕様を定義
+      - 共通フィールドの整理
+      - run_batch 側で戻り値を利用するよう修正
+      - 戻り値がない既存 processor との後方互換を維持
+
+      ## 完了条件
+      - run_batch が推測に依存しない
+      - processor 間で一貫した結果取得が可能
+      - summary の精度が向上する
+    labels:
+      - enhancement
+      - pipeline
+      - refactor
+
+  - id: epic_resume_runtime_contract
+    title: "[2026-0006] resume / max_images 実行仕様の固定管理"
+    body: |
+      portrait_quality を中心とした再実行系の挙動について、
+      現状は実装が先行しており、resume / max_images / session 管理の仕様境界がまだ十分に固定されていない。
+      本EPICでは、再実行時の一貫した運用を実現するため、実行仕様を整理・固定する。
+
+      背景:
+      - processed_images_<session>.txt による resume 制御は実装済み
+      - max_images による途中停止制御も実装済み
+      - ただし「何を処理済みとみなすか」「どの単位で継続するか」の仕様境界が未固定
+
+      主な論点:
+      - max_images の意味（今回件数か累積件数か）
+      - invalid row / failure row の扱い
+      - session 名と date / target_dir の優先関係
+      - processed_images ファイルのライフサイクル
+      - resume 時の再試行ポリシー
+
+      方針:
+      - 既存の resume 実装を前提に、運用ルールを後追いで明文化する
+      - まず仕様を固定し、その後に必要な実装修正を行う
+      - session 単位の再現性と説明可能性を優先する
+    labels:
+      - epic
+      - enhancement
+      - pipeline
+      - operations
+      - resume
+    children:
+      - resume_max_images_semantics
+      - resume_processed_state_contract
+      - resume_session_naming_contract
+
+  - id: resume_max_images_semantics
+    title: "[2026-0007] max_images の実行意味を固定する"
+    body: |
+      ## 概要
+      max_images の意味が運用上まだ曖昧であり、
+      「今回の実行で処理する最大件数」なのか、
+      「累積での処理到達件数」なのかが明確ではない。
+      本Issueでは、max_images の意味と停止条件を固定する。
+
+      ## 問題
+      - resume 実行時に max_images の解釈がぶれうる
+      - 途中停止後の再実行時に期待と異なる件数進む可能性がある
+      - stage summary 上でも停止理由と件数の関係が曖昧になりやすい
+
+      ## 対応内容
+      - max_images の定義を明文化
+      - 停止条件をコードとドキュメントで統一
+      - processed_count_this_run との関係整理
+      - resume 時の挙動を明文化
+      - summary / log への反映項目を整理
+
+      ## 仕様論点
+      - max_images は「今回の実行で新規に処理する最大件数」とするか
+      - 既処理画像を max_images に含めるか
+      - invalid row を max_images 消費対象に含めるか
+      - failed row を max_images 消費対象に含めるか
+
+      ## 完了条件
+      - max_images の定義が1通りに固定される
+      - resume 時でも件数解釈がぶれない
+      - 停止理由と処理件数の関係が説明可能になる
+    labels:
+      - enhancement
+      - resume
+      - operations
+
+  - id: resume_processed_state_contract
+    title: "[2026-0008] processed state と再試行ポリシーを整理する"
+    body: |
+      ## 概要
+      processed_images_<session>.txt により既処理画像のスキップは可能だが、
+      どの状態を「処理済み」とみなすか、および失敗時の再試行ポリシーが明確ではない。
+      本Issueでは processed state の意味を固定する。
+
+      ## 問題
+      - success / invalid / failure の扱いが曖昧
+      - 一度失敗した画像を次回どう扱うかが未固定
+      - processed_images ファイルの役割が「完了記録」か「スキップ記録」か曖昧
+
+      ## 対応内容
+      - processed とみなす状態を定義
+      - success 画像の記録条件を明文化
+      - invalid row の扱いを定義
+      - evaluator 失敗時の再試行ポリシーを定義
+      - 全件完了時の processed file 削除条件を固定
+
+      ## 仕様論点
+      - success のみ processed 扱いにするか
+      - invalid row は別管理にするか
+      - evaluator 例外画像は次回再試行するか
+      - memory_threshold / max_images 停止時の processed file の扱い
+
+      ## 完了条件
+      - processed_images の意味が一意に定まる
+      - 再試行ポリシーが明文化される
+      - 再実行時の挙動が予測可能になる
+    labels:
+      - enhancement
+      - resume
+      - reliability
+
+  - id: resume_session_naming_contract
+    title: "[2026-0009] session 名と date / target_dir 優先順位を固定する"
+    body: |
+      ## 概要
+      session 名は resume 単位や processed_images ファイル名に直結するため、
+      date / target_dir / fallback 値の優先順位が運用上重要である。
+      本Issueでは session 命名規則を固定する。
+
+      ## 問題
+      - target_dir 優先 / date 優先の境界が曖昧
+      - session 名の揺れが resume 単位の不整合につながる
+      - 実行ごとの成果物・processed state の追跡がしづらい
+
+      ## 対応内容
+      - session 名決定ルールを明文化
+      - date / target_dir / ALL の優先順位を固定
+      - 生成される成果物名との整合を確認
+      - processed_images_<session>.txt との関係を整理
+      - summary / log 上の session 表示ルールを統一
+
+      ## 優先順位案
+      - target_dir があればそのディレクトリ名
+      - なければ date
+      - どちらもなければ ALL
+
+      ## 完了条件
+      - session 名が常に同じ規則で決まる
+      - 再実行時の単位がぶれない
+      - 成果物と processed state の対応が追跡しやすくなる
+    labels:
+      - enhancement
+      - resume
+      - pipeline
+
+  - id: epic_runtime_stability_investigation
+    title: "[2026-0010] runtime stability / native crash 切り分け管理"
+    body: |
+      portrait_quality 実行時に発生しうる native crash / segfault / 初期化不安定動作について、
+      現状はデバッグログや直列実行への寄せを進めているが、原因確定には至っていない。
+      本EPICでは、runtime stability 問題を再現可能・説明可能な形で切り分け、
+      恒久対策につなげるための調査・整理を行う。
+
+      背景:
+      - 特定画像や特定条件下で segfault / native crash が疑われる
+      - evaluator 初期化前後 / load_image 前後 / evaluate 前後にはデバッグログが追加済み
+      - 並列実行時のみか、単発実行でも再現するかは十分に固定されていない
+
+      主な論点:
+      - 問題画像の再現性確認
+      - load_image / evaluator 初期化 / evaluate のどこで落ちるかの特定
+      - 並列実行と単発実行での差分確認
+      - insightface / onnxruntime / rawpy / OpenCV 系の切り分け
+      - 暫定回避策と恒久対策の整理
+
+      方針:
+      - まず再現条件を固定する
+      - 次に落ちる箇所を最小単位まで絞り込む
+      - 最後に運用上の暫定回避策と恒久対応方針を分離して整理する
+    labels:
+      - epic
+      - bug
+      - runtime
+      - stability
+      - investigation
+    children:
+      - runtime_reproducibility_contract
+      - runtime_fault_isolation
+      - runtime_mitigation_strategy
+
+  - id: runtime_reproducibility_contract
+    title: "[2026-0011] native crash の再現条件を固定する"
+    body: |
+      ## 概要
+      runtime stability 問題を調査するには、まず「どの条件で落ちるか」を再現可能な形で固定する必要がある。
+      本Issueでは、対象画像・実行条件・再現手順を整理し、切り分けの前提を固める。
+
+      ## 問題
+      - 問題画像が固定されていない場合、調査の再現性が下がる
+      - 実行条件（単発 / 並列 / max_images / resume）がぶれると比較が難しい
+      - 一度だけ落ちた事象と恒常的な再現事象が混在しやすい
+
+      ## 対応内容
+      - 問題画像を特定し、再現対象として固定する
+      - 最小再現手順を明文化する
+      - 単発実行 / 直列実行 / 並列実行での再現有無を整理する
+      - 実行時オプションと環境条件を記録する
+      - 再現結果をログとともに比較可能にする
+
+      ## 確認観点
+      - 同一画像で毎回再現するか
+      - 複数画像中の特定画像のみで再現するか
+      - 並列時のみ再現するか
+      - max_images 有無で変化するか
+      - resume 実行時のみ再現するか
+
+      ## 完了条件
+      - 調査対象となる再現条件が固定される
+      - 最小再現手順が文章化される
+      - 再現の有無を同じ条件で比較できるようになる
+    labels:
+      - bug
+      - runtime
+      - investigation
+
+  - id: runtime_fault_isolation
+    title: "[2026-0012] crash 発生箇所を load / init / evaluate 単位で切り分ける"
+    body: |
+      ## 概要
+      native crash が発生する場合、画像読み込み、evaluator 初期化、推論実行など複数の候補がある。
+      本Issueでは、どの処理段階で落ちるかを可能な限り狭い単位まで切り分ける。
+
+      ## 問題
+      - Python 例外ではなく native crash の場合、通常の stack trace が得られない
+      - 複数ライブラリが関与しており、原因箇所が分かりにくい
+      - 直列では安定し並列でのみ落ちる場合、切り分けが難しい
+
+      ## 対応内容
+      - load_image 前後のログ確認
+      - evaluator 初期化前後のログ確認
+      - evaluate 呼び出し前後のログ確認
+      - 問題画像単体での最小実行コード検討
+      - insightface / onnxruntime / rawpy / OpenCV 系の関与を段階的に切り分ける
+
+      ## 切り分け観点
+      - 画像読み込み時に落ちるか
+      - evaluator 構築時に落ちるか
+      - 推論実行時に落ちるか
+      - 特定 provider / det_size / モデル設定で変化するか
+      - スレッド数変更で再現性が変わるか
+
+      ## 完了条件
+      - crash の発生箇所が少なくとも処理段階レベルで特定される
+      - 疑わしい依存ライブラリ候補が絞り込まれる
+      - 恒久対策を検討できる材料が揃う
+    labels:
+      - bug
+      - runtime
+      - investigation
+      - debugging
+
+  - id: runtime_mitigation_strategy
+    title: "[2026-0013] runtime stability 問題の暫定回避策と恒久対応方針を整理する"
+    body: |
+      ## 概要
+      調査の結果に応じて、まずは運用を止めないための暫定回避策と、
+      根本的な修正・依存更新・実行制御変更などの恒久対応を分けて整理する。
+      本Issueでは、調査結果を実運用へ接続する。
+
+      ## 問題
+      - 原因未確定のまま運用を続けると再発時の影響が大きい
+      - 一時回避と恒久修正が混ざると方針がぶれやすい
+      - 並列数制限や問題画像スキップなどの判断基準が未整理
+
+      ## 対応内容
+      - 暫定回避策の候補整理
+      - 恒久対応候補の整理
+      - 運用ルールに反映すべき内容の整理
+      - 再発監視に必要なログ / summary 項目の洗い出し
+      - 実装タスク化が必要な項目を次Issueへ分離する
+
+      ## 暫定回避策の例
+      - 問題画像の隔離
+      - 単発 / 直列実行への切り替え
+      - 並列数制限
+      - 特定 evaluator / provider の無効化
+      - 問題条件でのスキップと記録
+
+      ## 恒久対応候補の例
+      - evaluator 初期化方式の見直し
+      - 依存ライブラリ更新 / 固定
+      - 問題画像に対する事前バリデーション追加
+      - 実行モデルや provider 選択の見直し
+      - エラー境界の明確化とフェイルセーフ強化
+
+      ## 完了条件
+      - 暫定回避策と恒久対応が分けて整理される
+      - 調査結果を次の実装タスクに接続できる
+      - 実運用上の判断基準が明文化される
+    labels:
+      - bug
+      - runtime
+      - stability
+      - operations

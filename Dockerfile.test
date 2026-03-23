@@ -20,6 +20,7 @@ ENV PATH="/opt/venv/bin:${PATH}"
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libraw20 \
     libglib2.0-0 \
+    libgl1 \
     tini \
     && rm -rf /var/lib/apt/lists/*
 
@@ -87,6 +88,12 @@ CMD ["bash"]
 # ci: dev と同等（実行コマンドを make で切替）
 # -----------------------------
 FROM dev AS ci
+
+# build 時の最低限確認
+RUN /opt/venv/bin/python - <<'PY'
+import cv2
+print("cv2 version:", cv2.__version__)
+PY
 
 # -----------------------------
 # runtime: 最小（requirements のみ）

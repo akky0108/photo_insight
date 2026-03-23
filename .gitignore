@@ -168,3 +168,4 @@ pip_freeze*.json
 # Build artifacts (generated configs)
 # =========================
 .build_config/
+models/
