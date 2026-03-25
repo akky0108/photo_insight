@@ -1,6 +1,8 @@
 services:
   photo_insight:
     user: "${UID:-1000}:${GID:-1000}"
+    working_dir: /work
+    init: true
 
     # 本番はビルドしない（開発と完全分離）
     image: "photo_insight:${PHOTO_INSIGHT_IMAGE_TAG:-prod}"
@@ -11,6 +13,7 @@ services:
     environment:
       TZ: Asia/Tokyo
       PHOTO_INSIGHT_LOG_CONFIG: /work/config/logging_config.yaml
+      MPLCONFIGDIR: /work/tmp/matplotlib
 
     volumes:
       # 入力（NASやローカル写真）
@@ -21,6 +24,7 @@ services:
       - ./logs:/work/logs
       - ./tmp:/work/tmp
       - ./output:/work/output
+      - ./models:/work/models
 
       # 設定（読み取り専用）
       - ./config:/work/config:ro
