@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import csv
 import gc
 import os
@@ -102,6 +103,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
         self._original_max_workers: int = self.max_workers
 
+    # ============================================================
+    # debug / utility
+    # ============================================================
     def _dbg(self, message: str) -> None:
         print(f"[PQ-DBG] {message}", flush=True)
         try:
@@ -109,6 +113,23 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         except Exception:
             pass
 
+    def _get_max_images_limit(self) -> Optional[int]:
+        if self.max_images is None:
+            return None
+
+        try:
+            limit = int(self.max_images)
+        except Exception as e:
+            raise ValueError(f"Invalid max_images: {self.max_images}") from e
+
+        if limit < 0:
+            raise ValueError(f"max_images must be >= 0. got: {limit}")
+
+        return limit
+
+    # ============================================================
+    # config callback
+    # ============================================================
     def on_config_change(self, new_config: dict) -> None:
         self.logger.info("Config updated. Applying new settings...")
         self.batch_size = new_config.get("batch_size", self.batch_size)
@@ -152,16 +173,9 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         max_images による途中停止判定。
         主目的は「途中停止 → 次回 resume」。
         """
-        if self.max_images is None:
+        limit = self._get_max_images_limit()
+        if limit is None:
             return False
-
-        try:
-            limit = int(self.max_images)
-        except Exception as e:
-            raise ValueError(f"Invalid max_images: {self.max_images}") from e
-
-        if limit < 0:
-            raise ValueError(f"max_images must be >= 0. got: {limit}")
 
         if limit == 0:
             self.request_stop("max_images_limit")
@@ -175,7 +189,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         return False
 
     # ============================================================
-    # paths
+    # path resolution
     # ============================================================
     def _resolve_session_name(self) -> str:
         if self.target_dir:
@@ -225,40 +239,6 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         out_dir.mkdir(parents=True, exist_ok=True)
         return out_dir
 
-    # ============================================================
-    # lifecycle
-    # ============================================================
-    def setup(self) -> None:
-        self.logger.info("Setting up PortraitQualityBatchProcessor...")
-
-        self._stop_event = Event()
-        self.memory_threshold_exceeded = False
-        self.completed_all_batches = False
-        self.processed_count_this_run = 0
-        self.processed_images = set()
-
-        # max_images 実行時は strict stop 制御のため single-worker 強制
-        self._original_max_workers = self.max_workers
-        if self.max_images is not None:
-            self.max_workers = 1
-            self.logger.info(
-                "max_images mode enabled. forcing single-worker execution for strict stop control "
-                f"(max_images={self.max_images})."
-            )
-
-        self._should_stop_by_max_images()
-
-        out_dir = self._resolve_output_directory()
-        self.output_directory = str(out_dir)
-        self.logger.info(f"PortraitQuality output dir: {self.output_directory}")
-
-        self._set_directories_and_files()
-
-        self._load_processed_images()
-        self._start_processed_count = len(self.processed_images)
-
-        super().setup()
-
     def _set_directories_and_files(self) -> None:
         picture_root = self.config.get("picture_root", "/mnt/l/picture")
         out_dir = self.output_directory or self.config.get("output_directory", "temp")
@@ -296,6 +276,102 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
         self.logger.info(f"Base directory: {self.base_directory}")
 
+    # ============================================================
+    # lifecycle
+    # ============================================================
+    def setup(self) -> None:
+        self.logger.info("Setting up PortraitQualityBatchProcessor...")
+
+        self._stop_event = Event()
+        self.memory_threshold_exceeded = False
+        self.completed_all_batches = False
+        self.processed_count_this_run = 0
+        self.processed_images = set()
+
+        # max_images 実行時は strict stop 制御のため single-worker 強制
+        self._original_max_workers = self.max_workers
+        if self.max_images is not None:
+            self.max_workers = 1
+            self.logger.info(
+                "max_images mode enabled. forcing single-worker execution for strict stop control "
+                f"(max_images={self.max_images})."
+            )
+
+        self._should_stop_by_max_images()
+
+        out_dir = self._resolve_output_directory()
+        self.output_directory = str(out_dir)
+        self.logger.info(f"PortraitQuality output dir: {self.output_directory}")
+
+        self._set_directories_and_files()
+
+        self._load_processed_images()
+        self._start_processed_count = len(self.processed_images)
+
+        super().setup()
+
+    def cleanup(self) -> None:
+        super().cleanup()
+        self.logger.info("Cleaning up PortraitQualityBatchProcessor-specific resources.")
+
+        processed_this_run = len(self.processed_images) - int(self._start_processed_count or 0)
+        remaining_count = int(self._total_images_to_process or 0) - processed_this_run
+        if remaining_count < 0:
+            remaining_count = 0
+
+        self._dbg(
+            f"cleanup counts: processed_this_run={processed_this_run}, "
+            f"remaining_count={remaining_count}, "
+            f"total_images={self._total_images_to_process}, "
+            f"start_processed={self._start_processed_count}"
+        )
+
+        self.processed_count_this_run = int(processed_this_run)
+
+        if (
+            self.max_images is not None
+            and not self.memory_threshold_exceeded
+            and int(self.processed_count_this_run or 0) > 0
+            and int(self.processed_count_this_run or 0) < int(self._total_images_to_process or 0)
+        ):
+            if not self.get_stop_reason():
+                self.request_stop("max_images_limit")
+
+        if self.memory_threshold_exceeded:
+            if not self.get_stop_reason():
+                self.request_stop("memory_threshold")
+
+            self.logger.warning(
+                f"Batch processing stopped due to memory threshold. "
+                f"Processed {processed_this_run} images, {remaining_count} remaining. "
+                "You can re-run to continue remaining images."
+            )
+        elif self.get_stop_reason() == "max_images_limit":
+            self.logger.info(
+                f"Batch processing stopped by max_images. "
+                f"Processed {processed_this_run} images, {remaining_count} remaining. "
+                "You can re-run to continue remaining images."
+            )
+        elif self.completed_all_batches:
+            self.logger.info(f"All batches processed successfully. Total processed images: {processed_this_run}")
+
+        processed_file = self.processed_images_file
+        if (
+            self.completed_all_batches
+            and not self.memory_threshold_exceeded
+            and self.get_stop_reason() is None
+            and processed_file
+            and os.path.exists(processed_file)
+        ):
+            self.logger.info(f"Removing processed images file: {processed_file}")
+            os.remove(processed_file)
+
+        # setup() で max_images 用に変更した worker 数を戻す
+        self.max_workers = self._original_max_workers
+
+    # ============================================================
+    # persistence
+    # ============================================================
     def _load_processed_images(self) -> None:
         if self.processed_images_file and os.path.exists(self.processed_images_file):
             with open(self.processed_images_file, "r", encoding="utf-8") as f:
@@ -304,6 +380,59 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
         if self.result_csv_file and os.path.exists(self.result_csv_file):
             self.logger.info(f"Result file exists: {self.result_csv_file} — continuing from previous run.")
+
+    def _mark_as_processed(self, file_name: str) -> None:
+        self._mark_many_as_processed([file_name])
+
+    def _mark_many_as_processed(self, file_names: List[str]) -> None:
+        if not self.processed_images_file:
+            raise RuntimeError("processed_images_file is not set")
+
+        cleaned_names = [f.strip() for f in file_names if f and str(f).strip()]
+        if not cleaned_names:
+            return
+
+        with self._processed_lock:
+            new_names = [f for f in cleaned_names if f not in self.processed_images]
+            if not new_names:
+                return
+
+            with open(self.processed_images_file, "a", encoding="utf-8") as f:
+                for name in new_names:
+                    f.write(f"{name}\n")
+                f.flush()
+                os.fsync(f.fileno())
+
+            self.processed_images.update(new_names)
+            self.logger.debug(f"Marked {len(new_names)} images as processed")
+
+    def save_results(self, results: List[Dict[str, Union[str, float, bool, None]]], file_path: str) -> None:
+        self.logger.info(f"Saving results to {file_path}")
+
+        file_exists = os.path.isfile(file_path)
+        results_sorted = sorted(results, key=lambda x: str(x.get("file_name", "")))
+
+        header_generator = PortraitQualityHeaderGenerator()
+        fieldnames = header_generator.get_all_headers()
+
+        if "status" not in fieldnames:
+            fieldnames.append("status")
+        if "error_type" not in fieldnames:
+            fieldnames.append("error_type")
+        if "error_message" not in fieldnames:
+            fieldnames.append("error_message")
+
+        with self.get_lock():
+            with open(file_path, "a", newline="", encoding="utf-8") as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames, extrasaction="ignore")
+                if not file_exists:
+                    writer.writeheader()
+
+                for row in results_sorted:
+                    writer.writerow({key: row.get(key, None) for key in fieldnames})
+
+                csvfile.flush()
+                os.fsync(csvfile.fileno())
 
     # ============================================================
     # data loading / validation
@@ -413,6 +542,14 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         self.logger.info(f"Loaded {len(valid_rows)} valid rows from {self.image_csv_file}")
         return valid_rows
 
+    def load_data(self) -> List[Dict[str, str]]:
+        raw_data = self.load_image_data()
+
+        with self._processed_lock:
+            todo = [d for d in raw_data if d.get("file_name") not in self.processed_images]
+
+        return todo
+
     def after_data_loaded(self, data: List[Dict[str, Any]]) -> None:
         self._total_images_to_process = len(data)
 
@@ -427,16 +564,8 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         self.logger.info(f"Memory usage threshold set to {self.memory_threshold}% from config.")
         self.logger.info(f"Total images to process (raw): {self._total_images_to_process}")
 
-    def load_data(self) -> List[Dict[str, str]]:
-        raw_data = self.load_image_data()
-
-        with self._processed_lock:
-            todo = [d for d in raw_data if d.get("file_name") not in self.processed_images]
-
-        return todo
-
     # ============================================================
-    # batch processing
+    # image processing helpers
     # ============================================================
     def _build_result_skeleton(self, file_name: str) -> Dict[str, Any]:
         return {
@@ -472,6 +601,14 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             "face_local_sharpness_std": None,
             "face_local_contrast_score": None,
             "face_local_contrast_std": None,
+        }
+
+    def _build_stop_result(self, file_name: str, status: str) -> Dict[str, Any]:
+        return {
+            "file_name": os.path.basename(file_name),
+            "status": status,
+            "error_type": None,
+            "error_message": None,
         }
 
     def _parse_orientation(self, orientation: str, file_name: str) -> Optional[int]:
@@ -519,78 +656,6 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         eval_result = evaluator.evaluate()
         self._dbg(f"after evaluator.evaluate: {file_name}, result_type={type(eval_result).__name__}")
         return eval_result or {}, evaluator
-
-    def _build_stop_result(self, file_name: str, status: str) -> Dict[str, Any]:
-        return {
-            "file_name": os.path.basename(file_name),
-            "status": status,
-            "error_type": None,
-            "error_message": None,
-        }
-
-    def _process_batch(self, batch: List[Dict[str, str]]) -> List[Dict[str, Any]]:
-        if self._stopping():
-            return []
-
-        if self._check_and_maybe_stop("batch_start"):
-            return []
-
-        if self._should_stop_by_max_images():
-            self.logger.info(
-                f"max_images limit reached before batch start "
-                f"({self.processed_count_this_run}/{self.max_images}). stopping."
-            )
-            return []
-
-        with self._processed_lock:
-            batch = [img for img in batch if img.get("file_name") not in self.processed_images]
-
-        self._dbg(f"_process_batch start: filtered_batch_size={len(batch)}")
-
-        if not batch:
-            self.logger.debug("All images in this batch are already processed. Skipping.")
-            return []
-
-        if self.max_images is not None or (self.max_workers or 1) == 1:
-            results = self._process_batch_serial(batch)
-        else:
-            results = self._process_batch_parallel(batch)
-
-        self._dbg(f"_process_batch after processing: results_count={len(results)}")
-
-        if results and self.result_csv_file:
-            self._dbg(f"before save_results: result_csv_file={self.result_csv_file}, " f"results_count={len(results)}")
-            self.save_results(results, self.result_csv_file)
-            self._dbg(f"after save_results: result_csv_file={self.result_csv_file}, " f"results_count={len(results)}")
-
-            successful_files = [
-                str(r.get("file_name")) for r in results if r.get("status") == "success" and r.get("file_name")
-            ]
-            self._mark_many_as_processed(successful_files)
-            self.processed_count_this_run = int(self.processed_count_this_run or 0) + len(successful_files)
-
-        gc.collect()
-        self.memory_monitor.log_usage(prefix="Post batch GC")
-        self._check_and_maybe_stop("batch_end")
-
-        mini: List[Dict[str, Any]] = []
-        for r in results or []:
-            score = r.get("overall_score", None)
-            try:
-                score_f = float(score) if score not in ("", None) else None
-            except Exception:
-                score_f = None
-
-            mini.append(
-                {
-                    "status": r.get("status"),
-                    "file_name": r.get("file_name"),
-                    "score": score_f,
-                    "error_type": r.get("error_type"),
-                }
-            )
-
-        return mini
 
     def process_image(
         self,
@@ -659,9 +724,6 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         if self._stop_event.is_set():
             return None
 
-        if self._should_stop_by_max_images():
-            return None
-
         try:
             if not self.base_directory:
                 raise RuntimeError("base_directory is not set")
@@ -691,8 +753,19 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
 
         return None
 
+    # ============================================================
+    # batch processing
+    # ============================================================
     def _process_batch_serial(self, batch: List[Dict[str, str]]) -> List[Dict[str, Any]]:
         results: List[Dict[str, Any]] = []
+        submitted_count = 0
+
+        limit = self._get_max_images_limit()
+        if limit == 0:
+            self.request_stop("max_images_limit")
+            return results
+
+        already_processed = int(self.processed_count_this_run or 0)
 
         for idx, img_info in enumerate(batch, start=1):
             file_name = img_info.get("file_name")
@@ -702,10 +775,13 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                 break
             if self._check_and_maybe_stop("serial_loop"):
                 break
-            if self._should_stop_by_max_images():
+
+            if limit is not None and (already_processed + submitted_count) >= limit:
+                self.request_stop("max_images_limit")
                 break
 
             result = self._process_single_image(img_info)
+            submitted_count += 1
 
             if result:
                 results.append(result)
@@ -715,20 +791,32 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
     def _process_batch_parallel(self, batch: List[Dict[str, str]]) -> List[Dict[str, Any]]:
         results: List[Dict[str, Any]] = []
 
+        limit = self._get_max_images_limit()
+        if limit == 0:
+            self.request_stop("max_images_limit")
+            return results
+
+        already_processed = int(self.processed_count_this_run or 0)
+        submitted_count = 0
+
         with ThreadPoolExecutor(max_workers=self.max_workers or 2) as executor:
             futures = []
 
             for idx, img_info in enumerate(batch, start=1):
                 file_name = img_info.get("file_name")
+
                 if self._stop_event.is_set():
                     break
                 if self._check_and_maybe_stop("parallel_before_submit"):
                     break
-                if self._should_stop_by_max_images():
+
+                if limit is not None and (already_processed + submitted_count) >= limit:
+                    self.request_stop("max_images_limit")
                     break
 
                 self._dbg(f"_process_batch_parallel submit idx={idx}, file={file_name}")
                 futures.append(executor.submit(self._process_single_image, img_info))
+                submitted_count += 1
 
             cancelled_pending = False
             for future_idx, future in enumerate(as_completed(futures), start=1):
@@ -750,144 +838,87 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                         f"_process_batch_parallel future exception idx={future_idx}, "
                         f"type={type(e).__name__}, repr={e!r}"
                     )
-                    continue
 
         return results
 
-    # ============================================================
-    # persistence
-    # ============================================================
-    def _mark_as_processed(self, file_name: str) -> None:
-        self._mark_many_as_processed([file_name])
+    def _process_batch(self, batch: List[Dict[str, str]]) -> List[Dict[str, Any]]:
+        if self._stopping():
+            return []
 
-    def _mark_many_as_processed(self, file_names: List[str]) -> None:
-        if not self.processed_images_file:
-            raise RuntimeError("processed_images_file is not set")
+        if self._check_and_maybe_stop("batch_start"):
+            return []
 
-        cleaned_names = [f.strip() for f in file_names if f and str(f).strip()]
-        if not cleaned_names:
-            return
+        if self._should_stop_by_max_images():
+            self.logger.info(
+                f"max_images limit reached before batch start "
+                f"({self.processed_count_this_run}/{self.max_images}). stopping."
+            )
+            return []
 
         with self._processed_lock:
-            new_names = [f for f in cleaned_names if f not in self.processed_images]
-            if not new_names:
-                return
+            batch = [img for img in batch if img.get("file_name") not in self.processed_images]
 
-            with open(self.processed_images_file, "a", encoding="utf-8") as f:
-                for name in new_names:
-                    f.write(f"{name}\n")
-                f.flush()
-                os.fsync(f.fileno())
+        self._dbg(f"_process_batch start: filtered_batch_size={len(batch)}")
 
-            self.processed_images.update(new_names)
-            self.logger.debug(f"Marked {len(new_names)} images as processed")
+        if not batch:
+            self.logger.debug("All images in this batch are already processed. Skipping.")
+            return []
 
-    def save_results(self, results: List[Dict[str, Union[str, float, bool, None]]], file_path: str) -> None:
-        self.logger.info(f"Saving results to {file_path}")
+        if self.max_images is not None or (self.max_workers or 1) == 1:
+            results = self._process_batch_serial(batch)
+        else:
+            results = self._process_batch_parallel(batch)
 
-        file_exists = os.path.isfile(file_path)
-        results_sorted = sorted(results, key=lambda x: str(x.get("file_name", "")))
+        self._dbg(f"_process_batch after processing: results_count={len(results)}")
 
-        header_generator = PortraitQualityHeaderGenerator()
-        fieldnames = header_generator.get_all_headers()
+        if results and self.result_csv_file:
+            self._dbg(f"before save_results: result_csv_file={self.result_csv_file}, " f"results_count={len(results)}")
+            self.save_results(results, self.result_csv_file)
+            self._dbg(f"after save_results: result_csv_file={self.result_csv_file}, " f"results_count={len(results)}")
 
-        if "status" not in fieldnames:
-            fieldnames.append("status")
-        if "error_type" not in fieldnames:
-            fieldnames.append("error_type")
-        if "error_message" not in fieldnames:
-            fieldnames.append("error_message")
+            successful_files = [
+                str(r.get("file_name")) for r in results if r.get("status") == "success" and r.get("file_name")
+            ]
+            self._mark_many_as_processed(successful_files)
+            self.processed_count_this_run = int(self.processed_count_this_run or 0) + len(successful_files)
 
-        with self.get_lock():
-            with open(file_path, "a", newline="", encoding="utf-8") as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=fieldnames, extrasaction="ignore")
-                if not file_exists:
-                    writer.writeheader()
+        gc.collect()
+        self.memory_monitor.log_usage(prefix="Post batch GC")
+        self._check_and_maybe_stop("batch_end")
 
-                for row in results_sorted:
-                    writer.writerow({key: row.get(key, None) for key in fieldnames})
+        mini: List[Dict[str, Any]] = []
+        for r in results or []:
+            score = r.get("overall_score", None)
+            try:
+                score_f = float(score) if score not in ("", None) else None
+            except Exception:
+                score_f = None
 
-                csvfile.flush()
-                os.fsync(csvfile.fileno())
-
-    # ============================================================
-    # cleanup
-    # ============================================================
-    def cleanup(self) -> None:
-        super().cleanup()
-        self.logger.info("Cleaning up PortraitQualityBatchProcessor-specific resources.")
-
-        processed_this_run = len(self.processed_images) - int(self._start_processed_count or 0)
-        remaining_count = int(self._total_images_to_process or 0) - processed_this_run
-        if remaining_count < 0:
-            remaining_count = 0
-
-        self._dbg(
-            f"cleanup counts: processed_this_run={processed_this_run}, "
-            f"remaining_count={remaining_count}, "
-            f"total_images={self._total_images_to_process}, "
-            f"start_processed={self._start_processed_count}"
-        )
-
-        self.processed_count_this_run = int(processed_this_run)
-
-        if (
-            self.max_images is not None
-            and not self.memory_threshold_exceeded
-            and int(self.processed_count_this_run or 0) > 0
-            and int(self.processed_count_this_run or 0) < int(self._total_images_to_process or 0)
-        ):
-            if not self.get_stop_reason():
-                self.request_stop("max_images_limit")
-
-        if self.memory_threshold_exceeded:
-            if not self.get_stop_reason():
-                self.request_stop("memory_threshold")
-
-            self.logger.warning(
-                f"Batch processing stopped due to memory threshold. "
-                f"Processed {processed_this_run} images, {remaining_count} remaining. "
-                "You can re-run to continue remaining images."
+            mini.append(
+                {
+                    "status": r.get("status"),
+                    "file_name": r.get("file_name"),
+                    "score": score_f,
+                    "error_type": r.get("error_type"),
+                }
             )
-        elif self.get_stop_reason() == "max_images_limit":
-            self.logger.info(
-                f"Batch processing stopped by max_images. "
-                f"Processed {processed_this_run} images, {remaining_count} remaining. "
-                "You can re-run to continue remaining images."
-            )
-        elif self.completed_all_batches:
-            self.logger.info(f"All batches processed successfully. Total processed images: {processed_this_run}")
 
-        processed_file = self.processed_images_file
-        if (
-            self.completed_all_batches
-            and not self.memory_threshold_exceeded
-            and self.get_stop_reason() is None
-            and processed_file
-            and os.path.exists(processed_file)
-        ):
-            self.logger.info(f"Removing processed images file: {processed_file}")
-            os.remove(processed_file)
-
-        # setup() で max_images 用に変更した worker 数を戻す
-        self.max_workers = self._original_max_workers
+        return mini
 
 
 if __name__ == "__main__":
-    import argparse
-
     parser = argparse.ArgumentParser(description="Process images with PortraitQualityBatchProcessor.")
     parser.add_argument(
         "--config_path",
         type=str,
         default=None,
-        help=("Config file path (optional). " "If omitted, ConfigManager uses CONFIG_ENV / defaults."),
+        help=("Config file path (optional). If omitted, ConfigManager uses CONFIG_ENV / defaults."),
     )
     parser.add_argument(
         "--config_env",
         type=str,
         default=None,
-        help=("Config environment (e.g. prod/test). " "If omitted, CONFIG_ENV env-var may be used."),
+        help=("Config environment (e.g. prod/test). If omitted, CONFIG_ENV env-var may be used."),
     )
     parser.add_argument(
         "--config_paths",
