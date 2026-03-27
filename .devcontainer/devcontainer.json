@@ -35,17 +35,19 @@
           "**/temp/**": true,
           "**/tmp/**": true,
           "**/backup/**": true
-        }
+        },
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "git.enableSmartCommit": true,
+        "githubPullRequests.pullBranch": "never"
       },
       "extensions": [
         "ms-python.python",
         "ms-python.vscode-pylance",
         "charliermarsh.ruff",
-        "ms-azuretools.vscode-docker",
-        "redhat.vscode-yaml",
+        "eamodio.gitlens",
         "github.vscode-github-actions"
       ]
     }
   },
-  "postCreateCommand": "python -V && pip -V && git --version && ssh -V && python -c 'import sys; print(sys.executable)' && ruff --version && pytest --version"
+  "postCreateCommand": "python -V && pip -V && git --version && ssh -V && gh --version && python -c 'import sys; print(sys.executable)' && ruff --version && pytest --version"
 }
