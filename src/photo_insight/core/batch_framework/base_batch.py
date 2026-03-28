@@ -79,6 +79,13 @@ class BaseBatchProcessor(ABC):
       processor 側が runtime_param_names に宣言したものだけを FW が属性反映する
     - process() には runtime kwargs を渡さない
     - processor は setup()/load_data()/_process_batch() で反映済み属性を参照する
+
+    max_images policy
+    -----------------
+    - max_images は「実際に処理される件数の上限」とする
+    - 判定は submit 前に行う
+    - worker 内停止に依存しない
+    - memory_threshold より max_images 到達を優先して submit を止める
     """
 
     #: 実行時に FW が属性へ反映してよい runtime parameter 名の一覧
@@ -245,6 +252,7 @@ class BaseBatchProcessor(ABC):
         self.all_results = []
 
         self.run_ctx = None
+        self.processed_count = 0
 
     # ============================================================
     # stop (base API)
@@ -457,6 +465,7 @@ class BaseBatchProcessor(ABC):
         self.completed_all_batches = False
         self.final_summary = {}
         self.all_results = []
+        self.processed_count = 0
 
         if data is None:
             if isinstance(getattr(self, "data", None), list):
@@ -464,21 +473,45 @@ class BaseBatchProcessor(ABC):
             else:
                 data = self.get_data()
 
+        data = list(data or [])
+        applied_max_images = self._resolve_max_images()
+        total_input_items = len(data)
+
         batches = self._generate_batches(data)
         failed_batches: List[int] = []
         all_results: List[Dict[str, Any]] = []
 
         if not batches:
             self.logger.info("No data to process. Skipping batch execution.")
+            self.final_summary = self._summarize_results(
+                results=[],
+                applied_max_images=applied_max_images,
+                submitted_items=0,
+                input_items=total_input_items,
+            )
             return
 
         futures: Dict[Future, Tuple[int, List[Dict[str, Any]]]] = {}
         stop_requested = False
         submitted_batches = 0
+        submitted_items = 0
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # Submit phase
             for i, batch in enumerate(batches):
+                if not batch:
+                    continue
+
+                # max_images is evaluated BEFORE memory threshold.
+                if applied_max_images is not None and submitted_items >= applied_max_images:
+                    stop_requested = True
+                    self.request_stop("max_images_limit")
+                    self.logger.info(
+                        f"[{self.__class__.__name__}] Reached max_images before submitting batch {i + 1}: "
+                        f"submitted_items={submitted_items}, max_images={applied_max_images}"
+                    )
+                    break
+
                 if self._should_stop_processing():
                     stop_requested = True
                     self.logger.warning(
@@ -486,20 +519,41 @@ class BaseBatchProcessor(ABC):
                     )
                     break
 
-                future = executor.submit(self._safe_process_batch, batch)
-                futures[future] = (i + 1, batch)
+                batch_to_submit = batch
+                if applied_max_images is not None:
+                    remaining = applied_max_images - submitted_items
+                    if remaining <= 0:
+                        stop_requested = True
+                        self.request_stop("max_images_limit")
+                        break
+                    if len(batch_to_submit) > remaining:
+                        batch_to_submit = batch_to_submit[:remaining]
+
+                future = executor.submit(self._safe_process_batch, batch_to_submit)
+                futures[future] = (i + 1, batch_to_submit)
                 submitted_batches += 1
+                submitted_items += len(batch_to_submit)
 
             # Collect phase
             cancelled_pending = False
+            cancel_stop_reasons = {"memory_threshold", "signal_interrupt", "exception"}
+
             for future in as_completed(futures):
                 batch_idx, batch_data = futures[future]
 
-                if not cancelled_pending and self._should_stop_processing():
+                current_stop_reason = self.get_stop_reason()
+                should_cancel_pending = (
+                    not cancelled_pending
+                    and self._should_stop_processing()
+                    and current_stop_reason in cancel_stop_reasons
+                )
+
+                if should_cancel_pending:
                     cancelled_pending = True
                     stop_requested = True
                     for f in futures:
-                        f.cancel()
+                        if f is not future:
+                            f.cancel()
 
                 try:
                     batch_results = future.result()
@@ -518,12 +572,20 @@ class BaseBatchProcessor(ABC):
                     if self.fail_fast:
                         self.request_stop("exception")
 
-        summary = self._summarize_results(all_results)
+            self.processed_count = len(all_results)
+
+        summary = self._summarize_results(
+            results=all_results,
+            applied_max_images=applied_max_images,
+            submitted_items=submitted_items,
+            input_items=total_input_items,
+        )
         self.logger.info(f"[{self.__class__.__name__}] Batch Summary: {summary}")
 
         self.logger.info(
             f"[{self.__class__.__name__}] Processed(actual) total={summary['total']} "
-            f"success={summary['success']} failure={summary['failure']}"
+            f"success={summary['success']} failure={summary['failure']} "
+            f"submitted_items={submitted_items} applied_max_images={applied_max_images}"
         )
 
         if self._should_log_summary_detail() and summary["avg_score"] is not None:
@@ -545,6 +607,7 @@ class BaseBatchProcessor(ABC):
             self.logger.warning(
                 f"[{self.__class__.__name__}] Processing stopped early. "
                 f"submitted_batches={submitted_batches}/{len(batches)} "
+                f"submitted_items={submitted_items}/{total_input_items} "
                 f"stop_reason={self.get_stop_reason()}"
             )
         else:
@@ -568,6 +631,8 @@ class BaseBatchProcessor(ABC):
                     {
                         "processor": self.__class__.__name__,
                         "data_count": len(data or []),
+                        "input_items": int(total_input_items),
+                        "processed_count": int(self.processed_count),
                         "max_workers": self.max_workers,
                         "config_path": self.config_path,
                         "runtime_param_names": list(self.get_runtime_param_names()),
@@ -577,6 +642,8 @@ class BaseBatchProcessor(ABC):
                         "stop_reason": self.get_stop_reason(),
                         "submitted_batches": int(submitted_batches),
                         "total_batches": int(len(batches)),
+                        "submitted_items": int(submitted_items),
+                        "applied_max_images": applied_max_images,
                     }
                 )
 
@@ -594,11 +661,43 @@ class BaseBatchProcessor(ABC):
     def _safe_process_batch(self, batch: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         return self._process_batch(batch)
 
-    def _summarize_results(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _resolve_max_images(self) -> Optional[int]:
+        """
+        max_images の適用値を解決する。
+
+        Policy:
+        - runtime param 等で self.max_images が設定されていればそれを優先
+        - None / 0以下 / int化不可 は「未指定」とみなす
+        """
+        raw = getattr(self, "max_images", None)
+
+        if raw in (None, ""):
+            return None
+
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            self.logger.warning(f"[{self.__class__.__name__}] Invalid max_images={raw!r}; treated as unlimited.")
+            return None
+
+        if value <= 0:
+            self.logger.warning(f"[{self.__class__.__name__}] Non-positive max_images={value}; treated as unlimited.")
+            return None
+
+        return value
+
+    def _summarize_results(
+        self,
+        results: List[Dict[str, Any]],
+        applied_max_images: Optional[int] = None,
+        submitted_items: Optional[int] = None,
+        input_items: Optional[int] = None,
+    ) -> Dict[str, Any]:
         """
         Summary policy:
         - success: status == "success"
         - avg_score: success のうち score が None/"" ではないものだけで平均（無いなら None）
+        - total: 実際に返却された result 件数
         """
         success = [r for r in results if r.get("status") == "success"]
         failure = [r for r in results if r.get("status") != "success"]
@@ -620,6 +719,10 @@ class BaseBatchProcessor(ABC):
             "success": len(success),
             "failure": len(failure),
             "avg_score": round(avg_score, 2) if avg_score is not None else None,
+            "applied_max_images": applied_max_images,
+            "submitted_items": submitted_items,
+            "input_items": input_items,
+            "stop_reason": self.get_stop_reason(),
         }
 
     def cleanup(self) -> None:

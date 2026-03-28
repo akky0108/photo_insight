@@ -583,3 +583,173 @@ issues:
       - github
       - ci
       - observability
+
+  # =========================================
+  # [EPIC] PortraitQualityBatchProcessor 改善
+  # 実施順:
+  #   ① 2026-0021 max_images 判定共通化（ロジック統一の土台）
+  #   ② 2026-0023 cleanup stop_reason 明確化（停止責務整理）
+  #   ③ 2026-0022 debug 出力整理（ログ安定化）
+  #   ④ 2026-0024 path 解決分割（構造整理）
+  #   ⑤ 2026-0025 CSV validation テスト追加（品質固定化）
+  # =========================================
+  - id: epic_portrait_quality_processor_refinement
+    title: "[2026-0020] PortraitQualityBatchProcessor 改善 EPIC"
+    body: |
+      概要:
+      PortraitQualityBatchProcessor は max_images 厳密適用対応により実用段階へ到達したが、
+      stop制御・debug出力・責務分割・テスト強化の観点では改善余地が残っている。
+      本EPICでは、今後の運用安定性と保守性を高めるため、processor内部の設計整理と
+      周辺テスト強化を段階的に進める。
+
+      現状:
+      - max_images の submit前停止は実装済み
+      - serial / parallel の処理分岐は整理済み
+      - cleanup や debug 出力、path解決処理には改善余地がある
+      - CSV validation は実装済みだが、テストの固定化は十分ではない
+
+      主な論点:
+      - stop_reason の決定責務をどこに置くか
+      - max_images 判定ロジックの重複をどう減らすか
+      - debug出力を運用に耐える形へどう整理するか
+      - path解決やCSV validationをどう保守しやすくするか
+
+      方針:
+      - 挙動変更を最小限に抑えつつ内部整理を行う
+      - 共通化・責務分離・テスト追加を優先する
+      - BaseBatch には波及させず、まずは PortraitQualityBatchProcessor 内で完結させる
+
+    labels:
+      - epic
+      - enhancement
+    children:
+      - issue_pq_max_images_limit_refactor
+      - issue_pq_cleanup_stop_reason_clarify
+      - issue_pq_debug_output_cleanup
+      - issue_pq_path_resolution_split
+      - issue_pq_csv_validation_tests
+
+  # =========================================
+  # ① 最優先: ロジックの基盤統一
+  # =========================================
+  - id: issue_pq_max_images_limit_refactor
+    title: "[2026-0021] max_images 判定ロジックを共通化する"
+    body: |
+      ## 概要
+      PortraitQualityBatchProcessor 内に分散している max_images 判定ロジックを共通化し、
+      今後の修正時に判定条件のズレが起きにくい状態にする。
+
+      ## 問題
+      - max_images 判定が複数箇所に分散している
+      - 同じ意味の判定式が複数存在する
+
+      ## 対応内容
+      - 判定関数を1箇所に集約
+      - serial / parallel / batch開始前で統一利用
+
+      ## 完了条件
+      - 判定ロジックが1箇所に集約されている
+      - 既存テストが全て通る
+
+    labels:
+      - enhancement
+
+  # =========================================
+  # ② 停止責務の明確化（バグ防止）
+  # =========================================
+  - id: issue_pq_cleanup_stop_reason_clarify
+    title: "[2026-0023] cleanup における stop_reason 判定を明確化する"
+    body: |
+      ## 概要
+      cleanup による stop_reason の推論を廃止し、
+      停止理由は発生箇所で確定する設計にする。
+
+      ## 問題
+      - cleanup が stop_reason を後付けしている
+      - 停止理由の責務が曖昧
+
+      ## 対応内容
+      - request_stop を停止箇所に限定
+      - cleanup は集計のみ
+
+      ## 完了条件
+      - stop_reason が一貫して設定される
+      - cleanup に推論ロジックがない
+
+    labels:
+      - enhancement
+
+  # =========================================
+  # ③ ログ整理（運用安定化）
+  # =========================================
+  - id: issue_pq_debug_output_cleanup
+    title: "[2026-0022] debug 出力を logger ベースに整理する"
+    body: |
+      ## 概要
+      debug 出力を logger に統一し、運用ログを整理する。
+
+      ## 問題
+      - print + logger の二重出力
+      - CIログが読みにくい
+
+      ## 対応内容
+      - print 廃止
+      - debug フラグ導入
+
+      ## 完了条件
+      - logger ベースに統一
+      - debug 出力のON/OFF制御可能
+
+    labels:
+      - enhancement
+
+  # =========================================
+  # ④ 構造改善（保守性）
+  # =========================================
+  - id: issue_pq_path_resolution_split
+    title: "[2026-0024] path 解決処理を責務ごとに分割する"
+    body: |
+      ## 概要
+      path 解決処理を分割し、可読性と保守性を向上させる。
+
+      ## 問題
+      - 1関数に責務集中
+      - 変更影響が見えにくい
+
+      ## 対応内容
+      - base_directory 分離
+      - input / output 分離
+
+      ## 完了条件
+      - 各関数の責務が明確
+      - 挙動が変わらない
+
+    labels:
+      - enhancement
+
+  # =========================================
+  # ⑤ 品質固定（テスト強化）
+  # =========================================
+  - id: issue_pq_csv_validation_tests
+    title: "[2026-0025] CSV validation の追加テストを整備する"
+    body: |
+      ## 概要
+      CSV validation の異常系テストを追加し、品質を固定する。
+
+      ## 問題
+      - 異常系テストが不足
+      - validation が壊れても気づきにくい
+
+      ## 対応内容
+      - required columns 欠落
+      - duplicate
+      - invalid 値
+      - file_not_found
+      - invalid_rows 出力確認
+
+      ## 完了条件
+      - 異常系テストが網羅される
+      - validation が安全に変更可能
+
+    labels:
+      - enhancement
