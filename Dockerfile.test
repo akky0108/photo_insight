@@ -19,12 +19,14 @@ ENV PATH="/opt/venv/bin:${PATH}"
 WORKDIR /work
 
 # Runtime libs: rawpy / opencv(headless) 安定化
+# exiftool は dev / ci / runtime の全ステージで使えるよう base に入れる
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libraw20 \
     libglib2.0-0 \
     libgl1 \
     tini \
     ca-certificates \
+    libimage-exiftool-perl \
     && rm -rf /var/lib/apt/lists/*
 
 # venv 作成（以降は /opt/venv/bin/python, /opt/venv/bin/pip を使う）
@@ -128,11 +130,6 @@ PY
 # runtime: 最小（requirements のみ）
 # -----------------------------
 FROM base AS runtime
-
-# ★ EXIF抽出に必要（ExifFileHandler が exiftool を呼ぶ）
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    exiftool \
-    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /wheels /wheels
 COPY requirements.txt ./
