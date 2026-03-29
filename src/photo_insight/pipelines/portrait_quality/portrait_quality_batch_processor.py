@@ -853,16 +853,43 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
                 f"max_images limit reached before batch start "
                 f"({self.processed_count_this_run}/{self.max_images}). stopping."
             )
+            self._stop_event.set()
             return []
 
         with self._processed_lock:
             batch = [img for img in batch if img.get("file_name") not in self.processed_images]
 
-        self._dbg(f"_process_batch start: filtered_batch_size={len(batch)}")
-
         if not batch:
             self.logger.debug("All images in this batch are already processed. Skipping.")
             return []
+
+        limit = self._get_max_images_limit()
+        already_processed = int(self.processed_count_this_run or 0)
+
+        if limit is not None:
+            remaining = limit - already_processed
+
+            if remaining <= 0:
+                self.request_stop("max_images_limit")
+                self._stop_event.set()
+                self.logger.info(
+                    f"max_images limit reached before effective batch processing "
+                    f"(processed={already_processed}, max_images={limit})."
+                )
+                return []
+
+            if len(batch) > remaining:
+                self.logger.info(
+                    f"Trimming batch by max_images: original_batch_size={len(batch)}, "
+                    f"remaining={remaining}, processed={already_processed}, max_images={limit}"
+                )
+                batch = batch[:remaining]
+
+        self._dbg(
+            f"_process_batch start: filtered_batch_size={len(batch)}, "
+            f"processed_count_this_run={self.processed_count_this_run}, "
+            f"max_images={self.max_images}"
+        )
 
         if self.max_images is not None or (self.max_workers or 1) == 1:
             results = self._process_batch_serial(batch)
@@ -881,6 +908,10 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             ]
             self._mark_many_as_processed(successful_files)
             self.processed_count_this_run = int(self.processed_count_this_run or 0) + len(successful_files)
+
+            if limit is not None and int(self.processed_count_this_run or 0) >= limit:
+                self.request_stop("max_images_limit")
+                self._stop_event.set()
 
         gc.collect()
         self.memory_monitor.log_usage(prefix="Post batch GC")
