@@ -142,7 +142,7 @@ def test_build_pipeline_summary_includes_summary_version_and_run_context(
             "input_csv_path": "/tmp/project/runs/2026-03-13/run_001/artifacts/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
             "output_csv_path": None,
             "processed_count": 5,
-            "applied_max_images": None,
+            "applied_max_images": 5,
             "message": None,
             "run_output_dir": "/tmp/project/runs/2026-03-13/run_001",
         },
@@ -340,10 +340,13 @@ def test_run_pipeline_chain_returns_summary_with_run_context_and_run_output_dir(
     assert calls[1]["exec_kwargs"] == {
         "date": "2026-02-17",
         "input_csv_path": "/tmp/project/runs/2026-03-13/run_001/artifacts/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
+        "max_images": 5,
     }
 
     assert summary["stages"][0]["run_output_dir"] == "/tmp/project/runs/2026-03-13/run_001"
     assert summary["stages"][1]["run_output_dir"] == "/tmp/project/runs/2026-03-13/run_001"
+    assert summary["stages"][0]["applied_max_images"] == 5
+    assert summary["stages"][1]["applied_max_images"] == 5
 
 
 def test_print_pipeline_summary_includes_run_context_lines(
@@ -429,7 +432,7 @@ def test_main_pipeline_writes_summary_json_and_returns_zero(
                     "input_csv_path": "/tmp/project/runs/2026-03-13/run_001/artifacts/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
                     "output_csv_path": None,
                     "processed_count": 5,
-                    "applied_max_images": None,
+                    "applied_max_images": 5,
                     "message": None,
                     "run_output_dir": "/tmp/project/runs/2026-03-13/run_001",
                 },

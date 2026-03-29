@@ -96,6 +96,7 @@ def test_build_stage_result_for_portrait_quality_returns_extended_fields() -> No
         runtime_overrides={"date": "2026-02-17"},
         exec_kwargs={
             "input_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
+            "max_images": 5,
         },
     )
 
@@ -104,12 +105,12 @@ def test_build_stage_result_for_portrait_quality_returns_extended_fields() -> No
     assert result["input_csv_path"] == "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv"
     assert result["output_csv_path"] is None
     assert result["processed_count"] == 5
-    assert result["applied_max_images"] is None
+    assert result["applied_max_images"] == 5
     assert result["message"] is None
     assert result["run_output_dir"] == "/tmp/project/runs/latest"
 
 
-def test_run_pipeline_chain_returns_summary_and_applies_max_images_only_to_first_stage(
+def test_run_pipeline_chain_returns_summary_and_passes_max_images_to_portrait_quality_stage(
     monkeypatch: pytest.MonkeyPatch,
     ctor_kwargs: Dict[str, Any],
     runtime_overrides: Dict[str, Any],
@@ -196,6 +197,7 @@ def test_run_pipeline_chain_returns_summary_and_applies_max_images_only_to_first
     assert calls[1]["exec_kwargs"] == {
         "date": "2026-02-17",
         "input_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
+        "max_images": 5,
     }
 
     assert summary["stages"][0]["name"] == "nef"
@@ -203,7 +205,7 @@ def test_run_pipeline_chain_returns_summary_and_applies_max_images_only_to_first
 
     assert summary["stages"][1]["name"] == "portrait_quality"
     assert summary["stages"][1]["input_csv_path"] == "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv"
-    assert summary["stages"][1]["applied_max_images"] is None
+    assert summary["stages"][1]["applied_max_images"] == 5
 
 
 def test_print_pipeline_summary_outputs_expected_lines(
@@ -229,7 +231,7 @@ def test_print_pipeline_summary_outputs_expected_lines(
                 "input_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
                 "output_csv_path": None,
                 "processed_count": 5,
-                "applied_max_images": None,
+                "applied_max_images": 5,
                 "message": None,
             },
         ],
@@ -277,7 +279,7 @@ def test_main_pipeline_prints_summary_and_returns_zero(
                     "input_csv_path": "/work/runs/latest/nef/2026-02-17/2026-02-17_raw_exif_data.csv",
                     "output_csv_path": None,
                     "processed_count": 5,
-                    "applied_max_images": None,
+                    "applied_max_images": 5,
                     "message": None,
                 },
             ],
