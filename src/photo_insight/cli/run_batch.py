@@ -638,14 +638,15 @@ def run_pipeline_chain(
 
     Notes
     -----
-    - max_images は pipeline 先頭 stage のみに適用
+    - 各 stage には _build_stage_exec_kwargs() で解決された execute kwargs を渡す
+    - max_images は指定されていれば各 stage にそのまま渡す
     - 後続 stage は upstream artifact に従う
     """
     previous_result: Optional[Dict[str, Any]] = None
     stage_results: List[Dict[str, Any]] = []
     started_at = time.time()
 
-    for idx, stage_name in enumerate(stages):
+    for stage_name in stages:
         processor_cls = resolve_processor(stage_name)
         stage_exec_kwargs = _build_stage_exec_kwargs(
             processor_spec=stage_name,
@@ -653,10 +654,6 @@ def run_pipeline_chain(
             common_exec_kwargs=exec_kwargs,
             runtime_overrides=runtime_overrides,
         )
-
-        # max_images は pipeline 先頭 stage にのみ適用
-        if idx > 0:
-            stage_exec_kwargs.pop("max_images", None)
 
         if stage_name == "portrait_quality":
             if previous_result is None or previous_result.get("name") != "nef":
