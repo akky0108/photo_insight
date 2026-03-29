@@ -5,7 +5,7 @@ from typing import Any, Dict, List
 from photo_insight.cli import run_batch
 
 
-def test_run_pipeline_chain_applies_max_images_only_to_first_stage(monkeypatch) -> None:
+def test_run_pipeline_chain_passes_max_images_to_portrait_quality_stage(monkeypatch) -> None:
     calls: List[Dict[str, Any]] = []
 
     def fake_run_single_processor(
@@ -64,9 +64,12 @@ def test_run_pipeline_chain_applies_max_images_only_to_first_stage(monkeypatch) 
     assert nef_call["exec_kwargs"]["target_date"] == "2026-02-17"
 
     assert pq_call["processor_spec"] == "portrait_quality"
-    assert "max_images" not in pq_call["exec_kwargs"]
+    assert pq_call["exec_kwargs"]["max_images"] == 10
     assert pq_call["exec_kwargs"]["date"] == "2026-02-17"
     assert pq_call["exec_kwargs"]["input_csv_path"].endswith("_raw_exif_data.csv")
+
+    assert summary["stages"][0]["applied_max_images"] == 10
+    assert summary["stages"][1]["applied_max_images"] == 10
 
 
 def test_run_pipeline_chain_stops_when_nef_stage_fails(monkeypatch) -> None:
