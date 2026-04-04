@@ -314,7 +314,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         super().cleanup()
         self.logger.info("Cleaning up PortraitQualityBatchProcessor-specific resources.")
 
-        processed_this_run = len(self.processed_images) - int(self._start_processed_count or 0)
+        processed_this_run = int(self.processed_count_this_run or 0)
         remaining_count = int(self._total_images_to_process or 0) - processed_this_run
         if remaining_count < 0:
             remaining_count = 0
@@ -899,15 +899,17 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
         self._dbg(f"_process_batch after processing: results_count={len(results)}")
 
         if results and self.result_csv_file:
-            self._dbg(f"before save_results: result_csv_file={self.result_csv_file}, " f"results_count={len(results)}")
+            self._dbg(f"before save_results: result_csv_file={self.result_csv_file}, results_count={len(results)}")
             self.save_results(results, self.result_csv_file)
-            self._dbg(f"after save_results: result_csv_file={self.result_csv_file}, " f"results_count={len(results)}")
+            self._dbg(f"after save_results: result_csv_file={self.result_csv_file}, results_count={len(results)}")
 
             successful_files = [
                 str(r.get("file_name")) for r in results if r.get("status") == "success" and r.get("file_name")
             ]
             self._mark_many_as_processed(successful_files)
-            self.processed_count_this_run = int(self.processed_count_this_run or 0) + len(successful_files)
+
+            processed_this_batch = len(results)
+            self.processed_count_this_run = int(self.processed_count_this_run or 0) + processed_this_batch
 
             if limit is not None and int(self.processed_count_this_run or 0) >= limit:
                 self.request_stop("max_images_limit")
