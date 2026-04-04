@@ -505,7 +505,6 @@ class BaseBatchProcessor(ABC):
                 # max_images is evaluated BEFORE memory threshold.
                 if applied_max_images is not None and submitted_items >= applied_max_images:
                     stop_requested = True
-                    self.request_stop("max_images_limit")
                     self.logger.info(
                         f"[{self.__class__.__name__}] Reached max_images before submitting batch {i + 1}: "
                         f"submitted_items={submitted_items}, max_images={applied_max_images}"
@@ -524,7 +523,6 @@ class BaseBatchProcessor(ABC):
                     remaining = applied_max_images - submitted_items
                     if remaining <= 0:
                         stop_requested = True
-                        self.request_stop("max_images_limit")
                         break
                     if len(batch_to_submit) > remaining:
                         batch_to_submit = batch_to_submit[:remaining]
@@ -573,6 +571,9 @@ class BaseBatchProcessor(ABC):
                         self.request_stop("exception")
 
             self.processed_count = len(all_results)
+
+        if applied_max_images is not None and submitted_items >= applied_max_images and self.get_stop_reason() is None:
+            self.request_stop("max_images_limit")
 
         summary = self._summarize_results(
             results=all_results,
