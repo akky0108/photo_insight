@@ -105,7 +105,7 @@ from typing import Any, Dict, List
 @pytest.fixture()
 def required_columns() -> List[str]:
     # INPUT_REQUIRED_COLUMNS を SSOT として利用
-    from photo_insight.batch_processor.evaluation_rank.contract import INPUT_REQUIRED_COLUMNS
+    from photo_insight.pipelines.evaluation_rank.contract import INPUT_REQUIRED_COLUMNS
 
     return list(INPUT_REQUIRED_COLUMNS)
 

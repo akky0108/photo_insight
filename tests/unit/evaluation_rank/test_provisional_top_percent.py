@@ -5,7 +5,7 @@ from typing import Any, Dict, List
 
 import pytest
 
-from photo_insight.batch_processor.evaluation_rank.provisional import (
+from photo_insight.pipelines.evaluation_rank.provisional import (
     apply_provisional_top_percent,
 )
 

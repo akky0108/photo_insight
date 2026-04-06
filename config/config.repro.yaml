@@ -1,5 +1,3 @@
-# config/config.test.yaml
-
 output_directory: "temp"
 
 paths:
@@ -14,10 +12,13 @@ target_date: "2025-01-01"
 
 debug:
   log_summary_detail: false
-  persist_run_results: false   # ★ runs/ を作らせない
+  persist_run_results: false
   run_results_dir: "runs"
 
 evaluation_rank:
+  evaluation_data_dir: "/work/runs/latest/portrait_quality/2026-02-17"
+  output_data_dir: "/work/output"
+
   provisional_top_percent:
     enabled: true
     percent: 10

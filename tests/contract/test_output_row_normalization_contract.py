@@ -2,8 +2,8 @@ from __future__ import annotations
 
 
 def test_missing_columns_are_filled_with_empty_or_zero_by_contract():
-    from photo_insight.batch_processor.evaluation_rank.writer import _normalize_row_for_output
-    from photo_insight.batch_processor.evaluation_rank.contract import OUTPUT_COLUMNS
+    from photo_insight.pipelines.evaluation_rank.writer import _normalize_row_for_output
+    from photo_insight.pipelines.evaluation_rank.contract import OUTPUT_COLUMNS
 
     out = _normalize_row_for_output({"file_name": "IMG_0001.NEF"}, OUTPUT_COLUMNS)
 
@@ -21,8 +21,8 @@ def test_missing_columns_are_filled_with_empty_or_zero_by_contract():
 
 
 def test_none_values_are_converted_to_empty():
-    from photo_insight.batch_processor.evaluation_rank.writer import _normalize_row_for_output
-    from photo_insight.batch_processor.evaluation_rank.contract import OUTPUT_COLUMNS
+    from photo_insight.pipelines.evaluation_rank.writer import _normalize_row_for_output
+    from photo_insight.pipelines.evaluation_rank.contract import OUTPUT_COLUMNS
 
     out = _normalize_row_for_output({"file_name": None, "accepted_reason": None}, OUTPUT_COLUMNS)
     assert out["file_name"] == ""
@@ -30,8 +30,8 @@ def test_none_values_are_converted_to_empty():
 
 
 def test_flags_are_normalized_to_int_0_or_1():
-    from photo_insight.batch_processor.evaluation_rank.writer import _normalize_row_for_output
-    from photo_insight.batch_processor.evaluation_rank.contract import OUTPUT_COLUMNS
+    from photo_insight.pipelines.evaluation_rank.writer import _normalize_row_for_output
+    from photo_insight.pipelines.evaluation_rank.contract import OUTPUT_COLUMNS
 
     out = _normalize_row_for_output(
         {
@@ -49,16 +49,16 @@ def test_flags_are_normalized_to_int_0_or_1():
 
 
 def test_filename_alias_is_accepted():
-    from photo_insight.batch_processor.evaluation_rank.writer import _normalize_row_for_output
-    from photo_insight.batch_processor.evaluation_rank.contract import OUTPUT_COLUMNS
+    from photo_insight.pipelines.evaluation_rank.writer import _normalize_row_for_output
+    from photo_insight.pipelines.evaluation_rank.contract import OUTPUT_COLUMNS
 
     out = _normalize_row_for_output({"filename": "IMG_0001.NEF"}, OUTPUT_COLUMNS)
     assert out["file_name"] == "IMG_0001.NEF"
 
 
 def test_extra_keys_are_not_emitted():
-    from photo_insight.batch_processor.evaluation_rank.writer import _normalize_row_for_output
-    from photo_insight.batch_processor.evaluation_rank.contract import OUTPUT_COLUMNS
+    from photo_insight.pipelines.evaluation_rank.writer import _normalize_row_for_output
+    from photo_insight.pipelines.evaluation_rank.contract import OUTPUT_COLUMNS
 
     out = _normalize_row_for_output({"file_name": "IMG_0001.NEF", "hacker": "NOPE"}, OUTPUT_COLUMNS)
     assert "hacker" not in out
