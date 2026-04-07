@@ -812,7 +812,7 @@ def compute_new_accepted_ratio_via_acceptance_from_results(
     # 2) legacy fallbacks (keep for safety)
     if decide_accept is None:
         for mod_path in [
-            "photo_insight.batch_processor.evaluation_rank.acceptance",
+            "photo_insight.pipelines.evaluation_rank.acceptance",
             "batch_processor.evaluation_rank.acceptance",
             "evaluation_rank.acceptance",
         ]:

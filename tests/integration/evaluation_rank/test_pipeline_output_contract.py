@@ -12,10 +12,10 @@ pytestmark = pytest.mark.integration
 def test_pipeline_produces_ranking_csv_with_contract_header(
     tmp_path: Path, minimal_required_rows, required_columns, monkeypatch
 ):
-    from photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_processor import (
+    from photo_insight.pipelines.evaluation_rank.evaluation_rank_batch_processor import (
         EvaluationRankBatchProcessor,
     )
-    from photo_insight.batch_processor.evaluation_rank.contract import OUTPUT_COLUMNS
+    from photo_insight.pipelines.evaluation_rank.contract import OUTPUT_COLUMNS
 
     eval_dir = tmp_path / "temp"
     out_dir = tmp_path / "output"
@@ -53,28 +53,28 @@ def test_pipeline_produces_ranking_csv_with_contract_header(
             return {"portrait": 0.0, "non_face": 0.0}
 
     monkeypatch.setattr(
-        "photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_processor.EvaluationScorer", DummyScorer
+        "photo_insight.pipelines.evaluation_rank.evaluation_rank_batch_processor.EvaluationScorer", DummyScorer
     )
     monkeypatch.setattr(
-        "photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_processor.AcceptanceEngine",
+        "photo_insight.pipelines.evaluation_rank.evaluation_rank_batch_processor.AcceptanceEngine",
         DummyAcceptance,
     )
 
     # 周辺副作用を潰して安定化
     monkeypatch.setattr(
-        "photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_processor.apply_lightroom_fields",
+        "photo_insight.pipelines.evaluation_rank.evaluation_rank_batch_processor.apply_lightroom_fields",
         lambda *a, **k: None,
     )
     monkeypatch.setattr(
-        "photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_processor.EvaluationRankBatchProcessor._write_provisional_vs_accepted_summary",
+        "photo_insight.pipelines.evaluation_rank.evaluation_rank_batch_processor.EvaluationRankBatchProcessor._write_provisional_vs_accepted_summary",
         lambda self, rows: None,
     )
     monkeypatch.setattr(
-        "photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_processor.EvaluationRankBatchProcessor._write_rejected_reason_summary",
+        "photo_insight.pipelines.evaluation_rank.evaluation_rank_batch_processor.EvaluationRankBatchProcessor._write_rejected_reason_summary",
         lambda self, rows: None,
     )
     monkeypatch.setattr(
-        "photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_processor.EvaluationRankBatchProcessor._apply_provisional_top_percent",
+        "photo_insight.pipelines.evaluation_rank.evaluation_rank_batch_processor.EvaluationRankBatchProcessor._apply_provisional_top_percent",
         lambda self, rows: None,
     )
 

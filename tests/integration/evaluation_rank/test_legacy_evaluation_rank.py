@@ -1,7 +1,7 @@
 import os
 import csv
 import pytest
-from photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_processor import (
+from photo_insight.pipelines.evaluation_rank.evaluation_rank_batch_processor import (
     EvaluationRankBatchProcessor,
 )
 

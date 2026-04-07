@@ -306,6 +306,8 @@ def _normalize_row_inplace(row: Dict[str, Any]) -> None:
 
 
 class EvaluationRankBatchProcessor(BaseBatchProcessor):
+    runtime_param_names = ("date",)
+
     def __init__(
         self,
         config_path: Optional[str] = None,
