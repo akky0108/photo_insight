@@ -306,13 +306,14 @@ def _normalize_row_inplace(row: Dict[str, Any]) -> None:
 
 
 class EvaluationRankBatchProcessor(BaseBatchProcessor):
-    runtime_param_names = ("date",)
+    runtime_param_names = ("date", "input_csv_path")
 
     def __init__(
         self,
         config_path: Optional[str] = None,
         max_workers: int = 1,
         date: Optional[str] = None,
+        input_csv_path: Optional[str] = None,
         # ===== Config DI (Baseへ委譲) =====
         config_env: Optional[str] = None,
         config_paths: Optional[List[str]] = None,
@@ -338,6 +339,7 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
         )
 
         self.date = self._parse_date(date)
+        self.input_csv_path = str(input_csv_path).strip() if input_csv_path not in (None, "") else None
 
         # BaseBatchProcessor の setup/process から参照される想定の属性
         self.paths: Dict[str, str] = {}
@@ -358,6 +360,43 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
             except ValueError:
                 self.logger.warning(f"Invalid date '{date_str}', fallback to today")
         return datetime.datetime.now().strftime("%Y-%m-%d")
+
+    def _resolve_default_input_csv_path(self) -> Path:
+        """
+        date から portrait_quality の最新成果物 CSV を自動解決する。
+        """
+        project_root = Path(getattr(self, "project_root", "."))
+        return project_root / "runs" / "latest" / "portrait_quality" / self.date / f"evaluation_results_{self.date}.csv"
+
+    def _resolve_input_csv_path(self) -> Path:
+        """
+        入力 CSV の解決順:
+        1. runtime の input_csv_path
+        2. config で指定された evaluation_data_dir / input_csv_path
+        3. runs/latest/portrait_quality/{date}/evaluation_results_{date}.csv
+        """
+        if self.input_csv_path:
+            return Path(self.input_csv_path).expanduser()
+
+        cfg = self.config_manager.get_config() or {}
+        rank_cfg = (cfg.get("evaluation_rank") or cfg.get("batch_processor") or {}) if isinstance(cfg, dict) else {}
+        paths_cfg = (cfg.get("paths", {}) or {}) if isinstance(cfg, dict) else {}
+
+        configured_input_csv_path = rank_cfg.get("input_csv_path") or paths_cfg.get("input_csv_path")
+        if configured_input_csv_path:
+            p = Path(str(configured_input_csv_path))
+            if not p.is_absolute():
+                pr = Path(getattr(self, "project_root", "."))
+                p = (pr / p).resolve()
+            return p
+
+        configured_eval_dir = self.paths.get("evaluation_data_dir")
+        if configured_eval_dir:
+            configured_csv = Path(configured_eval_dir) / f"evaluation_results_{self.date}.csv"
+            if configured_csv.exists():
+                return configured_csv
+
+        return self._resolve_default_input_csv_path()
 
     # -------------------------
     # setup / data
@@ -394,11 +433,13 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
         BaseBatchProcessor 契約:
         - load_data(): 純I/O（副作用なし）
         """
-        input_csv = Path(self.paths["evaluation_data_dir"]) / f"evaluation_results_{self.date}.csv"
+        input_csv = self._resolve_input_csv_path()
         if not input_csv.exists():
             raise FileNotFoundError(input_csv)
 
+        self.input_csv_path = str(input_csv)
         self.logger.info(f"Loading CSV: {input_csv}")
+
         with input_csv.open("r", encoding="utf-8", newline="") as f:
             reader = csv.DictReader(f)
             header = reader.fieldnames or []
@@ -839,6 +880,7 @@ def main() -> None:
     )
     parser.add_argument("--date", required=True)
     parser.add_argument("--max_workers", type=int, default=1)
+    parser.add_argument("--input_csv_path", default=None)
     args = parser.parse_args()
 
     # project_root は Base でも計算されるが、CLIデフォルト解決にだけ使う
@@ -857,6 +899,7 @@ def main() -> None:
         config_paths=args.config_paths,
         max_workers=args.max_workers,
         date=args.date,
+        input_csv_path=args.input_csv_path,
     )
     processor.execute()
 
