@@ -7,7 +7,7 @@ import csv
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-from photo_insight.batch_processor.evaluation_rank.contract import OUTPUT_COLUMNS
+from .contract import OUTPUT_COLUMNS
 
 
 def safe_int_flag(value: Any) -> int:

@@ -1,4 +1,4 @@
-from photo_insight.batch_processor.evaluation_rank.acceptance import (
+from photo_insight.pipelines.evaluation_rank.acceptance import (
     AcceptanceEngine,
     AcceptRules,
 )

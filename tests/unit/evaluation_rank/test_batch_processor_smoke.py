@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from photo_insight.batch_processor.evaluation_rank.contract import (
+from photo_insight.pipelines.evaluation_rank.contract import (
     INPUT_REQUIRED_COLUMNS,
     OUTPUT_COLUMNS,
 )
-from photo_insight.batch_processor.evaluation_rank.evaluation_rank_batch_processor import (  # noqa: E501
+from photo_insight.pipelines.evaluation_rank.evaluation_rank_batch_processor import (  # noqa: E501
     EvaluationRankBatchProcessor,
 )
 
