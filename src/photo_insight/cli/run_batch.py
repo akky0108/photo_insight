@@ -31,6 +31,11 @@ _RESERVED_UNKNOWN_KEYS = {
 
 _SUPPORTED_PIPELINES: set[tuple[str, ...]] = {
     ("nef", "portrait_quality"),
+    ("nef", "portrait_quality", "evaluation_rank"),
+    ("nef", "portrait_quality", "evaluation_rank", "xmp_export"),
+    ("portrait_quality", "evaluation_rank"),
+    ("portrait_quality", "evaluation_rank", "xmp_export"),
+    ("evaluation_rank", "xmp_export"),
 }
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -59,6 +64,11 @@ def _load_processor_by_alias(name: str) -> Type[BaseBatchProcessor]:
         from photo_insight.pipelines.portrait_quality import PortraitQualityBatchProcessor
 
         return PortraitQualityBatchProcessor
+
+    if key in ("xmp_export", "xmp", "lightroom_xmp"):
+        from photo_insight.pipelines.xmp_export.processor import XmpExportProcessor
+
+        return XmpExportProcessor
 
     raise KeyError(f"Unknown processor alias: {name}")
 
@@ -116,6 +126,9 @@ def _normalize_pipeline_stage_name(name: str) -> str:
 
     if key in ("evaluation_rank", "rank", "eval_rank"):
         return "evaluation_rank"
+
+    if key in ("xmp_export", "xmp", "lightroom_xmp"):
+        return "xmp_export"
 
     raise ValueError(f"Unknown pipeline stage: {name}")
 
@@ -313,12 +326,10 @@ def _build_stage_exec_kwargs(
     )
     allowed_runtime = _get_processor_runtime_param_names(processor_cls)
 
-    # runtime params: processor が宣言したものだけ渡す
     for key, value in runtime_candidates.items():
         if key in allowed_runtime:
             stage_exec_kwargs[key] = value
 
-    # execute 連携で明示的に許可するもの
     passthrough_keys = {
         "input_csv_path",
         "max_images",
@@ -372,6 +383,37 @@ def _infer_nef_output_csv_path(
     p2 = project_root / "runs" / "latest" / "nef" / session / fname
     if p2.exists():
         return str(p2)
+
+    return None
+
+
+def _infer_evaluation_rank_output_csv_path(
+    proc: BaseBatchProcessor,
+    runtime_overrides: Dict[str, Any],
+) -> Optional[str]:
+    """
+    evaluation_rank stage 実行後の output CSV パスを推定する。
+    """
+    date = getattr(proc, "date", None) or runtime_overrides.get("date")
+    if not date:
+        return None
+
+    output_data_dir = getattr(proc, "paths", {}).get("output_data_dir")
+    if output_data_dir:
+        p1 = Path(output_data_dir) / f"evaluation_ranking_{date}.csv"
+        if p1.exists():
+            return str(p1)
+
+    run_ctx = getattr(proc, "run_ctx", None)
+    if run_ctx is not None and getattr(run_ctx, "out_dir", None):
+        p2 = Path(run_ctx.out_dir) / f"evaluation_ranking_{date}.csv"
+        if p2.exists():
+            return str(p2)
+
+    project_root = Path(getattr(proc, "project_root", Path.cwd()))
+    p3 = project_root / "output" / f"evaluation_ranking_{date}.csv"
+    if p3.exists():
+        return str(p3)
 
     return None
 
@@ -462,7 +504,18 @@ def _build_stage_result(
         if not result["output_csv_path"]:
             result["status"] = "failed"
             result["message"] = "NEF output CSV path could not be resolved"
+
     elif stage_name == "portrait_quality":
+        result["input_csv_path"] = result["input_csv_path"] or getattr(proc, "input_csv_path", None)
+
+    elif stage_name == "evaluation_rank":
+        result["input_csv_path"] = result["input_csv_path"] or getattr(proc, "input_csv_path", None)
+        result["output_csv_path"] = _infer_evaluation_rank_output_csv_path(proc, runtime_overrides)
+        if not result["output_csv_path"]:
+            result["status"] = "failed"
+            result["message"] = "evaluation_rank output CSV path could not be resolved"
+
+    elif stage_name == "xmp_export":
         result["input_csv_path"] = result["input_csv_path"] or getattr(proc, "input_csv_path", None)
 
     return result
@@ -668,6 +721,21 @@ def run_pipeline_chain(
 
             stage_exec_kwargs["input_csv_path"] = nef_csv
 
+        elif stage_name == "xmp_export":
+            if previous_result is None or previous_result.get("name") != "evaluation_rank":
+                raise RuntimeError("xmp_export stage requires a previous evaluation_rank stage result")
+
+            if previous_result.get("status") != "success":
+                raise RuntimeError("xmp_export stage requires a successful evaluation_rank stage result")
+
+            rank_csv = previous_result.get("output_csv_path")
+            if not rank_csv:
+                raise FileNotFoundError(
+                    "evaluation_rank output CSV path could not be resolved after evaluation_rank stage execution"
+                )
+
+            stage_exec_kwargs["input_csv_path"] = rank_csv
+
         previous_result = run_single_processor(
             processor_spec=stage_name,
             ctor_kwargs=dict(ctor_kwargs),
@@ -707,13 +775,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--processor",
         required=False,
-        help=("Processor alias (nef/evaluation_rank/portrait_quality) " "OR dotted path (pkg.mod:Class)."),
+        help=(
+            "Processor alias " "(nef/evaluation_rank/portrait_quality/xmp_export) " "OR dotted path (pkg.mod:Class)."
+        ),
     )
 
     p.add_argument(
         "--pipeline",
         required=False,
-        help=("Comma-separated pipeline stages. " "Currently supported: nef,portrait_quality"),
+        help=(
+            "Comma-separated pipeline stages. "
+            "Supported examples: "
+            "nef,portrait_quality / "
+            "nef,portrait_quality,evaluation_rank / "
+            "nef,portrait_quality,evaluation_rank,xmp_export"
+        ),
     )
 
     p.add_argument(

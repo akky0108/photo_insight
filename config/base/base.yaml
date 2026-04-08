@@ -47,3 +47,15 @@ evaluation_rank:
   provisional_top_percent:
     enabled: true
     percent: 10
+
+xmp_export:
+  csv_glob: "evaluation_ranking_*.csv"
+  image_root: "/work/input"
+  backup_xmp: true
+  force_rating: false
+  force_pick: false
+  force_color: false
+  clear_color_if_pick0: false
+  pick_mode: "flags"
+  write_keywords: false
+  overwrite_keywords: false
