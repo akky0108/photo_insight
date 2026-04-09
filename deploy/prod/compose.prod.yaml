@@ -16,8 +16,8 @@ services:
       MPLCONFIGDIR: /work/tmp/matplotlib
 
     volumes:
-      # 入力（NASやローカル写真）
-      - ${PHOTO_INSIGHT_INPUT_DIR:-/mnt/l/picture}:/work/input:ro
+      # 入力写真 + XMP書き込み先
+      - ${PHOTO_INSIGHT_INPUT_DIR:-/mnt/l/picture}:/work/input
 
       # 実行結果・ログ（すべて prod 配下）
       - ./runs:/work/runs
