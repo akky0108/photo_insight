@@ -65,8 +65,8 @@ out*/
 # =========================
 # Runs (結論: 対象外でOK → ignore 推奨)
 # =========================
-Runs/
-runs/
+/Runs/
+/runs/
 
 # =========================
 # Conda / lock
@@ -169,3 +169,6 @@ pip_freeze*.json
 # =========================
 .build_config/
 models/
+
+# runtime input data
+/input/
