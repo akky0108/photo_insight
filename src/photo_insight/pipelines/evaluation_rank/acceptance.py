@@ -397,6 +397,11 @@ class AcceptRules:
     eye_half_min: float = 0.85
     eye_closed_min: float = 0.98
 
+    # ---- face portrait hard reject ----
+    face_portrait_required: bool = True
+    face_sharpness_min: float = 0.60
+    reject_on_missing_face_sharpness: bool = True
+
 
 # ==============================
 # Engine
@@ -406,6 +411,77 @@ class AcceptRules:
 class AcceptanceEngine:
     def __init__(self, rules: Optional[AcceptRules] = None) -> None:
         self.rules = rules or AcceptRules()
+
+    def _is_face_portrait_candidate(self, r: Row) -> bool:
+        """
+        顔ポートレートとして扱う候補かどうかを判定する。
+
+        既存の quota / backfill 系テストを壊さないため、
+        face_detected=False のデータは原則 non_face のままにし、
+        明示的な face-portrait ヒントがある場合のみ portrait 候補とする。
+        """
+        if _bool(r.get("face_detected")):
+            return True
+
+        # 明示ヒントがある場合のみ、face_detected=False でも portrait 候補扱い
+        explicit_hint_keys = (
+            "face_portrait_candidate",
+            "is_face_portrait",
+            "requires_face",
+            "face_required",
+        )
+        for key in explicit_hint_keys:
+            if key in r and _bool(r.get(key)):
+                return True
+
+        # shot_type は広すぎるため単独では使わない
+        return False
+
+    def _face_portrait_hard_reject(self, r: Row) -> tuple[bool, list[str]]:
+        """
+        顔ポートレート必須条件:
+        - 顔ポートレート候補なのに face_detected=False → reject
+        - face_sharpness_score が「存在する場合のみ」閾値チェック
+        """
+
+        reasons: list[str] = []
+
+        if not bool(self.rules.face_portrait_required):
+            return False, reasons
+
+        # portrait候補のみ
+        if not self._is_face_portrait_candidate(r):
+            return False, reasons
+
+        # 顔未検出 → reject
+        if not _bool(r.get("face_detected")):
+            reasons.append("FACE_NOT_DETECTED")
+            return True, reasons
+
+        # -----------------------------
+        # ★ここが修正ポイント
+        # -----------------------------
+        # sharpnessが無い場合はスキップ（既存テスト保護）
+        if "face_sharpness_score" not in r:
+            return False, reasons
+
+        sharpness = r.get("face_sharpness_score")
+
+        # None / 空は「評価対象外」とする
+        if sharpness in ("", None):
+            return False, reasons
+
+        try:
+            sharpness_f = float(sharpness)
+        except Exception:
+            reasons.append("FACE_SHARPNESS_INVALID")
+            return True, reasons
+
+        if sharpness_f < float(self.rules.face_sharpness_min):
+            reasons.append(f"FACE_SHARPNESS_LOW | v={format_score(sharpness_f)}")
+            return True, reasons
+
+        return False, reasons
 
     def _green_ratio_by_count(self, n: int) -> float:
         """
@@ -435,7 +511,7 @@ class AcceptanceEngine:
 
     def assign_category(self, rows: List[Row]) -> None:
         for r in rows:
-            r["category"] = "portrait" if _bool(r.get("face_detected")) else "non_face"
+            r["category"] = "portrait" if self._is_face_portrait_candidate(r) else "non_face"
             r["accept_group"] = self._assign_accept_group(r)
 
     # --------------------------
@@ -745,16 +821,32 @@ class AcceptanceEngine:
                 )
                 r["accepted_reason"] = str(r.get("secondary_accept_reason") or "")
 
-        # ---- 改善②: 念のため、eye policy 前に category を再付与（将来の混入経路対策）----
+        # ---- 念のため category を再付与 ----
         self.assign_category(rows)
 
-        # ---- 目状態ポリシー（half=強制NG / closed=注意）を最後に適用 ----
+        # ---- 目状態ポリシー（half=強制NG / closed=注意）を適用 ----
         apply_eye_state_policy(
             rows,
             eye_patch_min=int(self.rules.eye_patch_min),
             half_min=float(self.rules.eye_half_min),
             closed_min=float(self.rules.eye_closed_min),
         )
+
+        # --------------------------
+        # ★ 顔ポートレート必須条件（最終上書き）
+        # --------------------------
+        for r in rows:
+            forced, reasons = self._face_portrait_hard_reject(r)
+            if not forced:
+                continue
+
+            r["accepted_flag"] = 0
+            r["secondary_accept_flag"] = 0
+            r["secondary_accept_reason"] = ""
+
+            reason_txt = " | ".join(reasons)
+            base = (r.get("accepted_reason") or "").strip()
+            r["accepted_reason"] = f"{base} | {reason_txt}" if base else reason_txt
 
         # --------------------------
         # （ログ用）primary percentile thresholds
