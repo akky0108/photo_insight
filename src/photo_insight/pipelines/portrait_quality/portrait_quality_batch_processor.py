@@ -593,6 +593,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             "delta_face_contrast": None,
             "lead_room_score": None,
             "face_detected": None,
+            "face_portrait_candidate": None,
             "faces": None,
             "face_sharpness_score": None,
             "face_contrast_score": None,

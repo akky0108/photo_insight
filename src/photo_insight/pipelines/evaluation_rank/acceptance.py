@@ -416,26 +416,13 @@ class AcceptanceEngine:
         """
         顔ポートレートとして扱う候補かどうかを判定する。
 
-        既存の quota / backfill 系テストを壊さないため、
-        face_detected=False のデータは原則 non_face のままにし、
-        明示的な face-portrait ヒントがある場合のみ portrait 候補とする。
+        face_portrait_candidate は evaluator 側の責務とする。
+        acceptance 側では推測せず、その事実を使うだけにする。
         """
-        if _bool(r.get("face_detected")):
-            return True
+        if "face_portrait_candidate" in r and r.get("face_portrait_candidate") not in ("", None):
+            return _bool(r.get("face_portrait_candidate"))
 
-        # 明示ヒントがある場合のみ、face_detected=False でも portrait 候補扱い
-        explicit_hint_keys = (
-            "face_portrait_candidate",
-            "is_face_portrait",
-            "requires_face",
-            "face_required",
-        )
-        for key in explicit_hint_keys:
-            if key in r and _bool(r.get(key)):
-                return True
-
-        # shot_type は広すぎるため単独では使わない
-        return False
+        return _bool(r.get("face_detected"))
 
     def _face_portrait_hard_reject(self, r: Row) -> tuple[bool, list[str]]:
         """

@@ -88,6 +88,7 @@ def _base_row(**overrides: Any) -> Row:
         "secondary_accept_flag": 0,
         "accepted_reason": "",
         "secondary_accept_reason": "",
+        "face_portrait_candidate": True,
     }
     row.update(overrides)
     return row
@@ -99,8 +100,8 @@ def test_face_not_detected_portrait_candidate_is_forced_reject() -> None:
     row = _base_row(
         file_name="no_face_portrait.jpg",
         face_detected=False,
-        shot_type="close_up",
         face_portrait_candidate=True,
+        shot_type="close_up",
         face_sharpness_score=0.95,
     )
 
@@ -185,7 +186,8 @@ def test_non_face_without_portrait_hint_is_not_target_of_hard_reject() -> None:
     row = _base_row(
         file_name="landscape.jpg",
         face_detected=False,
-        shot_type="",  # portrait 候補ではない
+        face_portrait_candidate=False,
+        shot_type="",
         face_sharpness_score=None,
         overall_score=92.0,
         score_face=0.0,
