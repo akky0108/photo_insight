@@ -305,6 +305,15 @@ class PortraitQualityEvaluator:
             results.update(self._evaluate_composition(self.rgb_u8, faces, body_keypoints))
 
             # -------------------------
+            # face portrait candidate
+            # -------------------------
+            results["face_portrait_candidate"] = self._detect_face_portrait_candidate(
+                face_detected=bool(faces),
+                face_boxes=faces,
+                results=results,
+            )
+
+            # -------------------------
             # face attributes + face region metrics
             # -------------------------
             best_face = None
@@ -724,6 +733,7 @@ class PortraitQualityEvaluator:
     # ============================================================
     def _ensure_result_schema(self, results: Dict[str, Any]) -> None:
         results.setdefault("face_detected", False)
+        results.setdefault("face_portrait_candidate", False)
         results.setdefault("faces", [])
         results.setdefault("yaw", 0.0)
         results.setdefault("pitch", 0.0)
@@ -801,6 +811,36 @@ class PortraitQualityEvaluator:
                     default_score.get(metric_name, 0.0),
                 )
                 results.setdefault(f"face_{metric_name}_eval_status", STATUS_OK)
+
+    def _detect_face_portrait_candidate(
+        self,
+        *,
+        face_detected: bool,
+        face_boxes: list,
+        results: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """
+        顔ポートレート候補判定。
+
+        - face_detected=True なら candidate=True
+        - face_detected=False でも、構図的に顔主体の portrait らしい場合は True
+
+        現段階では誤爆を避けるため、近接〜上半身構図のみを弱いヒントとして使う。
+        """
+        if face_detected:
+            return True
+
+        r = results or {}
+
+        shot_type = str(r.get("shot_type") or "").strip().lower()
+        full_body_detected = bool(r.get("full_body_detected"))
+
+        close_portrait_types = {"face_only", "close_up", "upper_body"}
+
+        if shot_type in close_portrait_types and not full_body_detected:
+            return True
+
+        return False
 
     def _normalize_for_csv(self, results: Dict[str, Any]) -> None:
         def _to_json_str(value: Any) -> str:

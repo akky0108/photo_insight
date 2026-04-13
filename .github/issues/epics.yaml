@@ -753,3 +753,159 @@ issues:
 
     labels:
       - enhancement
+
+issues:
+  - id: epic_portrait_selection_refactor
+    title: "[2026-0026] ポートレート選別ロジック再設計（カテゴリ分離＋ハードゲート導入）"
+    body: |
+      概要:
+      ポートレート選別において、face_detected=False の場合に non_face へフォールバックし、
+      本来Red判定すべき写真がGreenに残る問題を解消する。
+
+      本EPICでは以下を実施する:
+      - portrait_face / portrait_body / non_face の3分類導入
+      - ハードゲートによる必須条件違反の排除
+      - Green条件の明確化（逆定義）
+      - score_dist_tune / validation を用いた分布監視
+
+      現状:
+      - portrait / non_face の2分類
+      - face検出失敗で評価が緩くなる
+      - ピント不良でもGreenに残るケースあり
+
+      主な論点:
+      - 顔ポートレートと全身ポートレートの評価分離
+      - ハードゲートとスコア評価の責務分離
+      - 閾値調整と分布健全性の関係整理
+
+      方針:
+      - カテゴリ別に評価基準を分離
+      - 必須条件はスコアに関係なくreject
+      - スコアは順位付けに限定
+      - 分布監視は別レイヤーで担保
+
+    labels:
+      - epic
+      - enhancement
+
+    children:
+      - issue_portrait_category_split
+      - issue_hard_gate_face
+      - issue_hard_gate_body
+      - issue_green_definition
+      - issue_distribution_validation
+
+  - id: issue_portrait_category_split
+    title: "[2026-0027] portrait分類を3分類に拡張（face/body/non_face）"
+    body: |
+      ## 概要
+      portrait / non_face の2分類を廃止し、
+      portrait_face / portrait_body / non_face に再設計する。
+
+      ## 問題
+      - 顔ポートレートが face検出失敗時に non_face に落ちる
+      - 評価ルートが変わり誤判定が発生する
+
+      ## 対応内容
+      - face_detected / full_body_detected / shot_type を用いた分類ロジック実装
+      - category列の再定義
+      - downstream処理の影響範囲確認
+
+      ## 完了条件
+      - 全レコードが3分類のいずれかに分類される
+      - non_faceへの誤フォールバックが減少する
+
+    labels:
+      - enhancement
+
+  - id: issue_hard_gate_face
+    title: "[2026-0028] portrait_faceのハードゲート導入（顔検出・ピント）"
+    body: |
+      ## 概要
+      顔ポートレートに対して必須条件を設定し、
+      条件違反は即rejectとする。
+
+      ## 問題
+      - face_detected=FalseでもGreenに残る
+      - 顔ピント不足が評価に反映されない
+
+      ## 対応内容
+      - face_detected=False → reject
+      - face_blurriness_score によるピント閾値導入
+      - acceptance層での強制reject実装
+
+      ## 完了条件
+      - no_faceポートレートがGreenに残らない
+      - ピント不良顔写真が確実にRedになる
+
+    labels:
+      - enhancement
+
+  - id: issue_hard_gate_body
+    title: "[2026-0029] portrait_bodyのハードゲート導入（全体ピント・構図）"
+    body: |
+      ## 概要
+      全身ポートレートに対して、
+      ピント・構図・ポーズの最低条件を定義する。
+
+      ## 問題
+      - 顔NGでもbody扱いでGreenに残る
+      - 構図・ポーズ弱い写真が通過する
+
+      ## 対応内容
+      - blurriness_score による全体ピント評価
+      - composition_score + pose_score の下限設定
+      - 両方弱い場合はreject
+
+      ## 完了条件
+      - 全身でも弱い写真がGreenに残らない
+      - body評価が明確に分離される
+
+    labels:
+      - enhancement
+
+  - id: issue_green_definition
+    title: "[2026-0030] Green判定の再定義（最低成立＋残す理由）"
+    body: |
+      ## 概要
+      Greenの定義を明確化し、
+      「なんとなく良い」写真が残ることを防ぐ。
+
+      ## 問題
+      - 技術的に問題がないだけでGreenに残る
+      - 残す理由がない写真が混入する
+
+      ## 対応内容
+      - Green = 最低限成立 + 残す理由あり に定義
+      - 顔/全身/非人物で条件を分離
+      - ハードゲート後の評価に限定
+
+      ## 完了条件
+      - Green写真に明確な残存理由がある
+      - 「雰囲気だけ」の写真が排除される
+
+    labels:
+      - enhancement
+
+  - id: issue_distribution_validation
+    title: "[2026-0031] 分布健全性チェック導入（score_dist_tune + Criteria7015）"
+    body: |
+      ## 概要
+      閾値変更による副作用を監視するため、
+      分布健全性チェックを標準化する。
+
+      ## 問題
+      - 閾値変更でaccepted率や分布が崩れる可能性
+      - 個別改善が全体最適を壊す
+
+      ## 対応内容
+      - score_dist_tune による新閾値生成
+      - Criteria7015 による validation
+      - accepted_ratio / saturation / discrete_ratio の監視
+
+      ## 完了条件
+      - validation_pass が維持される
+      - accepted率の急変が発生しない
+
+    labels:
+      - enhancement
