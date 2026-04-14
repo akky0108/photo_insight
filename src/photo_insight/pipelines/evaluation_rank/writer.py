@@ -113,7 +113,13 @@ def _normalize_row_for_output(row: Dict[str, Any], columns: Sequence[str]) -> Di
         if v is None:
             v = ""
 
-        if c in ("flag", "accepted_flag", "secondary_accept_flag"):
+        if c in (
+            "flag",
+            "accepted_flag",
+            "secondary_accept_flag",
+            "is_green",
+            "green_minimum_pass",
+        ):
             v = safe_int_flag(v)
 
         out[c] = v

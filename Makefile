@@ -35,7 +35,8 @@ DOCKER_SYNC_SERVICE ?= app-ci
         test-light test-heavy test-integration ci ci-light ci-full \
         docker-build docker-shell docker-ci docker-ci-light docker-test \
         docker-integration docker-lint docker-fmt-check docker-ci-gpu \
-        sync-issues sync-issues-dry docker-sync-issues docker-sync-issues-dry
+        sync-issues sync-issues-dry docker-sync-issues docker-sync-issues-dry \
+        issue-new issue-start pr-create pr-draft branch-cleanup cur st lg
 
 help:
 	@echo "Available commands:"
@@ -60,6 +61,7 @@ help:
 	@echo "  make sync-issues             Sync issues.yml to GitHub Issues"
 	@echo "  make docker-sync-issues-dry  Run issue sync in Docker (dry-run)"
 	@echo "  make docker-sync-issues      Run issue sync in Docker"
+	@echo "  make issue-new TITLE=\"...\"  Create GitHub Issue and start work branch"
 
 merge:
 	@if [ ! -f $(PIP_JSON) ]; then \
@@ -186,3 +188,68 @@ docker-sync-issues:
 # GPU版（必要なときだけ）
 docker-ci-gpu:
 	$(DOCKER_COMPOSE) run --rm app-gpu make ci
+
+# =========================
+# GitHub Issue / PR workflow
+# =========================
+
+ISSUE ?=
+TYPE ?= fix
+BRANCH ?=
+TITLE ?=
+BODY ?=
+LABELS ?=
+ASSIGNEE ?= @me
+
+# Issue 作成 → ブランチ作成
+issue-new:
+	@if [ -z "$(TITLE)" ]; then \
+		echo "Usage: make issue-new TITLE=\"...\" [TYPE=fix|feat|chore|refactor|docs|test] [LABELS=bug,enhancement] [BODY=\"...\"] [ASSIGNEE=@me]"; \
+		exit 1; \
+	fi
+	./scripts/github/issue-new.sh \
+		--title "$(TITLE)" \
+		--type "$(TYPE)" \
+		$(if $(BODY),--body "$(BODY)",) \
+		$(if $(LABELS),--label "$(LABELS)",) \
+		$(if $(ASSIGNEE),--assignee "$(ASSIGNEE)",)
+
+# Issue からブランチ作成
+issue-start:
+	@if [ -z "$(ISSUE)" ]; then \
+		echo "Usage: make issue-start ISSUE=123 [TYPE=fix|feat|chore|refactor|docs|test]"; \
+		exit 1; \
+	fi
+	./scripts/github/start_issue.sh $(ISSUE) $(TYPE)
+
+# PR 作成（develop向け）
+pr-create:
+	./scripts/github/create_pr.sh
+
+# Draft PR 作成
+pr-draft:
+	./scripts/github/create_pr.sh --draft
+
+# ブランチ cleanup（現在ブランチ or 指定）
+branch-cleanup:
+	@if [ -n "$(BRANCH)" ]; then \
+		./scripts/github/cleanup_branch.sh $(BRANCH); \
+	else \
+		./scripts/github/cleanup_branch.sh; \
+	fi
+
+# =========================
+# Safety / Debug
+# =========================
+
+# 現在のブランチ確認
+cur:
+	git branch --show-current
+
+# 状態確認
+st:
+	git status -sb
+
+# ログ確認
+lg:
+	git log --oneline --graph --decorate -10

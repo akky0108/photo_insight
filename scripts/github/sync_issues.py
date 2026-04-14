@@ -4,10 +4,14 @@
 """
 sync_issues.py
 
-issues.yml を SSOT として GitHub Issues を同期（upsert）する。
+GitHub Issues を YAML の SSOT と同期（upsert）する。
+
+想定SSOT:
+- 第一候補: .github/issues/epics.yaml
+- 後方互換: docs/operations/github/issues.yml
 
 特徴:
-- external_id（issues.yml の id）で既存 Issue を特定（open/closed 両方）
+- external_id（YAML の id）で既存 Issue を特定（open/closed 両方）
 - create / update の冪等同期（何回回しても同じ状態）
 - managed セクションだけ上書きし、人間の追記（human セクション）は保持
 - 親子関係(children)を解決し、最終的に親本文に子リンク付きチェックリストを反映
@@ -66,11 +70,37 @@ class IssueSpec:
 
 
 def repo_root_from_script() -> Path:
+    # scripts/github/sync_issues.py -> repo root は parents[2]
     return Path(__file__).resolve().parents[2]
 
 
+def candidate_issues_yml_paths() -> list[Path]:
+    root = repo_root_from_script()
+    return [
+        root / ".github" / "issues" / "epics.yaml",
+        root / ".github" / "issues" / "issues.yaml",
+        root / ".github" / "issues" / "issues.yml",
+        root / "docs" / "operations" / "github" / "issues.yml",  # backward compatibility
+    ]
+
+
 def default_issues_yml_path() -> Path:
-    return repo_root_from_script() / "docs" / "operations" / "github" / "issues.yml"
+    """
+    既定の探索順:
+    1. ISSUES_FILE 環境変数
+    2. .github/issues/epics.yaml
+    3. その他候補
+    """
+    env_path = (os.getenv("ISSUES_FILE") or "").strip()
+    if env_path:
+        return Path(env_path).expanduser()
+
+    for path in candidate_issues_yml_paths():
+        if path.exists():
+            return path
+
+    # 第一候補を返す（存在しない場合でもエラーメッセージを明確にするため）
+    return candidate_issues_yml_paths()[0]
 
 
 # -------------------------
@@ -95,6 +125,9 @@ def load_issues_yml(path: Path) -> list[IssueSpec]:
     with path.open("r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
 
+    if not isinstance(data, dict):
+        raise ValueError(f"issues file must be a mapping: {path}")
+
     items = data.get("issues")
     section_name = "issues"
 
@@ -106,20 +139,20 @@ def load_issues_yml(path: Path) -> list[IssueSpec]:
         items = []
 
     if not isinstance(items, list):
-        raise ValueError("issues.yml: 'issues' or 'epics' must be a list")
+        raise ValueError(f"{path}: '{section_name}' must be a list")
 
     specs: list[IssueSpec] = []
     for i, it in enumerate(items):
         if not isinstance(it, dict):
-            raise ValueError(f"issues.yml: {section_name}[{i}] must be a dict")
+            raise ValueError(f"{path}: {section_name}[{i}] must be a dict")
 
         raw_id = it.get("id")
         if not raw_id or not isinstance(raw_id, str):
-            raise ValueError(f"issues.yml: {section_name}[{i}] missing required 'id' (external_id)")
+            raise ValueError(f"{path}: {section_name}[{i}] missing required 'id'")
 
         title = it.get("title")
         if not title or not isinstance(title, str):
-            raise ValueError(f"issues.yml: {section_name}[{i}] missing valid 'title'")
+            raise ValueError(f"{path}: {section_name}[{i}] missing valid 'title'")
 
         body = it.get("body", "")
         if not isinstance(body, str):
@@ -150,7 +183,7 @@ def build_spec_lookup(specs: list[IssueSpec]) -> dict[str, IssueSpec]:
     mapping: dict[str, IssueSpec] = {}
     for spec in specs:
         if spec.id in mapping:
-            raise ValueError(f"duplicate id in issues.yml: {spec.id}")
+            raise ValueError(f"duplicate id in issues file: {spec.id}")
         mapping[spec.id] = spec
     return mapping
 
@@ -296,8 +329,18 @@ def render_subtasks(parent: IssueSpec, child_issues: list[Any]) -> str:
         return ""
 
     lines: list[str] = ["## Subtasks", ""]
-    for child_issue in child_issues:
-        lines.append(f"- [ ] #{child_issue.number} {child_issue.title}")
+
+    ext_map: dict[str, Any] = {}
+    for issue in child_issues:
+        ext = extract_external_id(issue.body or "")
+        if ext:
+            ext_map[ext] = issue
+
+    ordered = [ext_map[cid] for cid in parent.children if cid in ext_map]
+
+    for issue in ordered:
+        lines.append(f"- [ ] #{issue.number} {issue.title}")
+
     return "\n".join(lines).strip() + "\n"
 
 
@@ -312,6 +355,19 @@ def resolve_token() -> str:
     raise ValueError("環境変数 GITHUB_TOKEN または GH_TOKEN が設定されていません")
 
 
+def resolve_issues_file(cli_value: str) -> Path:
+    """
+    優先順:
+    1. CLI --issues-yml
+    2. ISSUES_FILE 環境変数
+    3. 既定候補探索
+    """
+    if cli_value.strip():
+        return Path(cli_value).expanduser().resolve()
+
+    return default_issues_yml_path().resolve()
+
+
 # -------------------------
 # Sync core
 # -------------------------
@@ -320,8 +376,8 @@ def main() -> int:
     ap.add_argument("--repo", default="akky0108/photo_insight", help="owner/repo")
     ap.add_argument(
         "--issues-yml",
-        default=str(default_issues_yml_path()),
-        help="path to issues.yml",
+        default="",
+        help="path to YAML SSOT (default: auto detect, prefer .github/issues/epics.yaml)",
     )
     ap.add_argument(
         "--env-file",
@@ -340,13 +396,22 @@ def main() -> int:
     else:
         load_dotenv(override=True)
 
-    token = resolve_token()
+    _token = resolve_token()
+    issues_file = resolve_issues_file(args.issues_yml)
 
-    issues_file = Path(args.issues_yml).resolve()
     if not issues_file.exists():
-        raise FileNotFoundError(f"issues.yml not found: {issues_file}")
+        candidates = "\n".join(f"  - {p}" for p in candidate_issues_yml_paths())
+        raise FileNotFoundError(
+            "issues file not found.\n"
+            f"resolved: {issues_file}\n"
+            "checked default candidates:\n"
+            f"{candidates}\n"
+            "hint: use --issues-yml or set ISSUES_FILE"
+        )
 
-    github_client = Github(auth=Auth.Token(token))
+    info(f"Using issues file: {issues_file}")
+
+    github_client = Github(auth=Auth.Token(_token))
     repo = github_client.get_repo(args.repo)
 
     specs = load_issues_yml(issues_file)
@@ -414,6 +479,7 @@ def main() -> int:
             err(f"upsert failed: {spec.title} (external_id={spec.id}) ({exc})")
             return None
 
+    # pass1: 単純 upsert
     for spec in specs:
         issue = upsert(spec)
         if issue is None and not args.dry_run:
@@ -423,6 +489,7 @@ def main() -> int:
         info("DONE. Dry-run mode: no issues/labels were created/updated.")
         return 0
 
+    # pass2: 親子関係の反映
     parents = [spec for spec in specs if spec.children]
     for parent in parents:
         parent_issue = ext_to_issue.get(parent.id)
@@ -443,12 +510,17 @@ def main() -> int:
                 continue
 
             child_issues.append(child_issue)
-            upsert(child_spec, parent_ref_md=render_parent_ref(parent_issue))
+            result = upsert(child_spec, parent_ref_md=render_parent_ref(parent_issue))
+            if result is None:
+                failed.append(child_id)
 
-        upsert(parent, subtasks_md=render_subtasks(parent, child_issues))
+        result = upsert(parent, subtasks_md=render_subtasks(parent, child_issues))
+        if result is None:
+            failed.append(parent.id)
 
     if failed:
-        warn(f"Some issues failed: {failed}")
+        uniq_failed = sorted(set(failed))
+        warn(f"Some issues failed: {uniq_failed}")
 
     info("DONE.")
     return 0 if not failed else 1
