@@ -154,6 +154,11 @@ OUTPUT_COLUMNS = [
     "flag",
     "accepted_flag",
     "secondary_accept_flag",
+    "is_green",
+    "green_minimum_pass",
+    "green_keep_reasons",
+    "green_reject_reasons",
+    "green_decision_version",
     # --- #706-1 provisional accepted (top%) ---
     "provisional_top_percent_flag",
     "provisional_top_percent",

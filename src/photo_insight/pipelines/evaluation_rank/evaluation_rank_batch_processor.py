@@ -31,6 +31,7 @@ from .scoring import (
     score01,
 )
 from .writer import write_ranking_csv
+from ._internal.green_decision import apply_green_decision_to_row
 from .analysis.provisional_vs_accepted import (
     build_provisional_vs_accepted_summary,
     write_provisional_vs_accepted_summary_csv,
@@ -535,6 +536,12 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
                     out[f"contrib_face_{k}"] = safe_float(v) * 100.0
                 for k, v in (comp_bd or {}).items():
                     out[f"contrib_comp_{k}"] = safe_float(v) * 100.0
+
+                green_updates = apply_green_decision_to_row(
+                    out,
+                    (self.config_manager.get_config() or {}),
+                )
+                out.update(green_updates)
 
                 results.append({"status": "success", "score": float(overall), "row": out})
 
