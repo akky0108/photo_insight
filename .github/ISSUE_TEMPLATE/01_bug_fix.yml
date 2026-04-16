@@ -1,0 +1,74 @@
+name: Bug Fix
+description: 不具合修正用の Issue
+title: "[fix] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        不具合修正用の Issue です。
+        事象、原因、対応内容、完了条件を整理してください。
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: 概要
+      description: 何を修正するかを簡潔に記載してください。
+      placeholder: 例）stage 成功判定が不正な条件で true になる問題を修正する
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 問題
+      description: 現在の問題点、再現条件、影響範囲を記載してください。
+      placeholder: |
+        - どの処理で問題が起きるか
+        - 再現手順
+        - 影響範囲
+    validations:
+      required: true
+
+  - type: textarea
+    id: root_cause
+    attributes:
+      label: 原因
+      description: 分かっている原因があれば記載してください。
+      placeholder: 例）成功条件の判定順が誤っている
+
+  - type: textarea
+    id: actions
+    attributes:
+      label: 対応内容
+      description: 実装・テスト・必要なドキュメント更新内容を記載してください。
+      placeholder: |
+        - 判定ロジック修正
+        - unit test 追加
+        - 必要なら docs 更新
+    validations:
+      required: true
+
+  - type: textarea
+    id: done_criteria
+    attributes:
+      label: 完了条件
+      description: 何をもって完了とするかを記載してください。
+      placeholder: |
+        - [ ] 再現ケースで修正確認
+        - [ ] 関連 unit test 追加
+        - [ ] fmt / lint / test-light 通過
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 優先度
+      options:
+        - high
+        - medium
+        - low
+    validations:
+      required: true

@@ -1,0 +1,79 @@
+name: Feature
+description: 新機能・機能改善用の Issue
+title: "[feat] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        新機能または機能改善用の Issue です。
+        背景、目的、対応内容、完了条件を整理してください。
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: 概要
+      description: 何を追加・改善するかを記載してください。
+      placeholder: 例）xmp export pipeline を追加する
+    validations:
+      required: true
+
+  - type: textarea
+    id: background
+    attributes:
+      label: 背景
+      description: なぜ必要か、現状の課題は何かを記載してください。
+      placeholder: |
+        - 現状の課題
+        - 必要になった背景
+        - 想定ユースケース
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: 対応範囲
+      description: 今回のスコープと、やらないことがあれば記載してください。
+      placeholder: |
+        - 今回やること
+        - 今回やらないこと
+    validations:
+      required: true
+
+  - type: textarea
+    id: actions
+    attributes:
+      label: 対応内容
+      description: 実装内容、テスト内容、必要なドキュメント更新を記載してください。
+      placeholder: |
+        - 実装
+        - テスト
+        - docs 更新
+    validations:
+      required: true
+
+  - type: textarea
+    id: done_criteria
+    attributes:
+      label: 完了条件
+      description: 何をもって完了とするかを記載してください。
+      placeholder: |
+        - [ ] 実装完了
+        - [ ] 関連 test 追加
+        - [ ] fmt / lint / test-light 通過
+        - [ ] 必要な docs 更新
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 優先度
+      options:
+        - high
+        - medium
+        - low
+    validations:
+      required: true

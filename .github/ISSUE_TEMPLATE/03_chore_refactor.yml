@@ -1,0 +1,80 @@
+name: Chore / Refactor
+description: 保守・運用改善・リファクタリング用の Issue
+title: "[chore] "
+labels:
+  - refactor
+body:
+  - type: markdown
+    attributes:
+      value: |
+        保守・運用改善・リファクタリング用の Issue です。
+        背景、目的、対応内容、完了条件を整理してください。
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: 種別
+      options:
+        - chore
+        - refactor
+        - docs
+        - test
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: 概要
+      description: 何を整理・改善するかを記載してください。
+      placeholder: 例）devcontainer 周りの設定を整理する
+    validations:
+      required: true
+
+  - type: textarea
+    id: background
+    attributes:
+      label: 背景
+      description: なぜ必要か、現状の問題点を記載してください。
+      placeholder: |
+        - 現状の問題
+        - 運用上の不便
+        - 保守性の課題
+    validations:
+      required: true
+
+  - type: textarea
+    id: actions
+    attributes:
+      label: 対応内容
+      description: 実施する内容を記載してください。
+      placeholder: |
+        - 構造整理
+        - 不要コード削除
+        - ドキュメント更新
+        - テスト整備
+    validations:
+      required: true
+
+  - type: textarea
+    id: done_criteria
+    attributes:
+      label: 完了条件
+      description: 何をもって完了とするかを記載してください。
+      placeholder: |
+        - [ ] 整理方針に沿って修正完了
+        - [ ] 既存動作を壊していない
+        - [ ] fmt / lint / test-light 通過
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 優先度
+      options:
+        - high
+        - medium
+        - low
+    validations:
+      required: true

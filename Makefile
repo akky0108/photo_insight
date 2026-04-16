@@ -238,6 +238,13 @@ branch-cleanup:
 		./scripts/github/cleanup_branch.sh; \
 	fi
 
+# develop → main リリースPR
+release-pr:
+	./scripts/github/create_release_pr.sh
+
+release-pr-draft:
+	./scripts/github/create_release_pr.sh --draft
+
 # =========================
 # Safety / Debug
 # =========================

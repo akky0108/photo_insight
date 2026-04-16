@@ -1,0 +1,102 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy production
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+
+    env:
+      PROD_HOST: ${{ secrets.PROD_HOST }}
+      PROD_PORT: ${{ secrets.PROD_PORT }}
+      PROD_USER: ${{ secrets.PROD_USER }}
+      PROD_APP_DIR: ${{ secrets.PROD_APP_DIR }}
+      PROD_ENV_FILE: ${{ secrets.PROD_ENV_FILE }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+
+      - name: Add production host to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p "${PROD_PORT:-22}" -H "${PROD_HOST}" >> ~/.ssh/known_hosts
+
+      - name: Validate required secrets
+        run: |
+          set -euo pipefail
+          test -n "${PROD_HOST}" || { echo "[ERROR] PROD_HOST is empty"; exit 1; }
+          test -n "${PROD_USER}" || { echo "[ERROR] PROD_USER is empty"; exit 1; }
+          test -n "${PROD_APP_DIR}" || { echo "[ERROR] PROD_APP_DIR is empty"; exit 1; }
+          test -n "${PROD_ENV_FILE}" || { echo "[ERROR] PROD_ENV_FILE is empty"; exit 1; }
+
+      - name: Prepare remote temp directory
+        run: |
+          ssh -p "${PROD_PORT:-22}" "${PROD_USER}@${PROD_HOST}" <<EOF
+          set -euo pipefail
+          mkdir -p "${PROD_APP_DIR}/.deploy_tmp"
+          chmod 700 "${PROD_APP_DIR}/.deploy_tmp"
+          EOF
+
+      - name: Upload remote deploy script
+        run: |
+          scp -P "${PROD_PORT:-22}" \
+            scripts/deploy/remote_deploy.sh \
+            "${PROD_USER}@${PROD_HOST}:${PROD_APP_DIR}/.deploy_tmp/remote_deploy.sh"
+
+      - name: Execute remote deploy
+        env:
+          GIT_SHA: ${{ github.sha }}
+          GIT_REF_NAME: ${{ github.ref_name }}
+          GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
+          GITHUB_ACTOR_VALUE: ${{ github.actor }}
+        run: |
+          ssh -p "${PROD_PORT:-22}" "${PROD_USER}@${PROD_HOST}" <<EOF
+          set -euo pipefail
+
+          chmod +x "${PROD_APP_DIR}/.deploy_tmp/remote_deploy.sh"
+
+          PROD_APP_DIR="${PROD_APP_DIR}" \
+          PROD_ENV_FILE="${PROD_ENV_FILE}" \
+          GIT_SHA="${GIT_SHA}" \
+          GIT_REF_NAME="${GIT_REF_NAME}" \
+          GITHUB_RUN_ID="${GITHUB_RUN_ID_VALUE}" \
+          GITHUB_ACTOR="${GITHUB_ACTOR_VALUE}" \
+          bash "${PROD_APP_DIR}/.deploy_tmp/remote_deploy.sh"
+          EOF
+
+      - name: Cleanup remote temp files
+        if: always()
+        run: |
+          ssh -p "${PROD_PORT:-22}" "${PROD_USER}@${PROD_HOST}" <<EOF
+          set -euo pipefail
+          if [ -d "${PROD_APP_DIR}/.deploy_tmp" ]; then
+            rm -f "${PROD_APP_DIR}/.deploy_tmp/remote_deploy.sh"
+          fi
+          EOF
