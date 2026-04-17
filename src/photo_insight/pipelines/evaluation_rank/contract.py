@@ -155,6 +155,8 @@ OUTPUT_COLUMNS = [
     "accepted_flag",
     "secondary_accept_flag",
     "is_green",
+    "green_hard_gate_pass",
+    "green_hard_gate_reasons",
     "green_minimum_pass",
     "green_keep_reasons",
     "green_reject_reasons",
