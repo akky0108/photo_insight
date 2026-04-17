@@ -39,6 +39,11 @@ require_command() {
   fi
 }
 
+has_command() {
+  local cmd="$1"
+  command -v "$cmd" >/dev/null 2>&1
+}
+
 ensure_git_repo() {
   if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "[ERROR] Not inside a git repository." >&2
@@ -105,6 +110,64 @@ switch_to_base_branch() {
 is_merged_into_base() {
   local branch_name="$1"
   git merge-base --is-ancestor "$branch_name" "$BASE_BRANCH"
+}
+
+gh_is_available_and_authenticated() {
+  if ! has_command gh; then
+    return 1
+  fi
+
+  gh auth status >/dev/null 2>&1
+}
+
+find_merged_pr_number() {
+  local branch_name="$1"
+
+  gh pr list \
+    --state merged \
+    --base "$BASE_BRANCH" \
+    --head "$branch_name" \
+    --limit 1 \
+    --json number \
+    --jq '.[0].number // ""'
+}
+
+is_merged_via_github_pr() {
+  local branch_name="$1"
+
+  if ! gh_is_available_and_authenticated; then
+    return 1
+  fi
+
+  local pr_number=""
+  pr_number="$(find_merged_pr_number "$branch_name" || true)"
+
+  [[ -n "$pr_number" ]]
+}
+
+print_github_merge_hint() {
+  local branch_name="$1"
+
+  if ! gh_is_available_and_authenticated; then
+    echo "[INFO] gh is not available or not authenticated. GitHub merged PR check skipped."
+    return 0
+  fi
+
+  local pr_info=""
+  pr_info="$(
+    gh pr list \
+      --state merged \
+      --base "$BASE_BRANCH" \
+      --head "$branch_name" \
+      --limit 1 \
+      --json number,title,url,mergedAt \
+      --jq '.[0] | "PR #\(.number) merged at \(.mergedAt): \(.title) (\(.url))"' \
+      2>/dev/null || true
+  )"
+
+  if [[ -n "$pr_info" ]]; then
+    echo "[INFO] $pr_info"
+  fi
 }
 
 delete_local_branch() {
@@ -178,10 +241,17 @@ main() {
 
   if branch_exists_local "$target_branch"; then
     if is_merged_into_base "$target_branch"; then
+      echo "[INFO] Branch is merged into $BASE_BRANCH by git ancestry."
       delete_local_branch "$target_branch"
+    elif is_merged_via_github_pr "$target_branch"; then
+      echo "[INFO] Branch is not merged by git ancestry, but GitHub shows a merged PR."
+      echo "[INFO] Treating this as squash/rebase merged and proceeding."
+      print_github_merge_hint "$target_branch"
+      force_delete_local_branch "$target_branch"
     else
       echo "[WARN] Branch is not merged into $BASE_BRANCH: $target_branch"
-      echo "[WARN] Refusing normal delete."
+      echo "[WARN] No merged GitHub PR was found for this branch."
+      echo "[WARN] Refusing delete."
       echo "[WARN] If you really want to discard it, run:"
       echo "       git branch -D \"$target_branch\""
       exit 1
@@ -190,7 +260,13 @@ main() {
 
   if [[ "$delete_remote" == "true" ]]; then
     if branch_exists_remote "$target_branch"; then
-      delete_remote_branch "$target_branch"
+      if is_merged_via_github_pr "$target_branch" || ! branch_exists_local "$target_branch"; then
+        delete_remote_branch "$target_branch"
+      else
+        echo "[WARN] Remote branch still exists, but no merged PR was confirmed."
+        echo "[WARN] Refusing remote delete."
+        exit 1
+      fi
     else
       echo "[INFO] Remote branch does not exist: $REMOTE_NAME/$target_branch"
     fi
@@ -200,4 +276,5 @@ main() {
   echo "[OK] Cleanup completed."
   echo "Current branch: $(git branch --show-current)"
 }
+
 main "$@"
