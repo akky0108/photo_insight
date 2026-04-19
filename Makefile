@@ -29,6 +29,14 @@ SYNC_ISSUES_ENV ?= .env
 GITHUB_REPO ?= akky0108/photo_insight
 DOCKER_SYNC_SERVICE ?= app-ci
 
+# =========================
+# Branch cleanup
+# =========================
+BASE_BRANCH ?= develop
+REMOTE_NAME ?= origin
+DELETE_REMOTE ?= true
+TARGET_BRANCH ?=
+
 .DEFAULT_GOAL := help
 
 .PHONY: help merge dry-run only-pip audit clean check-ci-env lint fmt fmt-check test \
@@ -36,7 +44,8 @@ DOCKER_SYNC_SERVICE ?= app-ci
         docker-build docker-shell docker-ci docker-ci-light docker-test \
         docker-integration docker-lint docker-fmt-check docker-ci-gpu \
         sync-issues sync-issues-dry docker-sync-issues docker-sync-issues-dry \
-        issue-new issue-start pr-create pr-draft branch-cleanup cur st lg
+        issue-new issue-start pr-create pr-draft branch-cleanup branch-cleanup-current \
+        release-pr release-pr-draft cur st lg
 
 help:
 	@echo "Available commands:"
@@ -62,6 +71,8 @@ help:
 	@echo "  make docker-sync-issues-dry  Run issue sync in Docker (dry-run)"
 	@echo "  make docker-sync-issues      Run issue sync in Docker"
 	@echo "  make issue-new TITLE=\"...\"  Create GitHub Issue and start work branch"
+	@echo "  make branch-cleanup TARGET_BRANCH=fix/xxx"
+	@echo "  make branch-cleanup-current"
 
 merge:
 	@if [ ! -f $(PIP_JSON) ]; then \
@@ -230,13 +241,31 @@ pr-create:
 pr-draft:
 	./scripts/github/create_pr.sh --draft
 
-# ブランチ cleanup（現在ブランチ or 指定）
+# ブランチ cleanup（明示指定）
 branch-cleanup:
-	@if [ -n "$(BRANCH)" ]; then \
-		./scripts/github/cleanup_branch.sh $(BRANCH); \
-	else \
-		./scripts/github/cleanup_branch.sh; \
+	@if [ -z "$(TARGET_BRANCH)" ]; then \
+		echo "[ERROR] TARGET_BRANCH is required."; \
+		echo "Example: make branch-cleanup TARGET_BRANCH=fix/316-2026-0029-portrait-body"; \
+		exit 1; \
 	fi
+	@BASE_BRANCH="$(BASE_BRANCH)" \
+	REMOTE_NAME="$(REMOTE_NAME)" \
+	DELETE_REMOTE="$(DELETE_REMOTE)" \
+	./scripts/github/cleanup_branch.sh "$(TARGET_BRANCH)"
+
+# ブランチ cleanup（現在ブランチ対象）
+branch-cleanup-current:
+	@BASE_BRANCH="$(BASE_BRANCH)" \
+	REMOTE_NAME="$(REMOTE_NAME)" \
+	DELETE_REMOTE="$(DELETE_REMOTE)" \
+	./scripts/github/cleanup_branch.sh
+
+# develop → main リリースPR
+release-pr:
+	./scripts/github/create_release_pr.sh
+
+release-pr-draft:
+	./scripts/github/create_release_pr.sh --draft
 
 # develop → main リリースPR
 release-pr:

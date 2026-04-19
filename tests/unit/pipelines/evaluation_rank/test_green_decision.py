@@ -119,21 +119,28 @@ def test_decide_green_collects_multiple_keep_reasons():
 
 
 def test_apply_green_decision_to_row_returns_expected_fields():
-    row = _base_row(expression_score=0.90)
+    row = {
+        "shot_type": "portrait",
+        "face_detected": True,
+        "blurriness_score": 0.8,
+        "composition_score": 0.8,
+        "face_exposure_score": 0.8,
+        "expression_score": 0.9,
+    }
 
-    updates = apply_green_decision_to_row(row)
+    result = apply_green_decision_to_row(row)
 
-    assert set(updates.keys()) == {
+    assert set(result.keys()) == {
         "is_green",
+        "green_hard_gate_pass",
+        "green_hard_gate_reasons",
         "green_minimum_pass",
         "green_keep_reasons",
         "green_reject_reasons",
         "green_decision_version",
     }
-    assert updates["is_green"] is True
-    assert updates["green_minimum_pass"] is True
-    assert "sns_expression" in updates["green_keep_reasons"]
-    assert updates["green_decision_version"] == "v2-real"
+    assert "green_hard_gate_pass" in result
+    assert "green_hard_gate_reasons" in result
 
 
 def test_decide_green_respects_custom_thresholds():

@@ -54,6 +54,29 @@ def _to_bool(value: Any, default: bool = False) -> bool:
     return default
 
 
+def _get_first_present(row: Mapping[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in row:
+            return row.get(key)
+    return None
+
+
+def _get_bool_from_candidates(
+    row: Mapping[str, Any],
+    *keys: str,
+    default: bool = False,
+) -> bool:
+    return _to_bool(_get_first_present(row, *keys), default)
+
+
+def _get_float_from_candidates(
+    row: Mapping[str, Any],
+    *keys: str,
+    default: float = 0.0,
+) -> float:
+    return _to_float(_get_first_present(row, *keys), default)
+
+
 def serialize_reason_list(reasons: list[str]) -> str:
     return "|".join(reason for reason in reasons if reason)
 
@@ -78,7 +101,12 @@ class KeepReasonThresholds:
 
 @dataclass(frozen=True)
 class GreenDecisionThresholds:
-    version: str = "v2-real"
+    version: str = "v3-hard-gate"
+
+    # hard gate: minimum_pass より前に落とす条件
+    require_portrait_body: bool = True
+    min_global_focus_score: float = 0.50
+    min_body_composition_score: float = 0.50
 
     # 最低成立
     require_face_detected: bool = True
@@ -100,7 +128,16 @@ class GreenDecisionThresholds:
         keep_raw = raw.get("keep_reason_thresholds", {})
 
         return cls(
-            version=str(raw.get("version", "v2-real")),
+            version=str(raw.get("version", "v3-hard-gate")),
+            require_portrait_body=bool(raw.get("require_portrait_body", True)),
+            min_global_focus_score=_to_float(
+                raw.get("min_global_focus_score", 0.50),
+                0.50,
+            ),
+            min_body_composition_score=_to_float(
+                raw.get("min_body_composition_score", 0.50),
+                0.50,
+            ),
             require_face_detected=bool(raw.get("require_face_detected", True)),
             min_blurriness_score=_to_float(raw.get("min_blurriness_score", 0.50), 0.50),
             min_composition_score=_to_float(raw.get("min_composition_score", 0.50), 0.50),
@@ -132,18 +169,41 @@ class GreenDecisionThresholds:
 @dataclass(frozen=True)
 class GreenDecision:
     is_green: bool
+    hard_gate_pass: bool
     minimum_pass: bool
     keep_reasons: list[str]
     reject_reasons: list[str]
+    hard_gate_reasons: list[str]
 
     def to_row_updates(self, version: str) -> dict[str, Any]:
         return {
             "is_green": self.is_green,
+            "green_hard_gate_pass": self.hard_gate_pass,
+            "green_hard_gate_reasons": serialize_reason_list(self.hard_gate_reasons),
             "green_minimum_pass": self.minimum_pass,
             "green_keep_reasons": serialize_reason_list(self.keep_reasons),
             "green_reject_reasons": serialize_reason_list(self.reject_reasons),
             "green_decision_version": version,
         }
+
+
+def evaluate_green_hard_gate(
+    row: Mapping[str, Any],
+    thresholds: GreenDecisionThresholds,
+) -> tuple[bool, list[str]]:
+    reject_reasons: list[str] = []
+
+    raw_body_composition_score = row.get("body_composition_score", None)
+
+    # 現時点の hard gate は body_composition_score が存在する場合だけ適用する。
+    # 既存テストや過去互換 row では列未設定のケースがあるため、
+    # 未設定を 0.0 扱いして即 reject しない。
+    if raw_body_composition_score not in (None, ""):
+        body_composition_score = _to_float(raw_body_composition_score, 0.0)
+        if body_composition_score < thresholds.min_body_composition_score:
+            reject_reasons.append("portrait_body_composition_insufficient")
+
+    return (len(reject_reasons) == 0, reject_reasons)
 
 
 def is_green_minimum_pass(
@@ -224,7 +284,6 @@ def collect_green_keep_reasons(
     if face_composition_score >= t.pro_face_composition_strong:
         keep_reasons.append("pro_face_composition_strong")
 
-    # 順序維持で重複排除
     seen: set[str] = set()
     deduped: list[str] = []
     for reason in keep_reasons:
@@ -245,17 +304,29 @@ def decide_green(
         else GreenDecisionThresholds.from_config(thresholds)
     )
 
+    hard_gate_pass, hard_gate_reasons = evaluate_green_hard_gate(
+        row=row,
+        thresholds=resolved_thresholds,
+    )
+
     minimum_pass, reject_reasons = is_green_minimum_pass(
         row=row,
         thresholds=resolved_thresholds,
     )
 
-    if not minimum_pass:
+    final_reject_reasons = list(reject_reasons)
+
+    if not hard_gate_pass:
+        final_reject_reasons.extend(hard_gate_reasons)
+
+    if not minimum_pass or not hard_gate_pass:
         return GreenDecision(
             is_green=False,
-            minimum_pass=False,
+            hard_gate_pass=hard_gate_pass,
+            minimum_pass=minimum_pass,
             keep_reasons=[],
-            reject_reasons=reject_reasons,
+            reject_reasons=final_reject_reasons,
+            hard_gate_reasons=hard_gate_reasons,
         )
 
     keep_reasons = collect_green_keep_reasons(
@@ -263,15 +334,16 @@ def decide_green(
         thresholds=resolved_thresholds,
     )
 
-    final_reject_reasons = list(reject_reasons)
     if not keep_reasons:
         final_reject_reasons.append("no_keep_reason")
 
     return GreenDecision(
         is_green=(len(keep_reasons) > 0),
+        hard_gate_pass=True,
         minimum_pass=True,
         keep_reasons=keep_reasons,
         reject_reasons=final_reject_reasons,
+        hard_gate_reasons=[],
     )
 
 
@@ -295,6 +367,7 @@ __all__ = [
     "apply_green_decision_to_row",
     "collect_green_keep_reasons",
     "decide_green",
+    "evaluate_green_hard_gate",
     "is_green_minimum_pass",
     "serialize_reason_list",
 ]

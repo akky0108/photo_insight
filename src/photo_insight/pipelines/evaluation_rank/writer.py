@@ -118,6 +118,7 @@ def _normalize_row_for_output(row: Dict[str, Any], columns: Sequence[str]) -> Di
             "accepted_flag",
             "secondary_accept_flag",
             "is_green",
+            "green_hard_gate_pass",
             "green_minimum_pass",
         ):
             v = safe_int_flag(v)
