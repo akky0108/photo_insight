@@ -71,6 +71,11 @@ help:
 	@echo "  make docker-sync-issues-dry  Run issue sync in Docker (dry-run)"
 	@echo "  make docker-sync-issues      Run issue sync in Docker"
 	@echo "  make issue-new TITLE=\"...\"  Create GitHub Issue and start work branch"
+	@echo "  make issue-start ISSUE=123 [TYPE=fix|feat|chore|refactor|docs|test]"
+	@echo "  make pr-create               Create PR to develop"
+	@echo "  make pr-draft                Create draft PR to develop"
+	@echo "  make release-pr              Create release PR (develop -> main)"
+	@echo "  make release-pr-draft        Create draft release PR (develop -> main)"
 	@echo "  make branch-cleanup TARGET_BRANCH=fix/xxx"
 	@echo "  make branch-cleanup-current"
 
@@ -205,7 +210,7 @@ docker-ci-gpu:
 # =========================
 
 ISSUE ?=
-TYPE ?= fix
+TYPE ?=
 BRANCH ?=
 TITLE ?=
 BODY ?=
@@ -220,7 +225,7 @@ issue-new:
 	fi
 	./scripts/github/issue-new.sh \
 		--title "$(TITLE)" \
-		--type "$(TYPE)" \
+		$(if $(TYPE),--type "$(TYPE)",) \
 		$(if $(BODY),--body "$(BODY)",) \
 		$(if $(LABELS),--label "$(LABELS)",) \
 		$(if $(ASSIGNEE),--assignee "$(ASSIGNEE)",)
@@ -231,7 +236,7 @@ issue-start:
 		echo "Usage: make issue-start ISSUE=123 [TYPE=fix|feat|chore|refactor|docs|test]"; \
 		exit 1; \
 	fi
-	./scripts/github/start_issue.sh $(ISSUE) $(TYPE)
+	./scripts/github/start_issue.sh $(ISSUE) $(if $(TYPE),$(TYPE),chore)
 
 # PR 作成（develop向け）
 pr-create:
@@ -240,6 +245,13 @@ pr-create:
 # Draft PR 作成
 pr-draft:
 	./scripts/github/create_pr.sh --draft
+
+# develop → main リリースPR
+release-pr:
+	./scripts/github/create_release_pr.sh
+
+release-pr-draft:
+	./scripts/github/create_release_pr.sh --draft
 
 # ブランチ cleanup（明示指定）
 branch-cleanup:
@@ -259,13 +271,6 @@ branch-cleanup-current:
 	REMOTE_NAME="$(REMOTE_NAME)" \
 	DELETE_REMOTE="$(DELETE_REMOTE)" \
 	./scripts/github/cleanup_branch.sh
-
-# develop → main リリースPR
-release-pr:
-	./scripts/github/create_release_pr.sh
-
-release-pr-draft:
-	./scripts/github/create_release_pr.sh --draft
 
 # =========================
 # Safety / Debug
