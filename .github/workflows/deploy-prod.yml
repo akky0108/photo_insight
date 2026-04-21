@@ -6,9 +6,6 @@ on:
       - main
   workflow_dispatch:
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 permissions:
   contents: read
 
@@ -32,7 +29,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Connect to Tailscale
         uses: tailscale/github-action@v4
@@ -42,9 +39,14 @@ jobs:
           tags: tag:ci
 
       - name: Start SSH agent
-        uses: webfactory/ssh-agent@v0.10.0
+        uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+
+      - name: Add production host to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p "${PROD_PORT:-22}" -H "${PROD_HOST}" >> ~/.ssh/known_hosts
 
       - name: Validate required secrets
         run: |
@@ -54,48 +56,17 @@ jobs:
           test -n "${PROD_APP_DIR}" || { echo "[ERROR] PROD_APP_DIR is empty"; exit 1; }
           test -n "${PROD_ENV_FILE}" || { echo "[ERROR] PROD_ENV_FILE is empty"; exit 1; }
 
-      - name: Add production host to known_hosts
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          ssh-keyscan -T 10 -p "${PROD_PORT:-22}" -H "${PROD_HOST}" >> ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-
-      - name: Verify SSH connectivity
-        run: |
-          set -euo pipefail
-          ssh \
-            -o BatchMode=yes \
-            -o StrictHostKeyChecking=yes \
-            -o ConnectTimeout=15 \
-            -o ServerAliveInterval=15 \
-            -o ServerAliveCountMax=3 \
-            -p "${PROD_PORT:-22}" \
-            "${PROD_USER}@${PROD_HOST}" \
-            'echo "[REMOTE] connected"; whoami; hostname; pwd'
-
       - name: Prepare remote temp directory
         run: |
+          ssh -p "${PROD_PORT:-22}" "${PROD_USER}@${PROD_HOST}" <<EOF
           set -euo pipefail
-          ssh \
-            -o BatchMode=yes \
-            -o StrictHostKeyChecking=yes \
-            -o ConnectTimeout=15 \
-            -o ServerAliveInterval=15 \
-            -o ServerAliveCountMax=3 \
-            -p "${PROD_PORT:-22}" \
-            "${PROD_USER}@${PROD_HOST}" \
-            "set -euo pipefail; mkdir -p '${PROD_APP_DIR}/.deploy_tmp'; chmod 700 '${PROD_APP_DIR}/.deploy_tmp'"
+          mkdir -p "${PROD_APP_DIR}/.deploy_tmp"
+          chmod 700 "${PROD_APP_DIR}/.deploy_tmp"
+          EOF
 
       - name: Upload remote deploy script
         run: |
-          set -euo pipefail
-          scp \
-            -o BatchMode=yes \
-            -o StrictHostKeyChecking=yes \
-            -o ConnectTimeout=15 \
-            -P "${PROD_PORT:-22}" \
+          scp -P "${PROD_PORT:-22}" \
             scripts/deploy/remote_deploy.sh \
             "${PROD_USER}@${PROD_HOST}:${PROD_APP_DIR}/.deploy_tmp/remote_deploy.sh"
 
@@ -106,33 +77,26 @@ jobs:
           GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
           GITHUB_ACTOR_VALUE: ${{ github.actor }}
         run: |
+          ssh -p "${PROD_PORT:-22}" "${PROD_USER}@${PROD_HOST}" <<EOF
           set -euo pipefail
-          ssh \
-            -o BatchMode=yes \
-            -o StrictHostKeyChecking=yes \
-            -o ConnectTimeout=15 \
-            -o ServerAliveInterval=15 \
-            -o ServerAliveCountMax=3 \
-            -p "${PROD_PORT:-22}" \
-            "${PROD_USER}@${PROD_HOST}" \
-            "set -euo pipefail; \
-             chmod +x '${PROD_APP_DIR}/.deploy_tmp/remote_deploy.sh'; \
-             PROD_APP_DIR='${PROD_APP_DIR}' \
-             PROD_ENV_FILE='${PROD_ENV_FILE}' \
-             GIT_SHA='${GIT_SHA}' \
-             GIT_REF_NAME='${GIT_REF_NAME}' \
-             GITHUB_RUN_ID='${GITHUB_RUN_ID_VALUE}' \
-             GITHUB_ACTOR='${GITHUB_ACTOR_VALUE}' \
-             bash '${PROD_APP_DIR}/.deploy_tmp/remote_deploy.sh'"
+
+          chmod +x "${PROD_APP_DIR}/.deploy_tmp/remote_deploy.sh"
+
+          PROD_APP_DIR="${PROD_APP_DIR}" \
+          PROD_ENV_FILE="${PROD_ENV_FILE}" \
+          GIT_SHA="${GIT_SHA}" \
+          GIT_REF_NAME="${GIT_REF_NAME}" \
+          GITHUB_RUN_ID="${GITHUB_RUN_ID_VALUE}" \
+          GITHUB_ACTOR="${GITHUB_ACTOR_VALUE}" \
+          bash "${PROD_APP_DIR}/.deploy_tmp/remote_deploy.sh"
+          EOF
 
       - name: Cleanup remote temp files
         if: always()
         run: |
+          ssh -p "${PROD_PORT:-22}" "${PROD_USER}@${PROD_HOST}" <<EOF
           set -euo pipefail
-          ssh \
-            -o BatchMode=yes \
-            -o StrictHostKeyChecking=yes \
-            -o ConnectTimeout=15 \
-            -p "${PROD_PORT:-22}" \
-            "${PROD_USER}@${PROD_HOST}" \
-            "set -euo pipefail; if [ -d '${PROD_APP_DIR}/.deploy_tmp' ]; then rm -f '${PROD_APP_DIR}/.deploy_tmp/remote_deploy.sh'; fi"
+          if [ -d "${PROD_APP_DIR}/.deploy_tmp" ]; then
+            rm -f "${PROD_APP_DIR}/.deploy_tmp/remote_deploy.sh"
+          fi
+          EOF
