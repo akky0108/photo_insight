@@ -37,23 +37,6 @@ REMOTE_NAME ?= origin
 DELETE_REMOTE ?= true
 TARGET_BRANCH ?=
 
-# =========================
-# Docker helpers
-# =========================
-DOCKER_COMPOSE ?= docker compose
-SERVICE ?= app
-
-# =========================
-# GitHub Issue / PR workflow
-# =========================
-ISSUE ?=
-TYPE ?= fix
-BRANCH ?=
-TITLE ?=
-BODY ?=
-LABELS ?=
-ASSIGNEE ?= @me
-
 .DEFAULT_GOAL := help
 
 .PHONY: help merge dry-run only-pip audit clean check-ci-env lint fmt fmt-check test \
@@ -88,11 +71,6 @@ help:
 	@echo "  make docker-sync-issues-dry  Run issue sync in Docker (dry-run)"
 	@echo "  make docker-sync-issues      Run issue sync in Docker"
 	@echo "  make issue-new TITLE=\"...\"  Create GitHub Issue and start work branch"
-	@echo "  make issue-start ISSUE=123 [TYPE=fix|feat|chore|refactor|docs|test]"
-	@echo "  make pr-create               Create PR to develop"
-	@echo "  make pr-draft                Create draft PR to develop"
-	@echo "  make release-pr              Create release PR (develop -> main)"
-	@echo "  make release-pr-draft        Create draft release PR (develop -> main)"
 	@echo "  make branch-cleanup TARGET_BRANCH=fix/xxx"
 	@echo "  make branch-cleanup-current"
 
@@ -175,9 +153,10 @@ sync-issues:
 		--issues-yml $(SYNC_ISSUES_YML) \
 		--env-file $(SYNC_ISSUES_ENV)
 
-# =========================
-# Docker helpers
-# =========================
+# ---- Docker helpers ----
+DOCKER_COMPOSE ?= docker compose
+SERVICE ?= app
+
 docker-build:
 	$(DOCKER_COMPOSE) build $(SERVICE)
 
@@ -224,6 +203,16 @@ docker-ci-gpu:
 # =========================
 # GitHub Issue / PR workflow
 # =========================
+
+ISSUE ?=
+TYPE ?= fix
+BRANCH ?=
+TITLE ?=
+BODY ?=
+LABELS ?=
+ASSIGNEE ?= @me
+
+# Issue 作成 → ブランチ作成
 issue-new:
 	@if [ -z "$(TITLE)" ]; then \
 		echo "Usage: make issue-new TITLE=\"...\" [TYPE=fix|feat|chore|refactor|docs|test] [LABELS=bug,enhancement] [BODY=\"...\"] [ASSIGNEE=@me]"; \
@@ -236,6 +225,7 @@ issue-new:
 		$(if $(LABELS),--label "$(LABELS)",) \
 		$(if $(ASSIGNEE),--assignee "$(ASSIGNEE)",)
 
+# Issue からブランチ作成
 issue-start:
 	@if [ -z "$(ISSUE)" ]; then \
 		echo "Usage: make issue-start ISSUE=123 [TYPE=fix|feat|chore|refactor|docs|test]"; \
@@ -243,18 +233,15 @@ issue-start:
 	fi
 	./scripts/github/start_issue.sh $(ISSUE) $(TYPE)
 
+# PR 作成（develop向け）
 pr-create:
 	./scripts/github/create_pr.sh
 
+# Draft PR 作成
 pr-draft:
 	./scripts/github/create_pr.sh --draft
 
-release-pr:
-	./scripts/github/create_release_pr.sh
-
-release-pr-draft:
-	./scripts/github/create_release_pr.sh --draft
-
+# ブランチ cleanup（明示指定）
 branch-cleanup:
 	@if [ -z "$(TARGET_BRANCH)" ]; then \
 		echo "[ERROR] TARGET_BRANCH is required."; \
@@ -266,20 +253,39 @@ branch-cleanup:
 	DELETE_REMOTE="$(DELETE_REMOTE)" \
 	./scripts/github/cleanup_branch.sh "$(TARGET_BRANCH)"
 
+# ブランチ cleanup（現在ブランチ対象）
 branch-cleanup-current:
 	@BASE_BRANCH="$(BASE_BRANCH)" \
 	REMOTE_NAME="$(REMOTE_NAME)" \
 	DELETE_REMOTE="$(DELETE_REMOTE)" \
 	./scripts/github/cleanup_branch.sh
 
+# develop → main リリースPR
+release-pr:
+	./scripts/github/create_release_pr.sh
+
+release-pr-draft:
+	./scripts/github/create_release_pr.sh --draft
+
+# develop → main リリースPR
+release-pr:
+	./scripts/github/create_release_pr.sh
+
+release-pr-draft:
+	./scripts/github/create_release_pr.sh --draft
+
 # =========================
 # Safety / Debug
 # =========================
+
+# 現在のブランチ確認
 cur:
 	git branch --show-current
 
+# 状態確認
 st:
 	git status -sb
 
+# ログ確認
 lg:
 	git log --oneline --graph --decorate -10

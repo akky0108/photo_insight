@@ -62,11 +62,8 @@ main() {
   log_info "Validating docker compose configuration"
   docker compose -f compose.prod.yaml --env-file "$PROD_ENV_FILE" config -q
 
-  log_info "Showing configured services"
-  docker compose -f compose.prod.yaml --env-file "$PROD_ENV_FILE" config --services
-
-  log_info "Showing compose images"
-  docker compose -f compose.prod.yaml --env-file "$PROD_ENV_FILE" images || true
+  log_info "Running docker compose up -d"
+  docker compose -f compose.prod.yaml --env-file "$PROD_ENV_FILE" up -d
 
   log_info "Updating RELEASE.txt"
   cat > RELEASE.txt <<EOF
