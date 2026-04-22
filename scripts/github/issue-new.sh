@@ -88,13 +88,9 @@ normalize_branch_type() {
 
 trim() {
   local s="$1"
-<<<<<<< HEAD
-  s="${s#"${s%%[![:space:]]*}"}"
-=======
   # leading
   s="${s#"${s%%[![:space:]]*}"}"
   # trailing
->>>>>>> origin/main
   s="${s%"${s##*[![:space:]]}"}"
   printf '%s' "$s"
 }
@@ -125,7 +121,6 @@ read_body_file() {
   cat "$path"
 }
 
-<<<<<<< HEAD
 infer_branch_type_from_labels() {
   local labels_csv="$1"
   local labels_lower
@@ -164,8 +159,6 @@ infer_branch_type_from_labels() {
   printf '%s' "chore"
 }
 
-=======
->>>>>>> origin/main
 create_issue() {
   local title="$1"
   local body="$2"
@@ -197,10 +190,7 @@ create_issue() {
 
 extract_issue_number_from_url() {
   local issue_url="$1"
-<<<<<<< HEAD
-=======
   # https://github.com/owner/repo/issues/123
->>>>>>> origin/main
   if [[ "$issue_url" =~ /issues/([0-9]+)$ ]]; then
     printf '%s' "${BASH_REMATCH[1]}"
   else
@@ -210,11 +200,7 @@ extract_issue_number_from_url() {
 
 main() {
   local title=""
-<<<<<<< HEAD
   local branch_type=""
-=======
-  local branch_type="$DEFAULT_BRANCH_TYPE"
->>>>>>> origin/main
   local body=""
   local body_file=""
   local labels_csv="$DEFAULT_LABELS"
@@ -279,11 +265,6 @@ main() {
     exit 1
   fi
 
-<<<<<<< HEAD
-=======
-  branch_type="$(normalize_branch_type "$branch_type")"
-
->>>>>>> origin/main
   if [[ -n "$body" && -n "$body_file" ]]; then
     echo "[ERROR] Use either --body or --body-file, not both." >&2
     exit 1
@@ -297,7 +278,6 @@ main() {
     body="$(build_default_body "$title")"
   fi
 
-<<<<<<< HEAD
   labels_csv="$(trim "$labels_csv")"
 
   if [[ -n "$branch_type" ]]; then
@@ -311,8 +291,6 @@ main() {
     echo "[INFO] Branch type inferred from labels: $branch_type"
   fi
 
-=======
->>>>>>> origin/main
   echo "[INFO] Creating GitHub Issue..."
   echo "[INFO] Title       : $title"
   echo "[INFO] Branch type : $branch_type"
@@ -347,11 +325,7 @@ main() {
     exit 0
   fi
 
-<<<<<<< HEAD
-  echo "[INFO] Starting branch from issue number: $issue_number"
-=======
   echo "[INFO] Creating work branch from issue #$issue_number ..."
->>>>>>> origin/main
   ./scripts/github/start_issue.sh "$issue_number" "$branch_type"
 }
 

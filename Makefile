@@ -1,6 +1,4 @@
-# =========================
-# Variables
-# =========================
+# common
 PYTHON ?= python
 RUFF ?= $(PYTHON) -m ruff
 PYTEST ?= $(PYTHON) -m pytest
@@ -8,72 +6,57 @@ PYTEST ?= $(PYTHON) -m pytest
 BASE_YML := environment_base.yml
 PIP_JSON := pip_list.json
 FINAL_YML := environment_combined.yml
-
-# ★ ここが事故の元。生成物は generated/ に逃がす
 REQUIREMENTS := generated/requirements.txt
-
 CI_YML := environment_ci.yml
 EXCLUDE_CI := .github/exclude_for_ci.txt
-
 MERGE_SCRIPT := src/photo_eval_env_manager/merge_envs.py
-
-# Optional extra args for merge script
 EXTRA_ARGS ?=
 
-# =========================
-# GitHub issue sync
-# =========================
 SYNC_ISSUES_SCRIPT := scripts/github/sync_issues.py
 SYNC_ISSUES_YML ?= .github/issues/epics.yaml
 SYNC_ISSUES_ENV ?= .env
 GITHUB_REPO ?= akky0108/photo_insight
 DOCKER_SYNC_SERVICE ?= app-ci
 
-# =========================
-# Branch cleanup
-# =========================
 BASE_BRANCH ?= develop
 REMOTE_NAME ?= origin
 DELETE_REMOTE ?= true
 TARGET_BRANCH ?=
 
+DOCKER_COMPOSE ?= docker compose
+SERVICE ?= app
+
+ISSUE ?=
+TYPE ?= fix
+BRANCH ?=
+TITLE ?=
+BODY ?=
+LABELS ?=
+ASSIGNEE ?= @me
+
+PIPELINE ?=
+CONFIG ?= config/config.yaml
+DATE ?=
+RUN_ARGS ?=
+
 .DEFAULT_GOAL := help
 
 .PHONY: help merge dry-run only-pip audit clean check-ci-env lint fmt fmt-check test \
         test-light test-heavy test-integration ci ci-light ci-full \
+        run run-dry \
         docker-build docker-shell docker-ci docker-ci-light docker-test \
         docker-integration docker-lint docker-fmt-check docker-ci-gpu \
         sync-issues sync-issues-dry docker-sync-issues docker-sync-issues-dry \
         issue-new issue-start pr-create pr-draft branch-cleanup branch-cleanup-current \
-        release-pr release-pr-draft cur st lg
+        release-pr release-pr-draft \
+        deploy-check deploy-prod \
+        cur st lg
 
+# help
 help:
-	@echo "Available commands:"
-	@echo ""
-	@echo "  make merge                   Merge Conda + pip environments (outputs .yml and .txt)"
-	@echo "  make dry-run                 Check merge result without writing files"
-	@echo "  make only-pip                Extract pip-only dependencies to $(REQUIREMENTS)"
-	@echo "  make audit                   Audit security issues in $(REQUIREMENTS) using pip-audit"
-	@echo "  make clean                   Delete generated environment files"
-	@echo "  make check-ci-env            [CI] Run merge and check for unexpected changes"
-	@echo "  make fmt                     Format code with ruff"
-	@echo "  make fmt-check               Check formatting (no changes)"
-	@echo "  make lint                    Run ruff lint on src/ and tests/"
-	@echo "  make test                    Run pytest on tests/"
-	@echo "  make test-light              Run light unit tests"
-	@echo "  make test-heavy              Run heavy tests"
-	@echo "  make test-integration        Run integration tests"
-	@echo "  make ci                      Run fmt-check + lint + test (CI-equivalent)"
-	@echo "  make ci-light                Run fmt-check + lint + test-light"
-	@echo "  make ci-full                 Run fmt-check + lint + test + test-integration"
-	@echo "  make sync-issues-dry         Run GitHub issue sync in dry-run mode"
-	@echo "  make sync-issues             Sync issues.yml to GitHub Issues"
-	@echo "  make docker-sync-issues-dry  Run issue sync in Docker (dry-run)"
-	@echo "  make docker-sync-issues      Run issue sync in Docker"
-	@echo "  make issue-new TITLE=\"...\"  Create GitHub Issue and start work branch"
-	@echo "  make branch-cleanup TARGET_BRANCH=fix/xxx"
-	@echo "  make branch-cleanup-current"
+	@echo "make merge / fmt / lint / test / ci / run / docker / gh-*"
 
+# env
 merge:
 	@if [ ! -f $(PIP_JSON) ]; then \
 		echo "Error: $(PIP_JSON) not found. Run 'pip list --format=json > $(PIP_JSON)' first."; \
@@ -107,9 +90,7 @@ check-ci-env:
 	$(MAKE) merge
 	git diff --exit-code $(FINAL_YML) $(REQUIREMENTS) $(CI_YML)
 
-# =========================
-# Code quality
-# =========================
+# quality
 fmt:
 	$(RUFF) format src tests
 
@@ -119,6 +100,7 @@ fmt-check:
 lint:
 	$(RUFF) check src tests
 
+# test
 test:
 	$(PYTEST) -q tests -m "not integration and not heavy"
 
@@ -131,32 +113,33 @@ test-heavy:
 test-integration:
 	$(PYTEST) -q tests/integration -m "not heavy"
 
+# ci
 ci: fmt-check lint test
 
 ci-light: fmt-check lint test-light
 
 ci-full: fmt-check lint test test-integration
 
-# =========================
-# GitHub issue sync
-# =========================
-sync-issues-dry:
-	$(PYTHON) $(SYNC_ISSUES_SCRIPT) \
-		--repo $(GITHUB_REPO) \
-		--issues-yml $(SYNC_ISSUES_YML) \
-		--env-file $(SYNC_ISSUES_ENV) \
-		--dry-run
+# run
+run:
+	@if [ -z "$(PIPELINE)" ]; then \
+		echo "Usage: make run PIPELINE=... DATE=YYYY-MM-DD"; \
+		exit 1; \
+	fi
+	@if [ -z "$(DATE)" ]; then \
+		echo "Usage: make run PIPELINE=... DATE=YYYY-MM-DD"; \
+		exit 1; \
+	fi
+	$(PYTHON) -m photo_insight.cli.run_batch \
+		--pipeline "$(PIPELINE)" \
+		--config "$(CONFIG)" \
+		--date "$(DATE)" \
+		$(RUN_ARGS)
 
-sync-issues:
-	$(PYTHON) $(SYNC_ISSUES_SCRIPT) \
-		--repo $(GITHUB_REPO) \
-		--issues-yml $(SYNC_ISSUES_YML) \
-		--env-file $(SYNC_ISSUES_ENV)
+run-dry:
+	$(MAKE) run RUN_ARGS="--dry-run"
 
-# ---- Docker helpers ----
-DOCKER_COMPOSE ?= docker compose
-SERVICE ?= app
-
+# docker
 docker-build:
 	$(DOCKER_COMPOSE) build $(SERVICE)
 
@@ -196,96 +179,65 @@ docker-sync-issues:
 		--issues-yml $(SYNC_ISSUES_YML) \
 		--env-file $(SYNC_ISSUES_ENV)
 
-# GPU版（必要なときだけ）
 docker-ci-gpu:
 	$(DOCKER_COMPOSE) run --rm app-gpu make ci
 
-# =========================
-# GitHub Issue / PR workflow
-# =========================
+# github
+sync-issues-dry:
+	$(PYTHON) $(SYNC_ISSUES_SCRIPT) \
+		--repo $(GITHUB_REPO) \
+		--issues-yml $(SYNC_ISSUES_YML) \
+		--env-file $(SYNC_ISSUES_ENV) \
+		--dry-run
 
-ISSUE ?=
-TYPE ?= fix
-BRANCH ?=
-TITLE ?=
-BODY ?=
-LABELS ?=
-ASSIGNEE ?= @me
+sync-issues:
+	$(PYTHON) $(SYNC_ISSUES_SCRIPT) \
+		--repo $(GITHUB_REPO) \
+		--issues-yml $(SYNC_ISSUES_YML) \
+		--env-file $(SYNC_ISSUES_ENV)
 
-# Issue 作成 → ブランチ作成
 issue-new:
-	@if [ -z "$(TITLE)" ]; then \
-		echo "Usage: make issue-new TITLE=\"...\" [TYPE=fix|feat|chore|refactor|docs|test] [LABELS=bug,enhancement] [BODY=\"...\"] [ASSIGNEE=@me]"; \
-		exit 1; \
-	fi
-	./scripts/github/issue-new.sh \
-		--title "$(TITLE)" \
-		--type "$(TYPE)" \
-		$(if $(BODY),--body "$(BODY)",) \
-		$(if $(LABELS),--label "$(LABELS)",) \
-		$(if $(ASSIGNEE),--assignee "$(ASSIGNEE)",)
+	./scripts/github/issue-new.sh
 
-# Issue からブランチ作成
 issue-start:
-	@if [ -z "$(ISSUE)" ]; then \
-		echo "Usage: make issue-start ISSUE=123 [TYPE=fix|feat|chore|refactor|docs|test]"; \
-		exit 1; \
-	fi
 	./scripts/github/start_issue.sh $(ISSUE) $(TYPE)
 
-# PR 作成（develop向け）
 pr-create:
 	./scripts/github/create_pr.sh
 
-# Draft PR 作成
 pr-draft:
 	./scripts/github/create_pr.sh --draft
 
-# ブランチ cleanup（明示指定）
 branch-cleanup:
-	@if [ -z "$(TARGET_BRANCH)" ]; then \
-		echo "[ERROR] TARGET_BRANCH is required."; \
-		echo "Example: make branch-cleanup TARGET_BRANCH=fix/316-2026-0029-portrait-body"; \
-		exit 1; \
-	fi
-	@BASE_BRANCH="$(BASE_BRANCH)" \
-	REMOTE_NAME="$(REMOTE_NAME)" \
-	DELETE_REMOTE="$(DELETE_REMOTE)" \
 	./scripts/github/cleanup_branch.sh "$(TARGET_BRANCH)"
 
-# ブランチ cleanup（現在ブランチ対象）
 branch-cleanup-current:
-	@BASE_BRANCH="$(BASE_BRANCH)" \
-	REMOTE_NAME="$(REMOTE_NAME)" \
-	DELETE_REMOTE="$(DELETE_REMOTE)" \
 	./scripts/github/cleanup_branch.sh
 
-# develop → main リリースPR
+# release
 release-pr:
 	./scripts/github/create_release_pr.sh
 
 release-pr-draft:
 	./scripts/github/create_release_pr.sh --draft
 
-# develop → main リリースPR
-release-pr:
-	./scripts/github/create_release_pr.sh
+# deploy
+deploy-check:
+	@echo "[INFO] deploy check"
 
-release-pr-draft:
-	./scripts/github/create_release_pr.sh --draft
+deploy-prod:
+	docker compose -f compose.prod.yaml --env-file config/.env run --rm photo_insight \
+		$(PYTHON) -m photo_insight.cli.run_batch \
+		--pipeline "$(PIPELINE)" \
+		--config /work/config/config.yaml \
+		--date "$(DATE)"
 
-# =========================
-# Safety / Debug
-# =========================
-
-# 現在のブランチ確認
+# debug
 cur:
 	git branch --show-current
 
-# 状態確認
 st:
 	git status -sb
 
-# ログ確認
 lg:
 	git log --oneline --graph --decorate -10
