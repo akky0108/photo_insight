@@ -67,6 +67,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     jq \
     less \
     bash-completion \
+    ripgrep \
     && rm -rf /var/lib/apt/lists/*
 
 # GitHub CLI (official apt repository)
