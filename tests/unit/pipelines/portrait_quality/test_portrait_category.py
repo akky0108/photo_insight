@@ -1,4 +1,4 @@
-from photo_insight.pipelines.portrait_quality._internal.category import (
+from photo_insight.evaluators.portrait_quality.category import (
     PortraitCategory,
     classify_portrait_category,
 )
