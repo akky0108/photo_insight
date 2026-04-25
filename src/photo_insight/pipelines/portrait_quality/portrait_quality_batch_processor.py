@@ -594,6 +594,7 @@ class PortraitQualityBatchProcessor(BaseBatchProcessor):
             "lead_room_score": None,
             "face_detected": None,
             "face_portrait_candidate": None,
+            "portrait_category": None,  # ← ★ここ追加
             "faces": None,
             "face_sharpness_score": None,
             "face_contrast_score": None,
