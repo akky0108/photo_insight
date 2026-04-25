@@ -2,6 +2,7 @@ class PortraitQualityHeaderGenerator:
     def __init__(self):
         self.face_evaluation_items = [
             "face_detected",
+            "portrait_category",  # ← ★追加
             "faces",
             "face_sharpness_score",
             "face_sharpness_raw",
@@ -101,29 +102,22 @@ class PortraitQualityHeaderGenerator:
         ]
 
         self.composition_evaluation_items = [
-            # 従来（顔周りの構図基礎指標）
             "composition_rule_based_score",
             "face_position_score",
             "framing_score",
             "face_direction_score",
             "eye_contact_score",
             "lead_room_score",
-            # ★ 新構造: 最低限の意味スコア + 生値
             "body_composition_raw",
             "body_composition_score",
             "composition_raw",
             "composition_score",
             "composition_status",
-            # メイン被写体の中心座標（RoT 評価に使用した点）
             "main_subject_center_source",
-            # "face_center" / "full_body_center" / "face_box" /
-            # "body_keypoints" / "manual" / "unknown" など
             "main_subject_center_x",
             "main_subject_center_y",
-            # ★ 追加: 画像全体の構図評価指標（ルール・オブ・サード）
             "rule_of_thirds_raw",
             "rule_of_thirds_score",
-            # ★ 各構図要素の寄与（最終 composition_score に対して）
             "contrib_comp_composition_rule_based_score",
             "contrib_comp_face_position_score",
             "contrib_comp_framing_score",
@@ -153,13 +147,8 @@ class PortraitQualityHeaderGenerator:
         self.result_meta_items = ["accepted_flag", "accepted_reason"]
 
     def get_all_headers(self) -> list:
-        """
-        すべての評価項目を一つのリストにまとめて返す
-        """
         return (
-            [
-                "file_name",  # ファイル名は必ず最初に追加
-            ]
+            ["file_name"]
             + self.image_evaluation_items
             + self.body_evaluation_items
             + self.face_evaluation_items
@@ -168,39 +157,3 @@ class PortraitQualityHeaderGenerator:
             + self.group_evaluation_items
             + self.result_meta_items
         )
-
-    def get_face_headers(self) -> list:
-        """
-        顔に関連する評価項目のリストを返す
-        """
-        return ["file_name"] + self.face_evaluation_items
-
-    def get_image_headers(self) -> list:
-        """
-        画像全体に関連する評価項目のリストを返す
-        """
-        return ["file_name"] + self.image_evaluation_items
-
-    def get_expression_headers(self) -> list:
-        """
-        表情に関連する評価項目のリストを返す
-        """
-        return ["file_name"] + self.expression_items
-
-    def get_composition_headers(self) -> list:
-        """
-        構図に関連する評価項目のリストを返す
-        """
-        return ["file_name"] + self.composition_evaluation_items
-
-    def get_group_headers(self) -> list:
-        """
-        グループに関連する評価項目のリストを返す
-        """
-        return ["file_name"] + self.group_evaluation_items
-
-    def get_result_meta_headers(self) -> list:
-        """
-        結果メタデータに関連する評価項目のリストを返す
-        """
-        return ["file_name"] + self.result_meta_items

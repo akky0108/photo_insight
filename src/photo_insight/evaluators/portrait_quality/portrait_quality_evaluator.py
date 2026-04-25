@@ -18,6 +18,10 @@ from photo_insight.image_utils.image_preprocessor import ImagePreprocessor
 from photo_insight.evaluators.quality_thresholds import QualityThresholds
 from photo_insight.evaluators.portrait_accept_rules import decide_accept
 from photo_insight.evaluators.portrait_quality.metric_mapping import MetricResultMapper
+from photo_insight.evaluators.portrait_quality.category import (
+    classify_portrait_category,
+    to_legacy_category,
+)
 
 from photo_insight.evaluators.common.grade_contract import (
     STATUS_NOT_COMPUTED,
@@ -396,6 +400,7 @@ class PortraitQualityEvaluator:
             # finalize (schema + csv normalization)
             # -------------------------
             self._ensure_result_schema(results)
+            self._add_portrait_category(results)
             self._normalize_for_csv(results)
 
             return results
@@ -811,6 +816,27 @@ class PortraitQualityEvaluator:
                     default_score.get(metric_name, 0.0),
                 )
                 results.setdefault(f"face_{metric_name}_eval_status", STATUS_OK)
+
+    def _add_portrait_category(self, results: Dict[str, Any]) -> None:
+        """
+        3分類 portrait_category を results に追加する。
+
+        NOTE:
+        - accepted_flag / accepted_reason の判定後に呼ぶことで、既存の採否判定には影響させない。
+        - 既存 evaluation_rank 互換のため、category が未設定の場合のみ portrait/non_face を補完する。
+        - category を portrait_face / portrait_body に置き換えない。
+        """
+        portrait_category = classify_portrait_category(
+            face_detected=bool(results.get("face_detected")),
+            face_portrait_candidate=bool(results.get("face_portrait_candidate")),
+            full_body_detected=bool(results.get("full_body_detected")),
+            shot_type=(results.get("shot_type") or ""),
+        )
+
+        results["portrait_category"] = portrait_category.value
+
+        if not results.get("category"):
+            results["category"] = to_legacy_category(portrait_category)
 
     def _detect_face_portrait_candidate(
         self,
