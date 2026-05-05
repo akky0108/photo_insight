@@ -790,9 +790,13 @@ issues:
 
     children:
       - issue_portrait_category_split
+      - issue_hard_gate_foundation
       - issue_hard_gate_face
       - issue_hard_gate_body
+      - issue_evaluation_responsibility_split
       - issue_green_definition
+      - issue_evaluation_rank_three_category_compat
+      - issue_portrait_quality_csv_schema_contract
       - issue_distribution_validation
 
   - id: issue_portrait_category_split
@@ -906,6 +910,107 @@ issues:
       ## 完了条件
       - validation_pass が維持される
       - accepted率の急変が発生しない
+
+    labels:
+      - enhancement
+
+  - id: issue_hard_gate_foundation
+    title: "[2026-0032] hard gate 基盤導入（reject / reason / contract）"
+    body: |
+      ## 概要
+      ハードゲートの責務とデータ構造を統一し、後続実装の破綻を防ぐ。
+
+      ## 問題
+      - hard gate ロジックが face/body 個別実装に分散するリスクがある
+      - reject と accepted_flag の関係が未固定
+      - reject 理由の出力契約が未定義
+
+      ## 対応内容
+      - reject フラグの正式定義
+      - reject_reason の構造定義
+      - 適用ポイントの明確化
+      - accepted_flag との関係整理
+      - CSV出力フォーマット設計
+
+      ## 完了条件
+      - hard gate の共通契約が定義される
+      - 後続の face/body gate が同じ契約で実装できる
+      - 既存の score / category 処理と責務が分離される
+
+    labels:
+      - enhancement
+
+  - id: issue_evaluation_responsibility_split
+    title: "[2026-0033] 評価責務の分離（category / gate / score / accept）"
+    body: |
+      ## 概要
+      category / gate / score / accept の責務を整理し、評価ロジックの混在を防ぐ。
+
+      ## 問題
+      - 分類、reject、スコア、Green判定の責務境界が曖昧
+      - score が reject や Green 判定に混入するリスクがある
+
+      ## 対応内容
+      - category は分類のみと定義
+      - gate は reject 判定のみと定義
+      - score は順位付けのみと定義
+      - accept は Green/Red 判定として定義
+      - 禁止事項を明文化する
+
+      ## 完了条件
+      - 各責務の境界が明文化される
+      - score による reject / Green 判定が禁止事項として整理される
+      - 後続Issueの実装方針がぶれない
+
+    labels:
+      - enhancement
+
+  - id: issue_evaluation_rank_three_category_compat
+    title: "[2026-0034] evaluation_rank の3分類対応（互換維持）"
+    body: |
+      ## 概要
+      portrait_face / portrait_body / non_face 導入後の evaluation_rank 側の扱いを整理する。
+
+      ## 問題
+      - evaluation_rank は legacy category（portrait / non_face）前提の処理が多い
+      - portrait_face / portrait_body を直接扱う範囲が未定義
+      - downstream 影響が見えにくい
+
+      ## 対応内容
+      - portrait_face / portrait_body の扱い整理
+      - legacy category（portrait / non_face）との整合性維持
+      - ranking 条件の見直し
+      - downstream 影響確認
+
+      ## 完了条件
+      - evaluation_rank が3分類情報を安全に扱える
+      - legacy category 互換が維持される
+      - ranking 条件の変更有無が明確になる
+
+    labels:
+      - enhancement
+
+  - id: issue_portrait_quality_csv_schema_contract
+    title: "[2026-0035] portrait_quality CSV schema 契約固定"
+    body: |
+      ## 概要
+      portrait_quality の出力CSV契約を固定し、後方互換と validation を安定化する。
+
+      ## 問題
+      - portrait_category の必須/任意扱いが未固定
+      - 今後追加される reject 系カラムの契約が未定義
+      - downstream の期待カラムが曖昧になりやすい
+
+      ## 対応内容
+      - portrait_category の必須/任意定義
+      - reject 系カラムの追加設計
+      - CSV validation ルール更新
+      - schema ドキュメント化
+
+      ## 完了条件
+      - portrait_quality CSV の契約が明文化される
+      - validation が schema と整合する
+      - downstream が期待カラムを判断できる
 
     labels:
       - enhancement

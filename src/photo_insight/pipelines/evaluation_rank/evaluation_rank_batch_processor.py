@@ -44,6 +44,12 @@ from photo_insight.evaluators.common.grade_contract import (
 from .provisional import (
     apply_provisional_top_percent,
 )
+from photo_insight.pipelines.evaluation_rank.criteria7015 import (
+    evaluate_criteria7015,
+)
+from photo_insight.pipelines.evaluation_rank.distribution_health import (
+    calculate_distribution_health,
+)
 
 # =========================
 # utility
@@ -606,6 +612,9 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
             # rejected_reason（既存）
             self._write_rejected_reason_summary(rows)
 
+            # distribution health（#318）
+            self._write_distribution_health_summary(output_csv)
+
             self._log_thresholds(thresholds)
             self.logger.info(f"Columns written: {len(columns)} cols")
 
@@ -780,6 +789,49 @@ class EvaluationRankBatchProcessor(BaseBatchProcessor):
 
         except Exception as e:
             self.logger.warning(f"[rejected_reason] failed to write summary: {e}")
+
+    def _write_distribution_health_summary(self, ranking_csv_path: Path) -> None:
+        """評価ランキングCSVから分布健全性チェック結果を出力する。"""
+
+        try:
+            metrics = calculate_distribution_health(
+                ranking_csv_path,
+                score_column="overall_score",
+                decision_column="accepted_flag",
+                accepted_value=1,
+            )
+            criteria_result = evaluate_criteria7015(metrics)
+
+            out_dir = Path(self.paths["output_data_dir"])
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            out_path = out_dir / f"distribution_health_summary_{self.date}.csv"
+
+            with out_path.open("w", encoding="utf-8", newline="") as f:
+                f.write(
+                    "validation_pass,total_count,accepted_count,"
+                    "accepted_ratio,saturation_ratio,discrete_ratio,reasons\n"
+                )
+                f.write(
+                    f"{criteria_result.validation_pass},"
+                    f"{metrics.total_count},"
+                    f"{metrics.accepted_count},"
+                    f"{metrics.accepted_ratio:.6f},"
+                    f"{metrics.saturation_ratio:.6f},"
+                    f"{metrics.discrete_ratio:.6f},"
+                    f"\"{' | '.join(criteria_result.reasons)}\"\n"
+                )
+
+            self.logger.info(
+                "[distribution_health] "
+                f"pass={criteria_result.validation_pass} "
+                f"A={metrics.accepted_ratio:.3f} "
+                f"S={metrics.saturation_ratio:.3f} "
+                f"D={metrics.discrete_ratio:.3f}"
+            )
+
+        except Exception as e:
+            self.logger.warning(f"[distribution_health] failed: {e}")
 
     def _apply_provisional_top_percent(self, rows: list[dict[str, Any]]) -> None:
         """
