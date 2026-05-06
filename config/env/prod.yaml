@@ -29,3 +29,9 @@ portrait_quality:
     det_size:
       - 640
       - 640
+
+xmp_export:
+  force_rating: true
+  force_pick: true
+  force_color: true
+  clear_color_if_pick0: true
