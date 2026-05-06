@@ -197,8 +197,14 @@ sync-issues:
 		--env-file $(SYNC_ISSUES_ENV)
 
 issue-new:
-	./scripts/github/issue-new.sh
-
+	./scripts/github/issue-new.sh \
+		--title "$(TITLE)" \
+		$(if $(BODY),--body "$(BODY)") \
+		$(if $(BODY_FILE),--body-file "$(BODY_FILE)") \
+		$(if $(LABEL),--label "$(LABEL)") \
+		$(if $(TYPE),--type "$(TYPE)") \
+		$(if $(ASSIGNEE),--assignee "$(ASSIGNEE)") \
+		$(if $(NO_BRANCH),--no-branch)
 issue-start:
 	./scripts/github/start_issue.sh $(ISSUE) $(TYPE)
 
